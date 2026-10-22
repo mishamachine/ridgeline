@@ -26,6 +26,17 @@ ROUTE_RE = re.compile(r'^(hiking|foot)$')
 PATH_RE = re.compile(r'^(path|footway|track|bridleway)$')
 KEEP = ['name', 'ref', 'route', 'sac_scale', 'surface', 'dog', 'operator', 'description', 'trail_visibility', 'website']
 MAX_DESC = 300
+ROAD_NUMBER_RE = re.compile(r'^[\d\s./-]+[A-Z]?$')            # "5030-612", "9030"
+ROAD_WORD_RE = re.compile(r'\b(road|rd|forest service|fs)\b', re.I)
+
+
+def is_trail_name(highway, name):
+    """Skip forest/logging roads that are mapped as tracks or paths with road names."""
+    if ROAD_NUMBER_RE.match(name) or ROAD_WORD_RE.search(name):
+        return False
+    if highway == 'track':  # dirt roads: only keep ones actually named as trails
+        return bool(re.search(r'\btrail\b', name, re.I))
+    return True
 
 
 def keep_tags(tags):
@@ -81,7 +92,9 @@ class WayHandler(osmium.SimpleHandler):
 
     def way(self, w):
         is_member = w.id in self.member_ways
-        is_path = bool(PATH_RE.match(w.tags.get('highway', ''))) and bool(w.tags.get('name'))
+        hw = w.tags.get('highway', '')
+        name = w.tags.get('name', '')
+        is_path = bool(PATH_RE.match(hw)) and bool(name) and is_trail_name(hw, name)
         if not (is_member or is_path):
             return
         coords = []
