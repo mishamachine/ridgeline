@@ -3,6 +3,8 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+  schedule:
+    - cron: '17 9 * * 1' # Mondays: rebuild trail data from the latest OpenStreetMap extract
   workflow_dispatch:
 
 permissions:
@@ -23,11 +25,21 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install osmium
       - run: npm ci
       - run: npm test
+      - name: Check the trail build script on sample data
+        run: python scripts/build_trails.py scripts/sample.osm /tmp/sample-trails sample
       - run: npm run build
         env:
           BASE_PATH: /${{ github.event.repository.name }}/
+      - name: Download Washington OpenStreetMap extract (Geofabrik)
+        run: curl -fsSL -A "ridgeline-trail-build (github.com/${{ github.repository }})" -o washington.osm.pbf https://download.geofabrik.de/north-america/us/washington-latest.osm.pbf
+      - name: Build hosted trail data
+        run: python scripts/build_trails.py washington.osm.pbf dist/trails "OpenStreetMap via Geofabrik (Washington)"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

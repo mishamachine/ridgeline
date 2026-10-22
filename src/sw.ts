@@ -3,7 +3,8 @@ import { precacheAndRoute, cleanupOutdatedCaches, createHandlerBoundToURL } from
 import { registerRoute, NavigationRoute } from 'workbox-routing';
 import { clientsClaim } from 'workbox-core';
 import { CacheExpiration } from 'workbox-expiration';
-import { TILE_HOST, OFFLINE_CACHE, RUNTIME_TILE_CACHE, GLYPH_CACHE, tileCacheKey } from './lib/tiles';
+import { StaleWhileRevalidate } from 'workbox-strategies';
+import { TILE_HOST, OFFLINE_CACHE, RUNTIME_TILE_CACHE, GLYPH_CACHE, CELL_CACHE, tileCacheKey } from './lib/tiles';
 
 declare const self: ServiceWorkerGlobalScope & { __WB_MANIFEST: Array<{ url: string; revision: string | null }> };
 
@@ -52,4 +53,10 @@ registerRoute(
       return new Response(new ArrayBuffer(0), { status: 200 });
     }
   },
+);
+
+// Hosted trail data: answer from cache instantly (works offline), refresh in the background.
+registerRoute(
+  ({ url }) => url.origin === self.location.origin && url.pathname.startsWith(new URL('trails/', self.registration.scope).pathname),
+  new StaleWhileRevalidate({ cacheName: CELL_CACHE }),
 );

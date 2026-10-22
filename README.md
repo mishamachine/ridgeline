@@ -33,11 +33,14 @@ One-time setup: in the repo, go to **Settings → Pages → Source** and choose 
 | What | Source | Terms that matter |
 |---|---|---|
 | Map tiles | [OpenFreeMap](https://openfreemap.org) (OpenStreetMap data) | Free, commercial use OK, attribution required. Offline downloads are allowed up to **3,000 tiles / 50 MB per area**, 4 parallel requests. The app enforces this. |
-| Trails | OpenStreetMap via the public [Overpass API](https://overpass-api.de) | Shared, rate-limited service. Self-host or use a paid mirror before a wide launch. |
+| Trails (Washington) | Hosted files built from the [Geofabrik](https://download.geofabrik.de) Washington extract by `scripts/build_trails.py` | Rebuilt on every deploy and every Monday. Served with the app, cached on the phone. |
+| Trails (elsewhere) | Public [Overpass API](https://overpass-api.de) servers, with fallbacks | Shared and often busy. Extend the hosted data to more regions instead. |
 | Elevation | [Open-Meteo](https://open-meteo.com/en/docs/elevation-api) (Copernicus DEM GLO-90, 90 m) | The free tier is **non-commercial**. A commercial launch needs their API plan or a self-hosted copy. |
 | Place search | OpenStreetMap Nominatim | At most 1 request per second, with no autocomplete. Swap it out before scaling. |
 
 ## How it works
+
+- `scripts/build_trails.py` turns an OpenStreetMap extract into 0.25° grid-cell files (`trails/<x>_<y>.json` + `index.json`). The app loads only the cells for the area on screen; `src/lib/cells.ts` stitches routes that cross cells.
 
 - `src/lib/trails.ts` handles the Overpass query. It joins OSM route relations and named paths into single lines and computes difficulty with the Shenandoah formula. Time estimates use Naismith's rule.
 - `src/lib/offline.ts` prefetches tiles for zoom 10–14 around the trail, with a 1.5 km pad, into Cache Storage.

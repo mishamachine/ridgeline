@@ -3,6 +3,7 @@ import type { Map as MLMap } from 'maplibre-gl';
 import { MapView, setGeo } from '../components/MapView';
 import { TrailRow } from '../components/TrailRow';
 import { SearchIcon, LocateIcon } from '../components/Icons';
+import { fetchCellTrails } from '../lib/cells';
 import { fetchTrails, fetchElevation, withElevation, difficulty, Trail } from '../lib/trails';
 import { getElevation, putElevation, getSetting, putSetting } from '../lib/store';
 import { M_TO_MI, LngLat } from '../lib/geo';
@@ -10,7 +11,7 @@ import { M_TO_MI, LngLat } from '../lib/geo';
 interface Props { tpl: string; visible: boolean; savedIds: Set<string>; onOpen: (t: Trail) => void }
 type Status = { kind: 'idle' | 'loading' | 'zoom' | 'error' | 'offline'; msg?: string };
 
-const MAX_SPAN_DEG = 0.3; // keep Overpass queries small (~25 km across)
+const MAX_SPAN_DEG = 0.5; // ~35 km across: a handful of trail cells
 const ELEVATION_PREFETCH = 25; // one small request each, run one at a time
 
 export function Find({ tpl, visible, savedIds, onOpen }: Props) {
@@ -77,13 +78,21 @@ export function Find({ tpl, visible, savedIds, onOpen }: Props) {
       setStatus({ kind: 'zoom' });
       return;
     }
-    if (!navigator.onLine) { setStatus({ kind: 'offline' }); return; }
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
     setStatus({ kind: 'loading' });
+    const box = { west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() };
     try {
-      const found = await fetchTrails({ west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() }, ac.signal);
+      // Hosted trail files first (fast, cached for offline); public Overpass servers outside coverage.
+      let found = await fetchCellTrails(box, ac.signal).catch((e) => {
+        if ((e as Error).name === 'AbortError') throw e;
+        return null;
+      });
+      if (!found) {
+        if (!navigator.onLine) { setStatus({ kind: 'offline' }); return; }
+        found = await fetchTrails(box, ac.signal);
+      }
       // Reuse cached elevation immediately.
       const withCached = await Promise.all(found.map(async (t) => {
         const e = await getElevation(t.id);
@@ -180,7 +189,7 @@ export function Find({ tpl, visible, savedIds, onOpen }: Props) {
       </div>
 
       {status.kind === 'zoom' && <p className="notice">Zoom in to find trails in this area.</p>}
-      {status.kind === 'offline' && <p className="notice">You’re offline. Your saved trails are in the Offline tab.</p>}
+      {status.kind === 'offline' && <p className="notice">You’re offline and this area hasn’t been viewed before. Your saved trails are in the Offline tab.</p>}
       {status.kind === 'error' && <p className="notice">{status.msg}</p>}
 
       <div className="pad" style={{ flex: 1 }}>

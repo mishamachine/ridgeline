@@ -5,6 +5,7 @@ export const GLYPHS_URL = `https://${TILE_HOST}/fonts/{fontstack}/{range}.pbf`;
 export const OFFLINE_CACHE = 'rl-offline-v1';
 export const RUNTIME_TILE_CACHE = 'rl-tiles-v1';
 export const GLYPH_CACHE = 'rl-glyphs-v1';
+export const CELL_CACHE = 'rl-trail-cells-v1';
 export const FONTSTACKS = ['Noto Sans Regular', 'Noto Sans Bold', 'Noto Sans Italic'];
 export const GLYPH_RANGES = ['0-255', '256-511', '8192-8447'];
 

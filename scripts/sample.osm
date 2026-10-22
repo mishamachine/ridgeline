@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Small synthetic extract for testing build_trails.py. Not real data. -->
+<osm version="0.6" generator="test">
+  <!-- A route made of two ways that crosses the cell boundary at lon -121.75 -->
+  <node id="1" lat="47.49" lon="-121.80" version="1"/>
+  <node id="2" lat="47.49" lon="-121.76" version="1"/>
+  <node id="3" lat="47.50" lon="-121.74" version="1"/>
+  <node id="4" lat="47.51" lon="-121.70" version="1"/>
+  <!-- A named path, standalone -->
+  <node id="10" lat="47.40" lon="-121.90" version="1"/>
+  <node id="11" lat="47.41" lon="-121.88" version="1"/>
+  <node id="12" lat="47.42" lon="-121.87" version="1"/>
+  <!-- A route member that is also a named path (must not be duplicated) -->
+  <!-- An unnamed path (ignored) and a road (ignored) -->
+  <node id="20" lat="47.30" lon="-121.60" version="1"/>
+  <node id="21" lat="47.31" lon="-121.61" version="1"/>
+  <way id="100" version="1"><nd ref="1"/><nd ref="2"/><tag k="highway" v="path"/><tag k="name" v="Ridge Route"/></way>
+  <way id="101" version="1"><nd ref="2"/><nd ref="3"/><nd ref="4"/><tag k="highway" v="path"/></way>
+  <way id="200" version="1"><nd ref="10"/><nd ref="11"/><nd ref="12"/><tag k="highway" v="path"/><tag k="name" v="Creek Path"/><tag k="surface" v="dirt"/><tag k="dog" v="leashed"/></way>
+  <way id="300" version="1"><nd ref="20"/><nd ref="21"/><tag k="highway" v="path"/></way>
+  <way id="301" version="1"><nd ref="20"/><nd ref="21"/><tag k="highway" v="residential"/><tag k="name" v="Main St"/></way>
+  <relation id="900" version="1">
+    <member type="way" ref="100" role=""/>
+    <member type="way" ref="101" role=""/>
+    <tag k="type" v="route"/><tag k="route" v="hiking"/><tag k="name" v="Ridge Route"/><tag k="sac_scale" v="mountain_hiking"/>
+  </relation>
+  <relation id="901" version="1">
+    <member type="way" ref="300" role=""/>
+    <tag k="type" v="route"/><tag k="route" v="bicycle"/><tag k="name" v="Bike Loop"/>
+  </relation>
+</osm>
