@@ -102,7 +102,7 @@ describe('trails', () => {
 
   it('builds a bounded Overpass query', () => {
     const q = overpassQuery({ west: -121.8, south: 47.4, east: -121.7, north: 47.5 });
-    expect(q).toContain('out tags geom(47.40000,-121.80000,47.50000,-121.70000)');
+    expect(q).toContain('out body geom(47.40000,-121.80000,47.50000,-121.70000)');
   });
 });
 

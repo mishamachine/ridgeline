@@ -37,7 +37,9 @@ export function MapView({ tileTemplate, center, zoom = 12, bounds, interactive =
       pitchWithRotate: false,
     });
     map.touchZoomRotate.disableRotation();
-    map.on('load', () => {
+    map.on('error', (e) => console.warn('[map]', e.error?.message ?? e));
+    (window as unknown as { __ridgelineMap?: MLMap }).__ridgelineMap = map;
+    map.once('style.load', () => {
       const empty = { type: 'FeatureCollection', features: [] } as GeoJSON.FeatureCollection;
       map.addSource('trails', { type: 'geojson', data: empty });
       map.addSource('done', { type: 'geojson', data: empty });

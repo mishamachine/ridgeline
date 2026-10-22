@@ -19,7 +19,13 @@ export interface Trail {
   descentM?: number;
 }
 
-const OVERPASS = 'https://overpass-api.de/api/interpreter';
+// Public Overpass servers, tried in order. The main one is often at capacity.
+export const OVERPASS_SERVERS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+];
+const SERVER_TIMEOUT_MS = 30000;
 const JOIN_TOLERANCE_M = 25;
 const MIN_TRAIL_M = 500;
 const LOOP_TOLERANCE_M = 100;
@@ -41,19 +47,34 @@ export function overpassQuery(b: BBox): string {
   relation["route"~"^(hiking|foot)$"](${bb});
   way["highway"~"^(path|footway|track|bridleway)$"]["name"](${bb});
 );
-out tags geom(${bb});`;
+out body geom(${bb});`;
 }
 
 export async function fetchTrails(b: BBox, signal?: AbortSignal): Promise<Trail[]> {
-  const res = await fetch(OVERPASS, {
-    method: 'POST',
-    body: new URLSearchParams({ data: overpassQuery(b) }),
-    signal,
-  });
-  if (res.status === 429 || res.status === 504) throw new Error('The trail server is busy. Try again in a minute.');
-  if (!res.ok) throw new Error(`Trail search failed (${res.status}).`);
-  const json = await res.json();
-  return parseOverpass(json.elements ?? []);
+  const body = new URLSearchParams({ data: overpassQuery(b) });
+  let lastError = 'Trail search failed.';
+  for (const server of OVERPASS_SERVERS) {
+    if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+    const timeout = new AbortController();
+    const timer = setTimeout(() => timeout.abort(), SERVER_TIMEOUT_MS);
+    const onAbort = () => timeout.abort();
+    signal?.addEventListener('abort', onAbort);
+    try {
+      const res = await fetch(server, { method: 'POST', body, signal: timeout.signal });
+      if (res.ok) {
+        const json = await res.json();
+        return parseOverpass(json.elements ?? []);
+      }
+      lastError = `Trail search failed (${res.status}).`; // busy or down: try the next server
+    } catch (e) {
+      if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+      lastError = 'Trail servers are busy. Try again in a minute.';
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+    }
+  }
+  throw new Error(lastError === 'Trail search failed.' ? lastError : 'Trail servers are busy. Try again in a minute.');
 }
 
 /** Split a geometry list at missing points (nodes outside the search area). */

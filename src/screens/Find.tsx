@@ -112,23 +112,21 @@ export function Find({ tpl, visible, savedIds, onOpen }: Props) {
     map.on('mouseenter', 'trails-hit', () => (map.getCanvas().style.cursor = 'pointer'));
     map.on('mouseleave', 'trails-hit', () => (map.getCanvas().style.cursor = ''));
 
+    // Show trails right away (last place or a default), then move to the user if location arrives.
     const last = await getSetting<{ center: LngLat; zoom: number }>('lastView');
-    if (last) {
-      map.jumpTo({ center: last.center, zoom: last.zoom });
-      loadArea();
-    } else {
-      locate(true);
-    }
+    if (last) map.jumpTo({ center: last.center, zoom: last.zoom });
+    loadArea();
+    if (!last) locate(true);
   }
 
-  function locate(firstRun = false) {
-    if (!navigator.geolocation) { loadArea(); return; }
+  function locate(quiet = false) {
+    if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
       (p) => {
         mapRef.current?.jumpTo({ center: [p.coords.longitude, p.coords.latitude], zoom: 12 });
         loadArea();
       },
-      () => { if (firstRun) loadArea(); else setStatus({ kind: 'error', msg: 'Location is off. Search for a place instead.' }); },
+      () => { if (!quiet) setStatus({ kind: 'error', msg: 'Location is off. Search for a place instead.' }); },
       { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 },
     );
   }
