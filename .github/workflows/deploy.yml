@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write # to publish the Hostinger branch
   pages: write
   id-token: write
 
@@ -40,6 +40,19 @@ jobs:
         run: curl -fsSL -A "ridgeline-trail-build (github.com/${{ github.repository }})" -o washington.osm.pbf https://download.geofabrik.de/north-america/us/washington-latest.osm.pbf
       - name: Build hosted trail data
         run: python scripts/build_trails.py washington.osm.pbf dist/trails "OpenStreetMap via Geofabrik (Washington)"
+      - name: Build a root-domain copy for Hostinger (hike.bobolearns.com)
+        run: |
+          BASE_PATH=/ npx vite build --outDir dist-root --emptyOutDir
+          cp -r dist/trails dist-root/trails
+          cp deploy/htaccess dist-root/.htaccess
+      - name: Publish the Hostinger copy to the 'hostinger' branch
+        if: github.ref == 'refs/heads/main'
+        run: |
+          cd dist-root
+          git init -q -b hostinger
+          git -c user.name="ridgeline-bot" -c user.email="actions@users.noreply.github.com" add -A
+          git -c user.name="ridgeline-bot" -c user.email="actions@users.noreply.github.com" commit -q -m "Build of ${GITHUB_SHA}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" hostinger
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
