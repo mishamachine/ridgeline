@@ -28,9 +28,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install osmium
+      - run: pip install -r scripts/requirements.txt
       - run: npm ci
       - run: npm test
+      - name: Test the elevation code (synthetic tiles, no network)
+        run: python -m unittest discover -s scripts -p "test_*.py"
       - name: Check the trail build script on sample data
         run: python scripts/build_trails.py scripts/sample.osm /tmp/sample-trails sample
       - run: npm run build
@@ -38,7 +40,12 @@ jobs:
           BASE_PATH: /${{ github.event.repository.name }}/
       - name: Download Washington OpenStreetMap extract (Geofabrik)
         run: curl -fsSL -A "ridgeline-trail-build (github.com/${{ github.repository }})" -o washington.osm.pbf https://download.geofabrik.de/north-america/us/washington-latest.osm.pbf
-      - name: Build hosted trail data
+      - name: Cache Copernicus DEM tiles
+        uses: actions/cache@v4
+        with:
+          path: scripts/.dem-cache
+          key: copernicus-dem-90m-v1
+      - name: Build hosted trail data (elevation from Copernicus DEM GLO-90)
         run: python scripts/build_trails.py washington.osm.pbf dist/trails "OpenStreetMap via Geofabrik (Washington)"
       - name: Build a root-domain copy for Hostinger (hike.bobolearns.com)
         run: |

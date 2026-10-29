@@ -41,9 +41,5 @@ export async function listActivities(): Promise<Activity[]> {
   return all.sort((a, b) => b.startedAt - a.startedAt);
 }
 
-/** Elevation profiles, cached so repeat views don't re-fetch. */
-export const getElevation = (id: string) => get<number[]>('elev:' + id);
-export const putElevation = (id: string, e: number[]) => set('elev:' + id, e);
-
 export const getSetting = <V>(k: string) => get<V>('set:' + k);
 export const putSetting = (k: string, v: unknown) => set('set:' + k, v);

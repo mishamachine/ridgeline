@@ -10,6 +10,12 @@ Trails are the same two kinds the app searches for:
   - route relations tagged route=hiking|foot (with a name or ref)
   - named paths (highway=path|footway|track|bridleway) not already part of such a route
 
+Every way also carries `z`: the elevation in whole metres at each of its vertices, sampled
+from the Copernicus DEM GLO-90 (scripts/elevation.py) and delta-encoded ([z0, z1-z0, ...]).
+The app stitches ways into trails at run time and builds each trail's profile from these.
+The build fails if a needed DEM tile cannot be fetched. Tiles are cached in $DEM_CACHE_DIR
+(default scripts/.dem-cache, git-ignored).
+
 Usage: build_trails.py <input.osm.pbf> <output dir> [source label]
 """
 import json
@@ -19,7 +25,10 @@ import re
 import sys
 from datetime import datetime, timezone
 
+import numpy as np
 import osmium
+
+import elevation
 
 CELL = 0.25  # degrees, ~28 km north-south, ~19 km east-west at 47°N
 ROUTE_RE = re.compile(r'^(hiking|foot)$')
@@ -112,11 +121,29 @@ def flat(coords):
     return [v for c in coords for v in c]
 
 
-def build(pbf, out_dir, source):
+def sample_elevations(geoms, tiles):
+    """way id -> delta-encoded integer elevations, one per vertex."""
+    ids = list(geoms)
+    lons = np.array([c[0] for i in ids for c in geoms[i]])
+    lats = np.array([c[1] for i in ids for c in geoms[i]])
+    z = elevation.sample(lons, lats, tiles)
+    elevation.check_sea_fraction(tiles)
+    out, pos = {}, 0
+    for i in ids:
+        n = len(geoms[i])
+        out[i] = elevation.encode_deltas(z[pos:pos + n].tolist())
+        pos += n
+    return out
+
+
+def build(pbf, out_dir, source, dem_dir=None):
     routes = RouteHandler()
     routes.apply_file(pbf)
     ways = WayHandler(routes.member_ways)
     ways.apply_file(pbf, locations=True, idx='flex_mem')
+
+    tiles = elevation.DemTiles(dem_dir or os.environ.get('DEM_CACHE_DIR') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '.dem-cache'))
+    zs = sample_elevations(ways.geoms, tiles)
 
     cells = {}  # (x, y) -> {'r': {rel id: entry}, 'w': [entries]}
 
@@ -131,12 +158,12 @@ def build(pbf, out_dir, source):
                 continue
             for key in cells_for(g):
                 entry = cell(key)['r'].setdefault(rid, {'id': rid, 't': route['tags'], 'n': total, 'm': []})
-                entry['m'].append([wid, flat(g)])
+                entry['m'].append([wid, flat(g), zs[wid]])
 
     for wid, tags in ways.paths.items():
         g = ways.geoms[wid]
         for key in cells_for(g):
-            cell(key)['w'].append({'id': wid, 't': tags, 'g': flat(g)})
+            cell(key)['w'].append({'id': wid, 't': tags, 'g': flat(g), 'z': zs[wid]})
 
     os.makedirs(out_dir, exist_ok=True)
     total_bytes = 0
@@ -157,6 +184,7 @@ def build(pbf, out_dir, source):
         'built': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
         'source': source,
         'cell': CELL,
+        'elevation': 'Copernicus DEM GLO-90',
         'bbox': bbox,
         'cells': [f'{x}_{y}' for x, y in keys],
     }

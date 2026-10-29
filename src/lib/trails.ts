@@ -1,5 +1,5 @@
 // Trail discovery from OpenStreetMap via the Overpass API.
-import { BBox, LngLat, haversine, lineLength, cumulative, resample, totalAscent, M_TO_FT, M_TO_MI } from './geo';
+import { BBox, LngLat, haversine, lineLength, cumulative, totalAscent, M_TO_FT, M_TO_MI } from './geo';
 
 export type Difficulty = 'Easy' | 'Moderate' | 'Hard';
 
@@ -13,7 +13,7 @@ export interface Trail {
   partial: boolean;
   osmUrl: string;
   tags: Record<string, string>;
-  /** Elevation (m) at 100 evenly spaced points from start to end. */
+  /** Elevation (m) at 100 evenly spaced points from start to end. Absent when the data has none. */
   elevation?: number[];
   ascentM?: number;
   descentM?: number;
@@ -199,17 +199,29 @@ export function climbAhead(t: Trail, alongM: number): number {
   return totalAscent(t.elevation.slice(k));
 }
 
-// ---- Elevation (Open-Meteo, Copernicus DEM GLO-90) ----
-const ELEVATION_API = 'https://api.open-meteo.com/v1/elevation';
+// ---- Elevation ----
+// Elevation comes from the hosted trail files (Copernicus DEM GLO-90, sampled at build time by
+// scripts/elevation.py), one value per vertex. Trails found through Overpass have none.
+export const PROFILE_POINTS = 100;
 
-export async function fetchElevation(coords: LngLat[], signal?: AbortSignal): Promise<number[]> {
-  const pts = resample(coords, 100);
-  const lat = pts.map((p) => p[1].toFixed(5)).join(',');
-  const lon = pts.map((p) => p[0].toFixed(5)).join(',');
-  const res = await fetch(`${ELEVATION_API}?latitude=${lat}&longitude=${lon}`, { signal });
-  if (!res.ok) throw new Error('Elevation unavailable');
-  const json = await res.json();
-  return json.elevation as number[];
+/**
+ * Elevation (m) at `n` evenly spaced distances along a line, interpolated from per-vertex heights.
+ * Same shape as the old run-time profile: first value at the start, last at the end.
+ */
+export function profileFromVertices(coords: LngLat[], z: number[], n = PROFILE_POINTS): number[] {
+  const cum = cumulative(coords);
+  const total = cum.at(-1) ?? 0;
+  if (coords.length < 2 || z.length !== coords.length || total <= 0) return [];
+  const out: number[] = [];
+  let seg = 0;
+  for (let k = 0; k < n; k++) {
+    const d = (total * k) / (n - 1);
+    while (seg < coords.length - 2 && cum[seg + 1] < d) seg++;
+    const span = cum[seg + 1] - cum[seg];
+    const f = span > 0 ? Math.min(1, Math.max(0, (d - cum[seg]) / span)) : 0;
+    out.push(Math.round(z[seg] + (z[seg + 1] - z[seg]) * f));
+  }
+  return out;
 }
 
 export function withElevation(t: Trail, elevation: number[]): Trail {
