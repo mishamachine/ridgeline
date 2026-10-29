@@ -1,6 +1,6 @@
 # Ridgeline
 
-> Ridgeline is a free web app (installable PWA) for hiking trail maps that work offline. Find trails near you, see distance, climb, estimated time and difficulty, save a trail's map to your phone, navigate with live GPS and record hikes as GPX files. No accounts; everything stays on the device.
+> Ridgeline is a web app (installable PWA) for hiking trail maps that work offline. Find trails near you, see distance, climb, estimated time and difficulty, save a trail's map to your phone, navigate with live GPS and record hikes as GPX files. No accounts. Saved trails, recordings and live GPS position stay on the device; place searches, trail data, map tiles and elevation data are requested from third-party services for the area you look at.
 
 Trail data comes from OpenStreetMap contributors (via Geofabrik extracts for Washington State and the Overpass API elsewhere). Map tiles come from OpenFreeMap. Elevation data comes from Open-Meteo.
 
