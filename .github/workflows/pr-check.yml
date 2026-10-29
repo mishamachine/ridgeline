@@ -1,0 +1,44 @@
+name: PR check
+
+# Runs on every pull request into main. Mirrors the check steps of deploy.yml
+# (tests, the trail build script on sample data, and the site build) plus the typecheck script.
+# Never deploys or publishes, downloads no map extract and reads no secrets.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install osmium
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+      - name: Check the trail build script on sample data
+        run: python scripts/build_trails.py scripts/sample.osm /tmp/sample-trails sample
+
+      - run: npm run build
+        env:
+          BASE_PATH: /${{ github.event.repository.name }}/
