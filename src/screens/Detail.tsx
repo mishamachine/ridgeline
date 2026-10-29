@@ -113,6 +113,9 @@ export function Detail({ tpl, trail: initial, onBack, onStart, onSavedChange }: 
         {trail.tags.surface && <p className="meta" style={{ margin: '0 0 4px' }}>Surface: {trail.tags.surface.replace(/_/g, ' ')}</p>}
         {trail.tags.dog && <p className="meta" style={{ margin: '0 0 4px' }}>Dogs: {trail.tags.dog}</p>}
         <a href={trail.osmUrl} target="_blank" rel="noopener" className="meta" style={{ color: 'var(--ink)' }}>View or fix this trail on OpenStreetMap</a>
+        <p className="meta" style={{ margin: '8px 0 0', fontSize: 12 }}>
+          Trail data: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener" style={{ color: 'var(--ink)' }}>© OpenStreetMap contributors</a>
+        </p>
         {trail.elevation && (
           <p className="meta" style={{ margin: '12px 0 0', fontSize: 12 }}>
             Elevation: {ELEVATION_NOTICE}. {ELEVATION_LIABILITY}.
