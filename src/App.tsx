@@ -1,24 +1,62 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getTileTemplate } from './lib/offline';
-import { listSaved } from './lib/store';
+import { listAllSaved } from './lib/saved';
+import { bookmark, unsave } from './lib/saved';
+import { remember, resolveTrail } from './lib/lookup';
+import { appBase } from './lib/site';
+import { parseRoute, routePath, type Route, type Tab } from './lib/route';
 import type { Trail } from './lib/trails';
+import type { LngLat } from './lib/geo';
+import { Bobo, Placeholder } from './components/Bobo';
+import { ConfirmSheet } from './components/ConfirmSheet';
+import { FindIcon, HikeIcon, ProfileIcon, SavedIcon } from './components/NavIcons';
+import { Toaster } from './components/Toaster';
 import { Find } from './screens/Find';
 import { Detail } from './screens/Detail';
+import { Hike } from './screens/Hike';
 import { Navigate } from './screens/Navigate';
-import { Offline } from './screens/Offline';
-import { Record } from './screens/Record';
+import { Saved } from './screens/Saved';
+import { SharedList } from './screens/SharedList';
 
-export type Tab = 'find' | 'offline' | 'record';
-type Overlay = { kind: 'detail'; trail: Trail } | { kind: 'nav'; trail: Trail } | null;
+export type { Tab };
+
+const TABS: { tab: Tab; label: string; icon: () => React.ReactElement }[] = [
+  { tab: 'find', label: 'Find', icon: () => <FindIcon /> },
+  { tab: 'saved', label: 'Saved', icon: () => <SavedIcon /> },
+  { tab: 'hike', label: 'Hike', icon: () => <HikeIcon /> },
+  { tab: 'profile', label: 'Profile', icon: () => <ProfileIcon /> },
+];
+
+/** Stand-in until the real Profile screen lands. */
+function ProfilePlaceholder() {
+  return (
+    <div className="page">
+      <div className="page-head"><h1 className="page-title">Profile</h1></div>
+      <Placeholder title="Coming soon">Your hikes, badges and settings will live here.</Placeholder>
+    </div>
+  );
+}
+
+const base = appBase();
+const readRoute = (): Route => parseRoute(location.pathname, location.search, base);
 
 export function App() {
   const [tpl, setTpl] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>('find');
-  const [overlay, setOverlay] = useState<Overlay>(null);
-  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  const [route, setRoute] = useState<Route>(readRoute);
+  const [trail, setTrail] = useState<Trail | null>(null);       // trail shown on a /trail/<id> page
+  const [trailState, setTrailState] = useState<'idle' | 'loading' | 'missing'>('idle');
+  const [hike, setHike] = useState<Trail | null>(null);
+  const [saved, setSaved] = useState<{ marked: Set<string>; offline: Set<string>; version: number }>({ marked: new Set(), offline: new Set(), version: 0 });
+  const [removing, setRemoving] = useState<Trail | null>(null);
+  const [depth, setDepth] = useState(0); // pages the app itself pushed, so Back knows whether it can go back
 
   const refreshSaved = useCallback(async () => {
-    setSavedIds(new Set((await listSaved()).map((s) => s.trail.id)));
+    const all = await listAllSaved();
+    setSaved((s) => ({
+      marked: new Set(all.map((i) => i.trail.id)),
+      offline: new Set(all.filter((i) => i.offline).map((i) => i.trail.id)),
+      version: s.version + 1,
+    }));
   }, []);
 
   useEffect(() => {
@@ -26,52 +64,115 @@ export function App() {
     refreshSaved();
   }, [refreshSaved]);
 
-  if (!tpl) return <div className="app"><p className="empty">Loading…</p></div>;
+  // Browser Back / Forward.
+  useEffect(() => {
+    const onPop = () => { setRoute(readRoute()); setDepth((d) => Math.max(0, d - 1)); };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
 
-  const openTrail = (trail: Trail) => setOverlay({ kind: 'detail', trail });
-  const showTabs = overlay?.kind !== 'nav';
+  // Open the trail named in the address (a link, a refresh, or Back).
+  const routeId = route.kind === 'trail' ? route.id : null;
+  const routeLL = route.kind === 'trail' ? route.ll : undefined;
+  useEffect(() => {
+    if (!routeId) { setTrailState('idle'); return; }
+    let live = true;
+    setTrailState('loading');
+    resolveTrail(routeId, routeLL).then((t) => {
+      if (!live) return;
+      setTrail(t);
+      setTrailState(t ? 'idle' : 'missing');
+    }).catch(() => live && setTrailState('missing'));
+    return () => { live = false; };
+  }, [routeId, routeLL]);
+
+  const go = useCallback((r: Route, replace = false) => {
+    const url = routePath(r, base);
+    if (replace) history.replaceState(null, '', url); else { history.pushState(null, '', url); setDepth((d) => d + 1); }
+    setRoute(r);
+    window.scrollTo(0, 0);
+  }, []);
+
+  const openTrail = useCallback((t: Trail) => { remember([t]); setTrail(t); go({ kind: 'trail', id: t.id, ll: [t.coords[0][0], t.coords[0][1]] }); }, [go]);
+  const openId = useCallback((id: string, ll: LngLat) => go({ kind: 'trail', id, ll }), [go]);
+  const goTab = useCallback((tab: Tab) => go({ kind: 'tab', tab }), [go]);
+  const back = useCallback(() => { if (depth > 0) history.back(); else go({ kind: 'tab', tab: 'find' }, true); }, [depth, go]);
+
+  const toggleSave = useCallback(async (t: Trail) => {
+    if (saved.marked.has(t.id)) {
+      if (saved.offline.has(t.id)) setRemoving(t);
+      else { await unsave(t.id); refreshSaved(); }
+    } else { await bookmark(t); refreshSaved(); }
+  }, [saved, refreshSaved]);
+
+  const startHike = useCallback((t: Trail) => { setHike(t); go({ kind: 'tab', tab: 'hike' }); }, [go]);
+
+  const tab: Tab | null = route.kind === 'tab' ? route.tab : null;
+  const onTrail = route.kind === 'trail';
+  const onShared = route.kind === 'shared';
+  const bookmarkedNow = useMemo(() => (trail ? saved.marked.has(trail.id) : false), [trail, saved]);
+
+  if (!tpl) return <div className="app"><Placeholder title="Loading Ridgeline…" /></div>;
+
+  const hiking = !!hike && tab === 'hike';
 
   return (
     <div className="app">
       {/* Tabs stay mounted so the map, list and any recording keep their state. */}
-      <div className="screen" hidden={!!overlay || tab !== 'find'}>
-        <Find tpl={tpl} visible={!overlay && tab === 'find'} savedIds={savedIds} onOpen={openTrail} />
+      <div className="screen" hidden={tab !== 'find'}>
+        <Find tpl={tpl} visible={tab === 'find'} savedIds={saved.marked} offlineIds={saved.offline} onOpen={openTrail} onOpenId={openId} onToggleSave={toggleSave} />
       </div>
-      <div className="screen" hidden={!!overlay || tab !== 'offline'}>
-        <Offline visible={!overlay && tab === 'offline'} onOpen={openTrail} onChange={refreshSaved} />
+      <div className="screen" hidden={tab !== 'saved'}>
+        <Saved visible={tab === 'saved'} version={saved.version} onOpen={openTrail} onChange={refreshSaved} onFind={() => goTab('find')} />
       </div>
-      <div className="screen" hidden={!!overlay || tab !== 'record'}>
-        <Record />
+      <div className="screen" hidden={tab !== 'hike' || !!hike}>
+        <Hike visible={tab === 'hike' && !hike} version={saved.version} onStart={startHike} onFind={() => goTab('find')} />
       </div>
+      <div className="screen" hidden={tab !== 'profile'}><ProfilePlaceholder /></div>
 
-      {overlay?.kind === 'detail' && (
-        <div className="screen">
-          <Detail
-            key={overlay.trail.id}
-            tpl={tpl}
-            trail={overlay.trail}
-            onBack={() => setOverlay(null)}
-            onStart={(trail) => setOverlay({ kind: 'nav', trail })}
-            onSavedChange={refreshSaved}
-          />
-        </div>
-      )}
-      {overlay?.kind === 'nav' && (
-        <div className="screen">
-          <Navigate tpl={tpl} trail={overlay.trail} saved={savedIds.has(overlay.trail.id)} onEnd={() => setOverlay({ kind: 'detail', trail: overlay.trail })} />
+      {hike && (
+        <div className="screen" hidden={!hiking}>
+          <Navigate tpl={tpl} trail={hike} saved={saved.offline.has(hike.id)} onEnd={() => { const t = hike; setHike(null); openTrail(t); }} />
         </div>
       )}
 
-      {showTabs && (
-        <nav className="tabbar" aria-label="Main">
-          {(['find', 'offline', 'record'] as Tab[]).map((t) => (
-            <button key={t} className="tab" aria-current={!overlay && tab === t ? 'page' : undefined}
-              onClick={() => { setOverlay(null); setTab(t); }}>
-              {t === 'find' ? 'Find' : t === 'offline' ? 'Offline' : 'Record'}
+      {onShared && (
+        <div className="screen overlay">
+          <SharedList ids={route.ids} lls={route.lls} onOpen={openTrail} onHome={() => go({ kind: 'tab', tab: 'find' })} />
+        </div>
+      )}
+
+      {onTrail && (
+        <div className="screen overlay">
+          {trail && trail.id === route.id && trailState !== 'loading' ? (
+            <Detail key={trail.id} tpl={tpl} trail={trail} bookmarked={bookmarkedNow} onBack={back} onStart={startHike} onSavedChange={refreshSaved} />
+          ) : trailState === 'missing' ? (
+            <div className="page">
+              <div className="page-head"><Bobo size={44} /><h1 className="page-title">Trail not found</h1></div>
+              <p className="fine pad-x">We couldn’t load this trail. It may be outside our coverage, or you may be offline.</p>
+              <div className="page-list"><button className="btn btn-primary" onClick={() => go({ kind: 'tab', tab: 'find' }, true)}>Find a trail</button></div>
+            </div>
+          ) : (
+            <Placeholder title="Loading trail…" />
+          )}
+        </div>
+      )}
+
+      {!hiking && !(onTrail && trail) && (
+        <nav className="tabbar2" aria-label="Main">
+          {TABS.map(({ tab: t, label, icon }) => (
+            <button key={t} className="tab2" aria-current={tab === t ? 'page' : undefined} onClick={() => goTab(t)}>
+              {icon()}<span>{label}{t === 'hike' && hike ? ' •' : ''}</span>
             </button>
           ))}
         </nav>
       )}
+
+      {removing && (
+        <ConfirmSheet title="Remove from Saved?" body="This also deletes the offline map for this trail." confirmLabel="Remove" cancelLabel="Keep it" danger
+          onConfirm={async () => { const t = removing; setRemoving(null); await unsave(t.id); refreshSaved(); }} onCancel={() => setRemoving(null)} />
+      )}
+      <Toaster />
     </div>
   );
 }

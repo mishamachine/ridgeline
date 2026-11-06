@@ -4,6 +4,7 @@ Build hosted trail data from an OpenStreetMap extract.
 
 Reads an .osm.pbf (e.g. Geofabrik's washington-latest.osm.pbf) and writes:
   <out>/index.json        coverage, cell size, list of cells, build date
+  <out>/names.json        compact trail-name index for search (scripts/name_index.py)
   <out>/<x>_<y>.json      trails touching each 0.25° grid cell
 
 Trails are the same two kinds the app searches for:
@@ -29,6 +30,7 @@ import numpy as np
 import osmium
 
 import elevation
+import name_index
 
 CELL = 0.25  # degrees, ~28 km north-south, ~19 km east-west at 47°N
 ROUTE_RE = re.compile(r'^(hiking|foot)$')
@@ -191,6 +193,9 @@ def build(pbf, out_dir, source, dem_dir=None):
     with open(os.path.join(out_dir, 'index.json'), 'w') as f:
         json.dump(index, f, separators=(',', ':'))
 
+    n_names = name_index.write_name_index(os.path.join(out_dir, 'names.json'), routes.routes, ways.geoms, ways.paths)
+
+    print(f'name index: {n_names} entries, {os.path.getsize(os.path.join(out_dir, "names.json")) / 1e3:.0f} KB')
     print(f'routes: {len(routes.routes)}, named paths: {len(ways.paths)}, cells: {len(cells)}, '
           f'size: {total_bytes / 1e6:.1f} MB (before gzip), largest cell: '
           f'{max((os.path.getsize(os.path.join(out_dir, k + ".json")) for k in index["cells"]), default=0) / 1e3:.0f} KB')

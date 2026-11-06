@@ -20,7 +20,7 @@ export interface Activity {
   points: TrackPoint[];
 }
 
-const T = 'trail:', A = 'act:';
+const T = 'trail:', A = 'act:', S = 'sl:';
 
 export const getSaved = (id: string) => get<SavedTrail>(T + id);
 export const putSaved = (s: SavedTrail) => set(T + s.trail.id, s);
@@ -43,3 +43,15 @@ export async function listActivities(): Promise<Activity[]> {
 
 export const getSetting = <V>(k: string) => get<V>('set:' + k);
 export const putSetting = (k: string, v: unknown) => set('set:' + k, v);
+
+// Shortlist: trails the user bookmarked. A trail saved for offline use is also kept here.
+export interface Shortlisted { trail: Trail; addedAt: number }
+export const getShortlisted = (id: string) => get<Shortlisted>(S + id);
+export const putShortlisted = (trail: Trail) => set(S + trail.id, { trail, addedAt: Date.now() } satisfies Shortlisted);
+export const deleteShortlisted = (id: string) => del(S + id);
+
+export async function listShortlisted(): Promise<Shortlisted[]> {
+  const ks = (await keys()).filter((k) => String(k).startsWith(S));
+  const all = (await getMany<Shortlisted | undefined>(ks)).filter((x): x is Shortlisted => !!x);
+  return all.sort((a, b) => b.addedAt - a.addedAt);
+}

@@ -4,8 +4,8 @@ import { parseOverpass, profileFromVertices, withElevation, type Trail } from '.
 
 export interface CellIndex { v: number; built: string; source: string; elevation?: string; cell: number; bbox: [number, number, number, number] | null; cells: string[] }
 /** z: elevation (m) per vertex, delta-encoded: [z0, z1 - z0, z2 - z1, ...]. */
-interface CellRoute { id: number; t: Record<string, string>; n: number; m: [number, number[], number[]?][] }
-interface CellWay { id: number; t: Record<string, string>; g: number[]; z?: number[] }
+interface CellRoute { id: number; t: Record<string, string>; n: number; h?: string[]; th?: [number, number, number] | null; m: [number, number[], number[]?][] }
+interface CellWay { id: number; t: Record<string, string>; g: number[]; z?: number[]; h?: string[]; th?: [number, number, number] | null }
 export interface CellFile { v: number; r: CellRoute[]; w: CellWay[] }
 
 const base = () => `${import.meta.env.BASE_URL ?? '/'}trails/`;
@@ -57,12 +57,12 @@ function addElevations(into: Map<string, number>, flat: number[], z?: number[]) 
  * if some members are in cells not loaded, it is marked as a partial section.
  */
 export function cellsToTrails(files: CellFile[]): Trail[] {
-  const routes = new Map<number, { t: Record<string, string>; n: number; members: Map<number, number[]> }>();
+  const routes = new Map<number, { t: Record<string, string>; n: number; extra: { h?: string[]; th?: [number, number, number] | null }; members: Map<number, number[]> }>();
   const ways = new Map<number, CellWay>();
   const zAt = new Map<string, number>();
   for (const f of files) {
     for (const r of f.r) {
-      const e = routes.get(r.id) ?? { t: r.t, n: r.n, members: new Map() };
+      const e = routes.get(r.id) ?? { t: r.t, n: r.n, extra: { h: r.h, th: r.th }, members: new Map() };
       for (const [wid, g, z] of r.m) { e.members.set(wid, g); addElevations(zAt, g, z); }
       routes.set(r.id, e);
     }
@@ -72,9 +72,9 @@ export function cellsToTrails(files: CellFile[]): Trail[] {
   for (const [id, r] of routes) {
     const members = [...r.members].map(([ref, g]) => ({ type: 'way', ref, role: '', geometry: pairs(g) }));
     if (members.length < r.n) members.push({ type: 'way', ref: -1, role: '', geometry: [] as { lon: number; lat: number }[] });
-    elements.push({ type: 'relation', id, tags: r.t, members });
+    elements.push({ type: 'relation', id, tags: r.t, extra: r.extra, members });
   }
-  for (const [id, w] of ways) elements.push({ type: 'way', id, tags: w.t, geometry: pairs(w.g) });
+  for (const [id, w] of ways) elements.push({ type: 'way', id, tags: w.t, extra: { h: w.h, th: w.th }, geometry: pairs(w.g) });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return parseOverpass(elements as any).map((t) => {
     // Build the profile only if every vertex has a height (older files have none).
