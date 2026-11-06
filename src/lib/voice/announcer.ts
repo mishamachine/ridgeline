@@ -40,6 +40,8 @@ export const NEAR_M = 150;        // "In 500 feet" (about 150 m)
 export const AT_M = 15;
 export const FINISH_M = 50;
 export const OFF_REPEAT_MS = 60_000;
+export const HUSH_MS = 20_000;   // after a hand-tapped switch, fork lines stay quiet this long...
+export const HUSH_GROW_M = 20;    // ...and until the hiker has moved this far the new way, whichever is later
 
 const verb = (f: ForkPoint) => (f.kind === 'turn' ? `turn ${f.side}` : `stay ${f.side}`);
 const near = (f: ForkPoint, lead: string) => `${lead}${verb(f)} ${f.kind === 'turn' ? 'onto' : 'for'} ${f.name}.`;
@@ -52,12 +54,29 @@ export class Announcer {
   private offAt: number | null = null;
   private finished = false;
   private seenMid = false;
+  private hush: { t0?: number; a0?: number } | null = null;
 
   constructor(private route: AnnouncerRoute, private units: Units = 'imperial') {}
+
+  /** True once "You made it." has been said on this route direction. */
+  get finishedSaid() { return this.finished; }
+  markFinished() { this.finished = true; }
+
+  /**
+   * After a hand-tapped switch (or its undo) the fork sides may not match where the hiker is really heading.
+   * Fork and turnaround lines are marked as said but not spoken until HUSH_MS have passed and the hiker has moved HUSH_GROW_M.
+   */
+  hushForks() { this.hush = {}; }
 
   update(i: AnnouncerInput): Utterance[] {
     const out: Utterance[] = [];
     const say = (kind: UtteranceKind, text: string, interrupt: boolean, vibrate: number[]) => out.push({ kind, text, interrupt, vibrate });
+    if (this.hush && i.along != null && !i.offRoute) {
+      this.hush.t0 ??= i.t;
+      this.hush.a0 ??= i.along;
+      if (i.t - this.hush.t0 >= HUSH_MS && i.along - this.hush.a0 >= HUSH_GROW_M) this.hush = null;
+    }
+    const sayRoute = this.hush ? () => 0 : say;
 
     // Recalibrating while off the trail: still off. Keep the clock, add nothing, never "back on".
     if (i.holdOff && this.offAt != null) return out;
@@ -83,12 +102,12 @@ export class Announcer {
       if (d <= AT_M) {
         if (!this.atSaid.has(k)) {
           this.atSaid.add(k); this.nearSaid.add(k);
-          say('fork', atFork(f), true, [200, 100, 200]);
+          sayRoute('fork', atFork(f), true, [200, 100, 200]);
         }
       } else if (d <= NEAR_M && !this.nearSaid.has(k)) {
         this.nearSaid.add(k);
         const lead = this.units === 'metric' ? 'In 150 metres, ' : 'In 500 feet, ';
-        say('fork-near', near(f, lead), false, [120]);
+        sayRoute('fork-near', near(f, lead), false, [120]);
       }
     });
 
@@ -96,7 +115,7 @@ export class Announcer {
       const d = r - along;
       if (!this.turnSaid.has(k) && d <= AT_M && d >= -AT_M) {
         this.turnSaid.add(k);
-        say('turnaround', 'Turnaround point. Head back the way you came.', true, [200, 100, 200]);
+        sayRoute('turnaround', 'Turnaround point. Head back the way you came.', true, [200, 100, 200]);
       }
     });
 

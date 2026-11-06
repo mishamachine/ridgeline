@@ -82,7 +82,15 @@ export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
 
   const forks = useMemo(() => forksFor(trail.coords, trail.junctions, reversed, trail.name), [trail, reversed]);
   const tips = useMemo(() => findReversals(route.coords, route.cum), [route]);
-  const announcer = useMemo(() => new Announcer({ forks, turnarounds: tips, total }, units), [forks, tips, total, units]);
+  // One announcer per walking direction. "You made it." is said once per direction, and a hand-tapped switch hushes fork lines for a while.
+  const finishedDir = useRef<Record<string, boolean>>({});
+  const hushNext = useRef(false);
+  const announcer = useMemo(() => {
+    const a = new Announcer({ forks, turnarounds: tips, total }, units);
+    if (finishedDir.current[String(reversed)]) a.markFinished();
+    if (hushNext.current) { a.hushForks(); hushNext.current = false; }
+    return a;
+  }, [forks, tips, total, units]);
 
   const [engine] = useState(() => new GpsEngine(new WebLocationSource(), {
     route: { coords: route.coords, elevation: route.elevation },
@@ -148,6 +156,7 @@ export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
       priorClimbRef.current += totalAscent(route.elevation.slice(k(startAlongRef.current), k(maxAlongRef.current) + 1));
     }
     flipRef.current = flipRef.current ? null : { det: new FlipBack(), before: reversed }; // tapping again undoes it by hand, so the net stands down
+    if (!auto) hushNext.current = true; // the hiker may have tapped by mistake: no fork sides until it is clear
     if (auto) {
       navigator.vibrate?.([120]);
       if (voiceRef.current) speak("Heading back. I'll call the forks on the way down.", false);
@@ -164,7 +173,7 @@ export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
     const fl = flipRef.current;
     if (fl && along != null) {
       const original = reversed === fl.before ? along : total - along;
-      if (fl.det.update(original, offRoute)) { flipRef.current = null; autoTurnedRef.current = true; setHeadingBack(false); setReversed(fl.before); }
+      if (fl.det.update(original, offRoute)) { flipRef.current = null; autoTurnedRef.current = true; hushNext.current = true; setHeadingBack(false); setReversed(fl.before); }
     }
   }, [g, turnBack, paused, along, offRoute]);
 
@@ -180,6 +189,7 @@ export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
     // After a reversal the screen can still hold the old direction's state for one render: wait for the engine's first state on the new route.
     if (g !== engine.state) return;
     for (const u of announcer.update({ t: Date.now(), along, offRoute, holdOff: g.recalLastOffRoute, walkedM: walkedRef.current, off: offSide ?? undefined })) {
+      if (u.kind === 'finish') finishedDir.current[String(reversed)] = true;
       navigator.vibrate?.(u.vibrate);
       if (voiceRef.current) speak(u.text, u.interrupt);
     }

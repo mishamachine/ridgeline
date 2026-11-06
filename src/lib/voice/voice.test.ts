@@ -17,6 +17,8 @@ const TOTAL = cumulative(COORDS).at(-1)!;
 const JUNCTIONS: Junction[] = [{ along: 400, branches: [{ name: 'Side Path', point: P(417, 10) }, { point: P(383, 10) }] }];
 const T0 = 1_700_000_000_000;
 
+const texts = (u: Utterance[]) => u.map((x) => x.text);
+
 function walk(a: Announcer, from: number, to: number, jitter = 0): Utterance[] {
   const out: Utterance[] = [];
   const step = to >= from ? 1.2 : -1.2;
@@ -54,7 +56,6 @@ describe('forks from junctions', () => {
 });
 
 describe('announcer on a simulated walk', () => {
-  const texts = (u: Utterance[]) => u.map((x) => x.text);
   it('says the fork twice, the finish once, and nothing else', () => {
     const a = new Announcer({ forks: forksFor(COORDS, JUNCTIONS, false, 'Mount Test Trail'), turnarounds: [], total: TOTAL });
     expect(texts(walk(a, 0, TOTAL))).toEqual(['In 500 feet, stay right for Mount Test Trail.', 'Stay right.', 'You made it.']);
@@ -149,6 +150,40 @@ describe('reversing the route', () => {
     expect(eng.state.along).toBeNull();
     const a = new Announcer({ forks: [], turnarounds: [], total: TOTAL });
     expect(a.update({ t: T0, along: eng.state.along, offRoute: eng.state.offRoute })).toEqual([]);
+  });
+});
+
+describe('after a hand-tapped switch', () => {
+  it('a mistaken tap 10 m before a fork, walking on forward, never speaks a reversed side', () => {
+    // Forward the fork at 400 m is "stay right". The tap puts the hiker on the reversed route, whose fork (at 600 m) says "stay left".
+    const rev = new Announcer({ forks: forksFor(COORDS, JUNCTIONS, true, 'Mount Test Trail'), turnarounds: [], total: TOTAL });
+    rev.hushForks();
+    const said: Utterance[] = [];
+    // Still walking forward: reversed along goes 610, 609, ... down to 560 over 40 s, passing the reversed fork.
+    for (let k = 0; k <= 40; k++) said.push(...rev.update({ t: T0 + k * 1000, along: 610 - 1.25 * k, offRoute: false }));
+    expect(said).toEqual([]);
+  });
+  it('speaks forks again once 20 s and 20 m the new way have passed', () => {
+    const rev = new Announcer({ forks: forksFor(COORDS, JUNCTIONS, true, 'Mount Test Trail'), turnarounds: [], total: TOTAL });
+    rev.hushForks();
+    const said: Utterance[] = [];
+    for (let k = 0; k <= 30; k++) said.push(...rev.update({ t: T0 + k * 1000, along: 100 + k * 1.2, offRoute: false })); // 36 m in 30 s: hush over
+    for (let k = 31; k < 500; k++) said.push(...rev.update({ t: T0 + k * 1000, along: 100 + k * 1.2, offRoute: false }));
+    expect(said.map((x) => x.text)).toContain('Stay left.');
+  });
+  it('the hush needs both: 20 m of growth in 5 s is still quiet', () => {
+    const rev = new Announcer({ forks: forksFor(COORDS, JUNCTIONS, true, 'Mount Test Trail'), turnarounds: [], total: TOTAL });
+    rev.hushForks();
+    expect(rev.update({ t: T0, along: 590, offRoute: false })).toEqual([]);
+    expect(rev.update({ t: T0 + 5000, along: 612, offRoute: false })).toEqual([]);
+  });
+  it('"You made it." is not said again when the finished flag is carried into the next announcer', () => {
+    const a = new Announcer({ forks: [], turnarounds: [], total: TOTAL });
+    expect(texts(walk(a, 0, TOTAL))).toEqual(['You made it.']);
+    expect(a.finishedSaid).toBe(true);
+    const next = new Announcer({ forks: [], turnarounds: [], total: TOTAL });
+    next.markFinished();
+    expect(texts(walk(next, 0, TOTAL))).toEqual([]);
   });
 });
 
