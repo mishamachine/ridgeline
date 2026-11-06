@@ -1,5 +1,6 @@
 // Turn raw OpenStreetMap ways into a list a hiker would want: drop junk, merge duplicates, best first.
 import { haversine, M_TO_MI, type LngLat } from './geo';
+import { roundTripM } from './plan';
 import type { Trail } from './trails';
 
 const MIN_WAY_M = 805; // half a mile; routes (relations) are exempt
@@ -25,13 +26,13 @@ const center = (t: Trail): LngLat => {
 
 /** Higher is better: named routes first, then trails of a sensible day-hike length. */
 export function relevance(t: Trail): number {
-  const mi = t.lengthM * M_TO_MI;
+  const mi = roundTripM(t) * M_TO_MI; // the whole outing: out-and-back counts twice
   let len: number;
-  if (mi < 2) len = 40 * (mi / 2);
-  else if (mi <= 8) len = 40;
-  else len = 40 * Math.max(0, 1 - (mi - 8) / 22); // 30 mi and beyond: nothing
+  if (mi < 3) len = 60 * (mi / 3);
+  else if (mi <= 10) len = 60;
+  else len = 60 * Math.max(0, 1 - (mi - 10) / 22); // 30 mi and beyond: nothing
   const hl = Math.min(3, t.highlights?.filter((h) => !h.endsWith('?')).length ?? 0) * 2;
-  return (isRoute(t) ? 100 : 0) + len + hl;
+  return (isRoute(t) ? 30 : 0) + len + hl;
 }
 
 /** Remove junk names and tiny ways, and merge trails that share a name and sit in the same place. */

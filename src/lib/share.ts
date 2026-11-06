@@ -1,17 +1,17 @@
 // Share links and the share sheet. Links point at the public site, not at wherever the app is running.
-import { SITE_URL } from './site';
+import { linkBase, linkOrigin } from './origin';
 import { routePath, type Route } from './route';
 import type { Trail } from './trails';
 import { toast } from './toast';
 
 const startOf = (t: Pick<Trail, 'coords'>): [number, number] => [t.coords[0][0], t.coords[0][1]];
 
-export const trailUrl = (t: Pick<Trail, 'id' | 'coords'>) => SITE_URL + routePath({ kind: 'trail', id: t.id, ll: startOf(t) });
+export const trailUrl = (t: Pick<Trail, 'id' | 'coords'>) => linkOrigin() + routePath({ kind: 'trail', id: t.id, ll: startOf(t) }, linkBase());
 
 export const shortlistUrl = (ts: Pick<Trail, 'id' | 'coords'>[]) =>
-  SITE_URL + routePath({ kind: 'shared', ids: ts.map((t) => t.id), lls: ts.map(startOf) });
+  linkOrigin() + routePath({ kind: 'shared', ids: ts.map((t) => t.id), lls: ts.map(startOf) }, linkBase());
 
-export const appUrl = () => `${SITE_URL}/`;
+export const appUrl = () => linkOrigin() + linkBase();
 
 export interface SharePayload { title: string; text: string; url: string }
 

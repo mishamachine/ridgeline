@@ -10,6 +10,7 @@ import { placeQueryUrl, toPlaces } from './geocode';
 import { highlightsOf } from '../components/Chips';
 import { SITE_URL } from './site';
 
+
 const line = (lon: number, lat: number, mi: number): [number, number][] => [[lon, lat], [lon, lat + mi / 69]];
 function trail(over: Partial<Trail> & { name: string; id: string }): Trail {
   const coords = over.coords ?? line(-121.78, 47.49, 2);
@@ -166,5 +167,20 @@ describe('highlights', () => {
     const hs = highlightsOf({ highlights: ['view', 'bikes?'], lengthM: 20000, ascentM: 500 });
     expect(hs).toEqual([{ kind: 'view', maybe: false }, { kind: 'long', maybe: false }, { kind: 'bikes', maybe: true }]);
     expect(highlightsOf({ lengthM: 3000, ascentM: 800 })).toEqual([{ kind: 'climb', maybe: false }]);
+  });
+});
+
+describe('link origin', () => {
+  it('web links use the host the user is on; no window means the public site', async () => {
+    const { linkOrigin, linkBase } = await import('./origin');
+    expect(linkOrigin()).toBe(SITE_URL);
+    expect(linkBase()).toBe('/');
+    (globalThis as unknown as { window: unknown }).window = { location: { origin: 'https://example.test' } };
+    try {
+      expect(linkOrigin()).toBe('https://example.test');
+      expect(trailUrl(trail({ id: 'osm-r1', name: 'X' }))).toMatch(/^https:\/\/example\.test\/trail\/osm-r1\?ll=/);
+      (globalThis as unknown as { window: unknown }).window = { Capacitor: { isNativePlatform: () => true }, location: { origin: 'capacitor://localhost' } };
+      expect(linkOrigin()).toBe(SITE_URL);
+    } finally { delete (globalThis as unknown as { window?: unknown }).window; }
   });
 });

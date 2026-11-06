@@ -3,7 +3,7 @@ import { getTileTemplate } from './lib/offline';
 import { listAllSaved } from './lib/saved';
 import { bookmark, unsave } from './lib/saved';
 import { remember, resolveTrail } from './lib/lookup';
-import { appBase } from './lib/site';
+import { appBase } from './lib/origin';
 import { parseRoute, routePath, type Route, type Tab } from './lib/route';
 import type { Trail } from './lib/trails';
 import type { LngLat } from './lib/geo';

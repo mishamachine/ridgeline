@@ -29,8 +29,9 @@ interface Props {
   onSavedChange: () => void;
 }
 
-// Measured on the Rattlesnake Ledge download in dev: about 15 KB per tile (see PR notes). An estimate, shown as "about".
-const AVG_TILE_BYTES = 15 * 1024;
+// Measured once in dev: the Rattlesnake Ledge download was 933 KB for 16 tiles plus label fonts, about 58 KB each.
+// Other areas vary, so the button says "about".
+const AVG_TILE_BYTES = 58 * 1024;
 
 const SAC: Record<string, string> = {
   hiking: 'Easy footing', mountain_hiking: 'Uneven, steep in places', demanding_mountain_hiking: 'Scrambling possible',

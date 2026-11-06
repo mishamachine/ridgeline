@@ -33,8 +33,8 @@ const devNames: Plugin = {
 
 export default defineConfig({
   base,
-  // Dev only: read hosted trail cells from the live site (set TRAILS_PROXY to use another host).
-  server: { proxy: { '/trails': { target: process.env.TRAILS_PROXY ?? 'https://hike.bobolearns.com', changeOrigin: true } } },
+  // Dev only: set TRAILS_PROXY=https://<host> to read hosted trail cells from a live site.
+  server: process.env.TRAILS_PROXY ? { proxy: { '/trails': { target: process.env.TRAILS_PROXY, changeOrigin: true } } } : {},
   plugins: [
     react(),
     spaFallback,

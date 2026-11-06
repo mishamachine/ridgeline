@@ -261,7 +261,7 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
               {matches.map((m) => (
                 <button key={m[0]} role="option" aria-selected="false" className="sg" onClick={() => { closeSearch(); onOpenId(m[0], [m[2], m[3]]); }}>
                   <span className="sg-name">{m[1]}</span>
-                  <span className="sg-sub">Trail · {mi(m[4])} mi</span>
+                  <span className="sg-sub">Trail · {mi(m[4])} mi long</span>
                 </button>
               ))}
               {places?.map((p, i) => (
