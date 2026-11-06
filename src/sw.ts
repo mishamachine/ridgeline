@@ -8,7 +8,9 @@ import { TILE_HOST, OFFLINE_CACHE, RUNTIME_TILE_CACHE, GLYPH_CACHE, CELL_CACHE, 
 
 declare const self: ServiceWorkerGlobalScope & { __WB_MANIFEST: Array<{ url: string; revision: string | null }> };
 
-self.skipWaiting();
+// Take over only when the page asks (not mid-hike); claim open pages once active.
+// cleanupOutdatedCaches drops old workbox precaches only; the rl-* map caches saved offline are never touched.
+self.addEventListener('message', (e) => { if (e.data === 'SKIP_WAITING') self.skipWaiting(); });
 clientsClaim();
 cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST);
