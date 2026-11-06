@@ -32,6 +32,8 @@ export interface Activity {
   rain?: boolean;
   /** Written when the hike finishes (see snapshotForActivity in badges.ts). */
   snapshot?: TrailSnapshot;
+  /** The hike was never finished; it was closed at its last point. See abandoned.ts. */
+  unfinished?: boolean;
 }
 
 const T = 'trail:', A = 'act:', S = 'sl:';

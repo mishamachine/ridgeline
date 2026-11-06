@@ -33,6 +33,8 @@ interface Props {
   tpl: string;
   trail: Trail;
   saved: boolean;
+  /** Picks up a hike that was left running: its earlier track is kept. */
+  resume?: Activity;
   onEnd: () => void;
   /** Called with the hike's numbers when the hiker finishes. Without it, Finish just calls onEnd. */
   onFinish?: (summary: HikeSummary, activity: Activity) => void;
@@ -40,10 +42,10 @@ interface Props {
 
 const MIN_PROGRESS_M = 400;   // walked this far before adjusting time to your own pace
 
-export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
+export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) {
   const mapRef = useRef<MLMap | null>(null);
   const actRef = useRef<Activity>(null as unknown as Activity);
-  if (!actRef.current) actRef.current = startActivity(trail);
+  if (!actRef.current) actRef.current = resume ?? startActivity(trail);
   const startAlongRef = useRef<number | null>(null);
   const maxAlongRef = useRef(0);
   const walkedRef = useRef(0);

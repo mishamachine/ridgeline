@@ -16,4 +16,4 @@ Allow: /
 User-agent: PerplexityBot
 Allow: /
 
-Sitemap: https://hike.bbprojectfactory.com/sitemap.xml
+Sitemap: https://hike.bobolearns.com/sitemap.xml

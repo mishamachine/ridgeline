@@ -53,7 +53,7 @@ function cleanSnapshot(s: unknown): TrailSnapshot | null {
 
 export function cleanActivity(a: unknown): Activity | null {
   if (!isObj(a) || !str(a.id) || a.id === '' || !str(a.name) || !num(a.startedAt) || !optNum(a.endedAt)) return null;
-  if (!(a.trailId === undefined || str(a.trailId)) || !optBool(a.withDog) || !optBool(a.rain)) return null;
+  if (!(a.trailId === undefined || str(a.trailId)) || !optBool(a.withDog) || !optBool(a.rain) || !optBool(a.unfinished)) return null;
   if (!Array.isArray(a.points) || a.points.length > MAX_POINTS) return null;
   const points: TrackPoint[] = [];
   for (const p of a.points) { const c = cleanPoint(p); if (!c) return null; points.push(c); }
@@ -62,6 +62,7 @@ export function cleanActivity(a: unknown): Activity | null {
   if (a.trailId !== undefined) out.trailId = a.trailId as string;
   if (a.withDog !== undefined) out.withDog = a.withDog as boolean;
   if (a.rain !== undefined) out.rain = a.rain as boolean;
+  if (a.unfinished !== undefined) out.unfinished = a.unfinished as boolean;
   if (a.snapshot !== undefined) { const sn = cleanSnapshot(a.snapshot); if (!sn) return null; out.snapshot = sn; }
   return out;
 }

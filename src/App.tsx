@@ -13,6 +13,7 @@ import type { Badge } from './lib/badges';
 import { computeBadges, newBadgesFor } from './lib/badges';
 import { listActivities, listSaved, type Activity } from './lib/store';
 import { features } from './lib/features';
+import { closeAbandoned } from './lib/abandoned';
 import { getSettings, shouldShowOnboarding } from './lib/settings';
 import { shareApp } from './lib/share';
 import { toast } from './lib/toast';
@@ -53,6 +54,7 @@ export function App() {
   const [trail, setTrail] = useState<Trail | null>(null);       // trail shown on a /trail/<id> page
   const [trailState, setTrailState] = useState<'idle' | 'loading' | 'missing'>('idle');
   const [hike, setHike] = useState<Trail | null>(null);
+  const [resume, setResume] = useState<Activity | null>(null);
   const [saved, setSaved] = useState<{ marked: Set<string>; offline: Set<string>; version: number }>({ marked: new Set(), offline: new Set(), version: 0 });
   const [removing, setRemoving] = useState<Trail | null>(null);
   const [onboarding, setOnboarding] = useState<null | 'first' | 'replay'>(() => (shouldShowOnboarding() ? (getSettings().onboardingSeen ? 'replay' : 'first') : null));
@@ -72,6 +74,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    closeAbandoned().catch(() => {}); // hikes left open for over 6 hours are closed as Unfinished
     getTileTemplate().then(setTpl);
     refreshSaved();
   }, [refreshSaved]);
@@ -130,11 +133,17 @@ export function App() {
     } else { await bookmark(t); refreshSaved(); }
   }, [saved, refreshSaved]);
 
+  const resumeHike = useCallback(async (a: Activity) => {
+    const t = a.trailId ? await resolveTrail(a.trailId, a.points[0] ? [a.points[0].lon, a.points[0].lat] : null).catch(() => null) : null;
+    if (!t) { toast('Could not load that trail. Try again with a signal.'); return; }
+    setResume(a);
+    setHike(t);
+  }, []);
   const [switching, setSwitching] = useState<Trail | null>(null); // a different trail was chosen while a hike runs
   const startHike = useCallback((t: Trail) => {
     const a = startAction(hike, t);
     if (a === 'confirm') { setSwitching(t); return; }
-    if (a === 'start') setHike(t);
+    if (a === 'start') { setResume(null); setHike(t); }
     go({ kind: 'tab', tab: 'hike' }); // same trail: just go back to the hike in progress
   }, [go, hike]);
 
@@ -184,7 +193,7 @@ export function App() {
         <Saved visible={tab === 'saved'} version={saved.version} onOpen={openTrail} onChange={refreshSaved} onFind={() => goTab('find')} />
       </div>
       <div className="screen" hidden={tab !== 'hike' || !!hike}>
-        <Hike visible={tab === 'hike' && !hike} version={saved.version} onStart={startHike} onFind={() => goTab('find')} />
+        <Hike visible={tab === 'hike' && !hike} version={saved.version} onStart={startHike} onFind={() => goTab('find')} onResume={resumeHike} />
       </div>
       <div className="screen" hidden={tab !== 'profile'}>
         <Profile version={profileVersion} onOpenBadges={() => go({ kind: 'badges' })} onReplayTour={() => setOnboarding('replay')} onOpenActivity={openActivity} />
@@ -192,7 +201,7 @@ export function App() {
 
       {hike && (
         <div className="screen" hidden={!hiking}>
-          <Navigate key={hike.id} tpl={tpl} trail={hike} saved={saved.offline.has(hike.id)} onEnd={() => { const t = hike; setHike(null); openTrail(t); }} onFinish={(sm, a) => finishHike(hike, sm, a)} />
+          <Navigate key={hike.id} tpl={tpl} trail={hike} resume={resume ?? undefined} saved={saved.offline.has(hike.id)} onEnd={() => { const t = hike; setHike(null); openTrail(t); }} onFinish={(sm, a) => finishHike(hike, sm, a)} />
         </div>
       )}
 

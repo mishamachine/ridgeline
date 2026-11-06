@@ -144,7 +144,7 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, version, p
             const info = (
               <>
                 <b>{a.name}</b>
-                <small>{distanceValue(trackDistance(a.points), u)} {distanceUnit(u)} · {duration(((a.endedAt ?? a.startedAt) - a.startedAt) / 60000)} · {new Date(a.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</small>
+                <small>{distanceValue(trackDistance(a.points), u)} {distanceUnit(u)} · {duration(((a.endedAt ?? a.startedAt) - a.startedAt) / 60000)} · {new Date(a.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{a.unfinished ? ' · Unfinished' : ''}</small>
               </>
             );
             return (
