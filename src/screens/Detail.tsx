@@ -18,6 +18,7 @@ import { bookmark, unsave } from '../lib/saved';
 import { useDownload } from '../lib/useDownload';
 import { A2HS_TIP, isIOS, isStandalone } from '../lib/pwa';
 import { requestCompassPermission } from '../lib/gps/compass';
+import { primeSpeech } from '../lib/voice/speak';
 import { ELEVATION_NOTICE, ELEVATION_LIABILITY, SAFETY_LINE } from '../lib/credits';
 
 interface Props {
@@ -168,7 +169,7 @@ export function Detail({ tpl, trail, bookmarked, onBack, onStart, onSavedChange 
       </div>
 
       <div className="dock">
-        <button className="btn btn-primary btn-big" onClick={() => { requestCompassPermission(); onStart(trail); }}>Start hike</button>
+        <button className="btn btn-primary btn-big" onClick={() => { requestCompassPermission(); primeSpeech(); onStart(trail); }}>Start hike</button>
       </div>
 
       {chooser && <MapsChooser options={options} onClose={() => setChooser(false)} />}

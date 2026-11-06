@@ -1,5 +1,6 @@
 import { cumulative, pointAt, LngLat } from '../geo';
 import { Frame } from './frame';
+import { findReversals } from './reversals';
 
 export interface MatcherOptions {
   /** Snap when within max(accuracy, snapMinM). */
@@ -37,6 +38,9 @@ export interface MatchResult {
   nearestPoint?: LngLat;
 }
 
+/** Within this far of a tip along the route, we count the tip as reached. */
+const TIP_ZONE_M = 12;
+
 interface Cand { along: number; d: number }
 
 export class RouteMatcher {
@@ -53,12 +57,16 @@ export class RouteMatcher {
   private offCount = 0;
   private backCount = 0;
   private off = false;
+  /** Where the route doubles back (spur tips), and how many of them we have reached. */
+  readonly tips: number[];
+  private tipsDone = 0;
 
   constructor(coords: LngLat[], opts: Partial<MatcherOptions> = {}) {
     this.o = { ...MATCHER_DEFAULTS, ...opts };
     this.coords = coords;
     this.cum = cumulative(coords);
     this.total = this.cum.at(-1) ?? 0;
+    this.tips = findReversals(coords, this.cum);
     this.frame = new Frame(coords[0] ?? [0, 0]);
     const xy = coords.map((c) => this.frame.toXY(c));
     for (let i = 0; i < xy.length - 1; i++) {
@@ -68,14 +76,22 @@ export class RouteMatcher {
   }
 
   reset() {
-    this.prevAlong = null; this.pending = null; this.rate = 0;
+    this.prevAlong = null; this.pending = null; this.rate = 0; this.tipsDone = 0;
     this.offCount = this.backCount = 0; this.off = false;
   }
 
   /** Tell the matcher where we are on the route (manual anchor). */
   seed(along: number, t: number) {
-    this.prevAlong = along; this.prevT = t; this.pending = null; this.rate = 0;
+    this.prevAlong = along; this.prevT = t; this.pending = null; this.rate = 0; this.tipsDone = this.tips.filter((r) => r <= along).length;
     this.offCount = this.backCount = 0; this.off = false;
+  }
+
+  /** The stretch of route between the tips we have passed and the next one. */
+  private leg(): [number, number] {
+    return [
+      this.tipsDone > 0 ? this.tips[this.tipsDone - 1] - TIP_ZONE_M : -Infinity,
+      this.tipsDone < this.tips.length ? this.tips[this.tipsDone] + TIP_ZONE_M : Infinity,
+    ];
   }
 
   /** One candidate per segment within `maxD` metres of p. */
@@ -109,6 +125,13 @@ export class RouteMatcher {
     const { all, min } = this.candidates(px, py, snapR);
     let cands = all;
     if (!cands.length) cands = this.candidates(px, py, min + 15).all; // nothing in range: still track the nearest
+    // Out-and-back: until we have reached the tip, the way back (same place) is not an option, and vice versa.
+    // With no history (first fix), start on the way out.
+    const [lo, hi] = this.prevAlong == null && this.tips.length ? [-Infinity, this.tips[0] + TIP_ZONE_M] : this.leg();
+    if (this.tips.length) {
+      const inLeg = cands.filter((c) => c.along >= lo && c.along <= hi);
+      if (inLeg.length) cands = inLeg;
+    }
     const dt = Math.max(0, (t - this.prevT) / 1000);
     const allow = accuracy + this.o.hysteresisM + this.o.walkMps * Math.min(dt, 60);
 
@@ -138,6 +161,10 @@ export class RouteMatcher {
     else if (dt > 5) this.rate = 0;
     this.prevAlong = pick.along;
     this.prevT = t;
+    if (this.tips.length) {
+      if (pick.along < lo || pick.along > hi) this.tipsDone = this.tips.filter((r) => r <= pick.along).length;
+      else if (this.tipsDone < this.tips.length && pick.along >= this.tips[this.tipsDone] - TIP_ZONE_M) this.tipsDone++;
+    }
 
     // Off-route is judged on the distance to the route anywhere, so parallel legs never fake an alert.
     const thr = Math.max(this.o.offMinM, this.o.offFactor * accuracy);
