@@ -47,8 +47,7 @@ export default defineConfig(({ mode }) => ({
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.ts',
-      registerType: 'autoUpdate',
-      injectRegister: 'auto',
+      injectRegister: false, // registration lives in src/lib/swUpdate.ts
       injectManifest: {
         globPatterns: ['**/*.{js,mjs,css,html,svg,png,woff2,webmanifest}'],
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,

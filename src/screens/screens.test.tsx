@@ -57,10 +57,10 @@ describe('Landing', () => {
     expect(h).not.toContain('Your turn');
     expect(h).not.toContain('See this trail first');
   });
-  it('only promises turn-by-turn when voice is on', () => {
+  it('only promises spoken directions when voice is on', () => {
     expect(renderToStaticMarkup(<Landing stats={stats} onGetApp={noop} />)).toContain('Clear trail maps and your progress');
-    expect(renderToStaticMarkup(<Landing stats={stats} features={{ voice: true }} onGetApp={noop} />)).toContain('Turn-by-turn at trail forks');
-    expect(renderToStaticMarkup(<Landing stats={stats} onGetApp={noop} />)).not.toContain('Turn-by-turn');
+    expect(renderToStaticMarkup(<Landing stats={stats} features={{ voice: true }} onGetApp={noop} />)).toContain('Spoken directions at the trail forks');
+    expect(renderToStaticMarkup(<Landing stats={stats} onGetApp={noop} />)).not.toContain('Spoken directions');
   });
   it('hides store buttons while the store links are empty', () => {
     expect(renderToStaticMarkup(<Landing stats={stats} platform="ios" onGetApp={noop} />)).not.toContain('App Store');

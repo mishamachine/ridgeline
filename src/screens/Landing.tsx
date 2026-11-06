@@ -33,7 +33,7 @@ export function Landing({ trail, stats, features, platform = 'other', onGetApp, 
       <div className="land-hero"><img src={BOBO_MARK_URL} alt="Bobo the dog, Ridgeline's mascot, in a red bandana" /></div>
       <ul className="land-list">
         <li><b aria-hidden="true">✓</b><span>Free. Maps work with no signal.</span></li>
-        <li><b aria-hidden="true">✓</b><span>{features?.voice ? 'Turn-by-turn at trail forks' : 'Clear trail maps and your progress'}</span></li>
+        <li><b aria-hidden="true">✓</b><span>{features?.voice ? 'Spoken directions at the trail forks' : 'Clear trail maps and your progress'}</span></li>
         <li><b aria-hidden="true">✓</b><span>Earn badges for the hikes you finish.</span></li>
       </ul>
       <div className="land-actions">

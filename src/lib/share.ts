@@ -2,6 +2,7 @@
 import { linkBase, linkOrigin } from './origin';
 import { routePath, type Route } from './route';
 import type { Trail } from './trails';
+import { count } from './counter';
 import { toast } from './toast';
 
 const startOf = (t: Pick<Trail, 'coords'>): [number, number] => [t.coords[0][0], t.coords[0][1]];
@@ -18,12 +19,13 @@ export interface SharePayload { title: string; text: string; url: string }
 /** Native share sheet when there is one, else copy the link. Returns what happened. */
 export async function shareOrCopy(p: SharePayload): Promise<'shared' | 'copied' | 'cancelled' | 'failed'> {
   if (typeof navigator !== 'undefined' && navigator.share) {
-    try { await navigator.share(p); return 'shared'; } catch (e) {
+    try { await navigator.share(p); count('share'); return 'shared'; } catch (e) {
       if ((e as Error).name === 'AbortError') return 'cancelled';
     }
   }
   try {
     await navigator.clipboard.writeText(p.url);
+    count('share');
     toast('Link copied');
     return 'copied';
   } catch {

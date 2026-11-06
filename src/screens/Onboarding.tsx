@@ -15,7 +15,7 @@ export function onboardingCards(f: { voice: boolean; screenOff: boolean; badges:
   const forks = f.voice && f.screenOff
     ? 'Short spoken directions at the forks, even with your phone in your pocket and the screen off.'
     : f.voice
-      ? 'Short spoken directions at the forks. Ridgeline keeps the screen on while you hike.'
+      ? 'Short spoken directions at the forks. Keep your phone in your pocket; Ridgeline keeps the screen on while you hike.'
       : 'Ridgeline buzzes if you go off route and keeps the screen on while you hike.';
   const cards: Card[] = [
     { id: 'find', tag: 'Find', title: 'Great hikes, minutes away', body: 'Find trails near you. See the length, the climb and the time before you go.', art: findArt, alt: 'A map with trail pins' },

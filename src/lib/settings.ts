@@ -26,13 +26,33 @@ export function sanitize(raw: unknown): Settings {
   };
 }
 
-function load(): Settings {
+/** Keys Navigate used before settings were shared. Read once, copied into the settings, then removed. */
+export const LEGACY_VOICE_KEY = 'ridgeline.voice';
+export const LEGACY_UNITS_KEY = 'ridgeline.units';
+
+type Store = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
+
+/** Reads the settings and folds in the two legacy keys (they win once, because they were the only place the choice was ever made). */
+export function loadSettings(store: Store): Settings {
+  let s = { ...DEFAULT_SETTINGS };
   try {
-    const t = localStorage.getItem(SETTINGS_KEY);
-    return sanitize(t ? JSON.parse(t) : null);
-  } catch {
-    return { ...DEFAULT_SETTINGS };
-  }
+    const t = store.getItem(SETTINGS_KEY);
+    s = sanitize(t ? JSON.parse(t) : null);
+  } catch { /* unreadable: defaults */ }
+  try {
+    const v = store.getItem(LEGACY_VOICE_KEY), u = store.getItem(LEGACY_UNITS_KEY);
+    if (v === null && u === null) return s;
+    if (v === 'on' || v === 'off') s = { ...s, voice: v === 'on' };
+    if (u === 'metric' || u === 'imperial') s = { ...s, units: u };
+    store.setItem(SETTINGS_KEY, JSON.stringify(s));
+    store.removeItem(LEGACY_VOICE_KEY);
+    store.removeItem(LEGACY_UNITS_KEY);
+  } catch { /* private mode: keep what we have in memory */ }
+  return s;
+}
+
+function load(): Settings {
+  try { return loadSettings(localStorage); } catch { return { ...DEFAULT_SETTINGS }; }
 }
 
 let current: Settings = load();

@@ -9,10 +9,11 @@ import { downloadGPX, trackDistance } from '../lib/tracker';
 import { removeTrailOffline, storageEstimate } from '../lib/offline';
 import { Backup, MAX_BACKUP_BYTES, downloadBackup, exportBackup, parseBackup, restoreBackup } from '../lib/backup';
 import { ELEVATION_NOTICE } from '../lib/credits';
-import { shareUrl } from '../lib/shareUrl';
+import { shareApp } from '../lib/share';
 import { features } from '../lib/features';
 import { ChevronIcon } from '../components/Icons';
-import boboUrl from '../assets/trail-bobo.svg';
+import { PageHead } from '../components/PageHead';
+import { BadgeMedal } from './Badges';
 import './profile.css';
 
 const base = import.meta.env.BASE_URL ?? '/';
@@ -21,9 +22,13 @@ export interface ProfileProps {
   onOpenBadges: () => void;
   onReplayTour: () => void;
   onOpenActivity?: (a: Activity) => void;
+  /** Changes when the screen should re-read the phone (a hike just finished, or the tab was opened). */
+  version?: number;
   /** Previews and tests only: skip reading the phone. */
   preset?: { activities: Activity[]; trails: BadgeTrail[] };
 }
+
+const trailCount = (b: Backup) => new Set([...b.saved.map((x) => x.trail.id), ...b.shortlist.map((x) => x.trail.id)]).size;
 
 function Switch({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: string }) {
   return (
@@ -33,7 +38,7 @@ function Switch({ on, onChange, label }: { on: boolean; onChange: (v: boolean) =
   );
 }
 
-export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, preset }: ProfileProps) {
+export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, version, preset }: ProfileProps) {
   const { activities, trails, reload } = useHikes(preset);
   const [settings, setSettings] = useSettings();
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -42,13 +47,14 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, preset }: 
   const [confirmClear, setConfirmClear] = useState(false);
   const [pending, setPending] = useState<Backup | null>(null);
   const [status, setStatus] = useState('');
-  const [shareMsg, setShareMsg] = useState('');
+  const [menu, setMenu] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const refreshStorage = async () => {
     try { setStorage(await storageEstimate()); setSavedCount((await listSaved()).length); } catch { /* unsupported */ }
   };
   useEffect(() => { if (!preset) refreshStorage(); }, [preset]);
+  useEffect(() => { if (version) reload(); }, [version, reload]);
 
   const u = settings.units;
   const totals = hikeTotals(activities, trails);
@@ -100,34 +106,17 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, preset }: 
     const progress = { done: 0, total: 0 };
     try {
       await restoreBackup(pending, progress);
-      setStatus(`Restored ${pending.activities.length} hikes and ${pending.saved.length} saved trails.${pending.saved.length ? ' Open a trail and tap Save offline to download its map again.' : ''}`);
+      const trails = trailCount(pending);
+      setStatus(`Restored ${pending.activities.length} hikes and ${trails} saved ${trails === 1 ? 'trail' : 'trails'}.${pending.saved.length ? ' Open a trail and tap Save offline to download its map again.' : ''}`);
     } catch { setStatus(`Restore stopped partway: ${progress.done} of ${progress.total} items were written. Nothing on your phone was deleted. Try again; items already restored are simply replaced.`); }
     setPending(null);
     reload();
     refreshStorage();
   }
 
-  async function share() {
-    const url = shareUrl();
-    const data = { title: 'Ridgeline', text: 'Trail maps that work offline, from Ridgeline.', url };
-    try {
-      if (navigator.share) { await navigator.share(data); return; }
-      await navigator.clipboard.writeText(url);
-      setShareMsg('Link copied');
-    } catch (e) {
-      if ((e as Error).name !== 'AbortError') setShareMsg(`Copy this link: ${url}`);
-    }
-  }
-
   return (
     <div className="screen pf">
-      <header className="pf-head">
-        <img src={boboUrl} alt="" />
-        <div>
-          <h1>Your hikes</h1>
-          <div className="pf-sub">{first ? `Hiking since ${first.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })} · with Bobo` : 'Record a hike and it shows up here'}</div>
-        </div>
-      </header>
+      <PageHead title="Profile" byline sub={first ? `Hiking since ${first.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })} · with Bobo` : 'Record a hike and it shows up here'} />
 
       <ul className="pf-totals" aria-label="Your totals">
         <li className="pf-total dark"><b>{totals.hikes}</b><span>{totals.hikes === 1 ? 'hike' : 'hikes'}</span></li>
@@ -138,7 +127,7 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, preset }: 
       <div className="pf-body">
         {features.badges && (
           <button className="pf-card" onClick={onOpenBadges}>
-            <span className="pf-medals" aria-hidden="true"><i /><i /><i /></span>
+            <span className="pf-medals" aria-hidden="true">{[...badges].sort((a, b) => Number(b.earned) - Number(a.earned)).slice(0, 3).map((b) => <i key={b.id} data-on={b.earned}><BadgeMedal id={b.id} size={18} /></i>)}</span>
             <span>
               <b>Badges · {earned} of {badges.length}</b>
               <small>{next ? `Next: ${next.name} (${next.progress.have} of ${next.progress.need}${next.id === '10k-club' ? ' ft' : ''})` : 'All earned'}</small>
@@ -150,30 +139,42 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, preset }: 
         <h2 className="pf-h">Hike history</h2>
         <div className="pf-group">
           {recorded.length === 0 && <p className="pf-empty">No hikes yet. Start one from a trail and it is saved here, on your phone.</p>}
-          {recorded.map((a) => (
-            <div key={a.id} className="pf-hike">
-              <div>
+          {recorded.map((a) => {
+            const canOpen = !!onOpenActivity && !!a.trailId;
+            const info = (
+              <>
                 <b>{a.name}</b>
-                <small>{distanceValue(trackDistance(a.points), u)} {distanceUnit(u)} · {duration(((a.endedAt ?? a.startedAt) - a.startedAt) / 60000)} · {new Date(a.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</small>
-              </div>
-              <div className="pf-actions">
-                {onOpenActivity && <button className="pf-btn" onClick={() => onOpenActivity(a)}>Open</button>}
-                <button className="pf-btn" onClick={() => downloadGPX(a)} aria-label={`Export ${a.name} as GPX`}>GPX</button>
-                <button className="pf-btn" aria-pressed={!!a.withDog} onClick={() => mark(a, 'withDog')}>With my dog</button>
-                <button className="pf-btn" aria-pressed={!!a.rain} onClick={() => mark(a, 'rain')}>In the rain</button>
-                <button className="pf-btn danger" onClick={() => setConfirmDelete(a.id)} aria-label={`Delete ${a.name}`}>Delete</button>
-              </div>
-              {confirmDelete === a.id && (
-                <div className="pf-confirm" role="alertdialog" aria-label={`Delete ${a.name}?`}>
-                  <p>Delete this hike from your phone? This cannot be undone.</p>
-                  <div className="pf-actions" style={{ padding: 0 }}>
-                    <button className="pf-btn danger" onClick={() => remove(a.id)}>Delete hike</button>
-                    <button className="pf-btn" onClick={() => setConfirmDelete(null)}>Keep it</button>
-                  </div>
+                <small>{distanceValue(trackDistance(a.points), u)} {distanceUnit(u)} · {duration(((a.endedAt ?? a.startedAt) - a.startedAt) / 60000)} · {new Date(a.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{a.unfinished ? ' · Unfinished' : ''}</small>
+              </>
+            );
+            return (
+              <div key={a.id} className="pf-hike">
+                <div className="pf-hike-row">
+                  {canOpen ? <button className="pf-hike-main" onClick={() => onOpenActivity!(a)} aria-label={`Open ${a.name}`}>{info}</button> : <div className="pf-hike-main">{info}</div>}
+                  <button className="pf-ico" aria-pressed={!!a.withDog} aria-label="With my dog" title="With my dog" onClick={() => mark(a, 'withDog')}><BadgeMedal id="trail-buddy" size={20} /></button>
+                  <button className="pf-ico" aria-pressed={!!a.rain} aria-label="In the rain" title="In the rain" onClick={() => mark(a, 'rain')}><BadgeMedal id="rain-or-shine" size={20} /></button>
+                  <button className="pf-ico" aria-label={`More for ${a.name}`} aria-haspopup="menu" aria-expanded={menu === a.id} onClick={() => setMenu(menu === a.id ? null : a.id)}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>
+                  </button>
                 </div>
-              )}
-            </div>
-          ))}
+                {menu === a.id && (
+                  <div className="pf-menu" role="menu">
+                    <button role="menuitem" className="pf-btn" onClick={() => { downloadGPX(a); setMenu(null); }}>Export as GPX</button>
+                    <button role="menuitem" className="pf-btn danger" onClick={() => { setMenu(null); setConfirmDelete(a.id); }}>Delete hike</button>
+                  </div>
+                )}
+                {confirmDelete === a.id && (
+                  <div className="pf-confirm" role="alertdialog" aria-label={`Delete ${a.name}?`}>
+                    <p>Delete this hike from your phone? This cannot be undone.</p>
+                    <div className="pf-actions" style={{ padding: 0 }}>
+                      <button className="pf-btn danger" onClick={() => remove(a.id)}>Delete hike</button>
+                      <button className="pf-btn" onClick={() => setConfirmDelete(null)}>Keep it</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         <h2 className="pf-h">Settings</h2>
@@ -188,7 +189,7 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, preset }: 
             <Switch on={settings.voice} onChange={(v) => setSettings({ voice: v })} label="Voice directions" />
           </div>
           <p className="pf-note" style={{ margin: 0 }}>
-            {features.voice ? 'Short spoken directions at the forks.' : 'Spoken directions are coming in a later update; your choice is saved.'} Directions are a guide; check conditions; not for emergency use.
+            {features.voice ? 'Short spoken directions at the forks, using a voice already on your phone.' : 'Spoken directions are coming in a later update; your choice is saved.'} Directions are a guide; check conditions; not for emergency use.
           </p>
 
           <div className="pf-row">
@@ -199,7 +200,10 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, preset }: 
             </div>
           </div>
 
-          {/* Setting `withDogDefault` is kept; its switch stays hidden until new hikes read it. */}
+          <div className="pf-row">
+            <span>New hikes start “with my dog”</span>
+            <Switch on={settings.withDogDefault} onChange={(v) => setSettings({ withDogDefault: v })} label="New hikes start with my dog" />
+          </div>
 
           <div className="pf-row" style={{ alignItems: 'flex-start', flexDirection: 'column', gap: 4 }}>
             <span>Offline maps</span>
@@ -249,7 +253,7 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, preset }: 
           </div>
           {pending && (
             <div className="pf-confirm" role="alertdialog" aria-label="Restore this backup?">
-              <p>This backup has {pending.activities.length} hikes and {pending.saved.length} saved trails. Restoring replaces hikes on this phone that have the same ID, and your current settings. Nothing else is removed.</p>
+              <p>This backup has {pending.activities.length} {pending.activities.length === 1 ? 'hike' : 'hikes'} and {trailCount(pending)} saved {trailCount(pending) === 1 ? 'trail' : 'trails'}. Restoring replaces hikes on this phone that have the same ID, and your current settings. Nothing else is removed.</p>
               <div className="pf-actions" style={{ padding: 0 }}>
                 <button className="pf-btn solid" onClick={doRestore}>Restore</button>
                 <button className="pf-btn" onClick={() => setPending(null)}>Cancel</button>
@@ -260,8 +264,7 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, preset }: 
         </div>
 
         <div className="pf-center">
-          <button className="pf-link" onClick={share}>Share Ridgeline with friends</button>
-          {shareMsg && <div className="pf-sub" role="status">{shareMsg}</div>}
+          <button className="pf-link" onClick={shareApp}>Share Ridgeline with friends</button>
         </div>
       </div>
     </div>

@@ -2,6 +2,7 @@ import { M_TO_FT, totalAscent } from '../../lib/geo';
 import type { Activity } from '../../lib/store';
 import type { Trail } from '../../lib/trails';
 import { trackDistance } from '../../lib/tracker';
+import type { HikeSummary as CelebrateSummary } from '../../lib/hype';
 
 /** What the celebration screen gets when a hike is finished. */
 export interface HikeSummary {
@@ -51,5 +52,21 @@ export function buildSummary(o: {
     endedAt: o.endedAt,
     highlightsHit: completedFraction >= HIGHLIGHTS_AT ? [...(trail.highlights ?? [])] : [],
     completedFraction,
+  };
+}
+
+/** The celebration screen and share card read the hike in this shape. */
+export function toCelebrateSummary(s: HikeSummary): CelebrateSummary {
+  const { trail } = s;
+  return {
+    trail: { id: trail.id, name: trail.name, highlights: trail.highlights, elevation: trail.elevation },
+    distanceM: s.distanceM,
+    climbFt: s.climbFt,
+    movingMs: s.movingMs,
+    startedAt: s.startedAt,
+    endedAt: s.endedAt,
+    highlightsHit: s.highlightsHit,
+    completedFraction: s.completedFraction,
+    track: s.activity.points.map((p) => ({ lat: p.lat, lon: p.lon })),
   };
 }

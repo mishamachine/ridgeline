@@ -14,6 +14,9 @@ if (isNative()) {
   addProtocol(PROTOCOL, async (p) => ({ data: await loadMapResource(p.url) })); // saved maps without a service worker
   void probeCacheStorage().then((r) => console.log(`[cache-probe] ${r}`));
 }
+import { initSwUpdate } from './lib/swUpdate';
+
+if (!isNative()) initSwUpdate(); // the apps have no service worker
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

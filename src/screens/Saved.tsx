@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { TrailCard } from '../components/TrailCard';
 import { Placeholder } from '../components/Bobo';
+import { PageHead } from '../components/PageHead';
 import { ConfirmSheet } from '../components/ConfirmSheet';
 import { DownloadIcon, ShareIcon } from '../components/NavIcons';
 import { listAllSaved, unsave, type SavedItem } from '../lib/saved';
@@ -50,7 +51,7 @@ export function Saved({ visible, version, onOpen, onChange, onFind }: Props) {
 
   return (
     <div className="page">
-      <div className="page-head"><h1 className="page-title">Saved</h1></div>
+      <PageHead title="Saved" />
 
       {items && items.length > 0 && (
         <div className="share-panel">

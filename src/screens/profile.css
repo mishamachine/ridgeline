@@ -1,25 +1,22 @@
 /* Profile, Badges and Onboarding. Palette and type follow styles.css. */
 .pf { padding-bottom: 32px; }
-.pf-head { display: flex; align-items: center; gap: 14px; padding: calc(var(--safe-top) + 20px) 20px 10px; }
-.pf-head img { width: 64px; height: 64px; flex-shrink: 0; }
-.pf-head h1 { font-size: 28px; letter-spacing: -0.02em; }
-.pf-sub { font-size: 13px; color: var(--grey); margin-top: 2px; }
 .pf-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 4px 20px 12px; padding: 0; list-style: none; }
-.pf-total { background: var(--white); border: 1px solid var(--hair); border-radius: 14px; padding: 12px; }
+.pf-total { background: var(--white); border: 1px solid var(--hair); border-radius: 16px; padding: 12px; }
 .pf-total.dark { background: var(--ink); color: var(--white); border-color: var(--ink); }
 .pf-total b { display: block; font: 800 24px/1.1 var(--display); }
 .pf-total span { font-size: 12px; color: var(--grey); }
 .pf-total.dark span { color: var(--hair); }
 .pf-body { padding: 0 20px; display: flex; flex-direction: column; gap: 10px; }
-.pf-card { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 12px 14px; background: var(--white); border: 1px solid var(--hair); border-radius: 14px; text-align: left; color: var(--ink); }
+.pf-card { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 12px 14px; background: var(--white); border: 1px solid var(--hair); border-radius: 16px; text-align: left; color: var(--ink); }
 .pf-card b { display: block; font-size: 16px; font-weight: 700; }
 .pf-card small { display: block; font-size: 13px; color: var(--grey); }
 .pf-card > span:first-child { flex-grow: 1; }
 .pf-medals { display: flex; }
-.pf-medals i { width: 34px; height: 34px; border-radius: 50%; background: var(--ink); border: 2px solid var(--red); margin-left: -10px; }
+.pf-medals i { width: 36px; height: 36px; border-radius: 50%; background: #EDEDEA; color: #6A6A6A; border: 2px solid var(--hair); margin-left: -10px; display: flex; align-items: center; justify-content: center; }
+.pf-medals i[data-on='true'] { background: var(--ink); color: var(--white); border-color: var(--red); }
 .pf-medals i:first-child { margin-left: 0; }
 .pf-h { margin: 14px 0 0; font: 700 12px var(--text); letter-spacing: 0.06em; text-transform: uppercase; color: var(--grey); }
-.pf-group { background: var(--white); border: 1px solid var(--hair); border-radius: 14px; }
+.pf-group { background: var(--white); border: 1px solid var(--hair); border-radius: 16px; }
 .pf-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; padding: 8px 14px; border-bottom: 1px solid #EDEDEA; font-size: 15px; font-weight: 600; width: 100%; background: transparent; border-left: 0; border-right: 0; border-top: 0; text-align: left; color: var(--ink); text-decoration: none; }
 .pf-group > :last-child { border-bottom: 0; }
 .pf-row .val { font-weight: 500; color: var(--grey); font-size: 14px; text-align: right; }
@@ -30,10 +27,10 @@
 .pf-switch[data-on='true'] { background: var(--ink); }
 .pf-switch[data-on='true']::after { left: 23px; background: var(--white); }
 .pf-switchbox { min-width: 44px; min-height: 44px; display: flex; align-items: center; justify-content: center; background: none; border: 0; padding: 0; }
-.pf-seg { display: flex; border: 2px solid var(--ink); border-radius: 10px; overflow: hidden; }
+.pf-seg { display: flex; border: 2px solid var(--ink); border-radius: 12px; overflow: hidden; }
 .pf-seg button { min-height: 44px; min-width: 64px; padding: 0 12px; border: 0; background: var(--white); font-weight: 600; font-size: 14px; }
 .pf-seg button[aria-pressed='true'] { background: var(--ink); color: var(--white); }
-.pf-btn { min-height: 44px; padding: 0 14px; border: 1px solid var(--ink); border-radius: 10px; background: var(--white); font-weight: 600; font-size: 14px; color: var(--ink); }
+.pf-btn { min-height: 48px; padding: 0 14px; border: 1px solid var(--ink); border-radius: 12px; background: var(--white); font-weight: 600; font-size: 14px; color: var(--ink); }
 .pf-btn.danger { border-color: var(--red); color: #B3201C; }
 .pf-btn.solid { background: var(--ink); color: var(--white); }
 .pf-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 14px 12px; }
@@ -41,8 +38,13 @@
 .pf-hike:last-child { border-bottom: 0; }
 .pf-hike b { font-size: 16px; }
 .pf-hike small { display: block; font-size: 13px; color: var(--grey); }
+.pf-hike-row { display: flex; align-items: center; gap: 4px; }
+.pf-hike-main { flex: 1; min-width: 0; min-height: 48px; display: flex; flex-direction: column; justify-content: center; text-align: left; background: none; border: 0; padding: 0; color: var(--ink); }
+.pf-hike-main b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pf-ico { width: 44px; height: 44px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 50%; border: 0; background: transparent; color: #6A6A6A; }
+.pf-ico[aria-pressed='true'] { background: var(--ink); color: var(--white); }
+.pf-menu { display: flex; flex-wrap: wrap; gap: 8px; }
 .pf-hike .pf-actions { padding: 0; }
-.pf-hike button[aria-pressed='true'] { background: var(--ink); color: var(--white); }
 .pf-empty { padding: 14px; color: var(--grey); font-size: 14px; }
 .pf-confirm { padding: 12px 14px; background: #FFF3F2; border-top: 1px solid var(--red); font-size: 14px; }
 .pf-confirm p { margin: 0 0 8px; }
@@ -53,9 +55,8 @@
 .pf-center { text-align: center; padding-top: 6px; }
 
 /* Badges */
-.bd-top { padding: calc(var(--safe-top) + 12px) 20px 8px; display: flex; flex-direction: column; gap: 6px; }
-.bd-back { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; align-self: flex-start; background: none; border: 0; padding: 0; font-weight: 600; font-size: 15px; color: var(--ink); }
-.bd-top h1 { font-size: 28px; letter-spacing: -0.02em; }
+.bd-top { padding: calc(var(--safe-top) + 12px) 20px 8px; display: flex; align-items: center; gap: 12px; }
+.bd-top h1 { font: 800 28px/1.05 var(--display); letter-spacing: -0.5px; }
 .bd-next { margin: 6px 20px 14px; padding: 14px; border-radius: 16px; background: var(--white); border: 1px solid var(--hair); display: flex; gap: 14px; align-items: center; }
 .bd-next img { width: 72px; height: 72px; flex-shrink: 0; }
 .bd-next h2 { margin: 0; font: 800 18px var(--display); }
@@ -77,9 +78,9 @@
 .ob-prog i { height: 5px; flex-grow: 1; border-radius: 3px; background: var(--hair); }
 .ob-prog i.on { background: var(--ink); }
 .ob-skip { min-height: 44px; min-width: 44px; padding: 0 10px; border: 0; background: transparent; font-weight: 600; font-size: 15px; color: #595959; }
-.ob-art { position: relative; border-radius: 24px; background: #E9ECE4; display: flex; align-items: center; justify-content: center; min-height: 200px; max-height: 330px; flex: 0 1 330px; overflow: hidden; }
+.ob-art { position: relative; border-radius: 20px; background: #E9ECE4; display: flex; align-items: center; justify-content: center; min-height: 200px; max-height: 330px; flex: 0 1 330px; overflow: hidden; }
 .ob-art img { width: 100%; height: 100%; max-height: 330px; object-fit: contain; padding: 14px; }
-.ob-tag { position: absolute; right: 16px; top: 16px; background: var(--ink); color: var(--white); border-radius: 12px; padding: 8px 12px; font-weight: 700; font-size: 13px; }
+.ob-tag { position: absolute; right: 16px; top: 16px; background: var(--ink); color: var(--white); border-radius: 999px; padding: 8px 12px; font-weight: 700; font-size: 13px; }
 .ob h1 { font: 800 32px/1.05 var(--display); letter-spacing: -0.02em; }
 .ob h1:focus { outline: none; }
 .ob p { margin: 10px 0 0; font-size: 17px; line-height: 1.45; color: #3A3A3A; }
@@ -87,6 +88,6 @@
 .ob li { display: flex; gap: 10px; }
 .ob li::before { content: '·'; color: var(--red); font-weight: 800; }
 .ob-foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; }
-.ob-primary { min-height: 56px; border-radius: 14px; border: 0; background: var(--red); color: var(--white); font: 800 18px var(--display); }
+.ob-primary { min-height: 56px; border-radius: 12px; border: 0; background: var(--red); color: var(--white); font: 800 18px var(--display); }
 .ob-quiet { min-height: 44px; border: 0; background: transparent; font-weight: 600; font-size: 15px; color: var(--ink); }
 .ob-arrows { display: flex; justify-content: space-between; }

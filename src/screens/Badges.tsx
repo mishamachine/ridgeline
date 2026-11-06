@@ -3,6 +3,7 @@ import type { Activity } from '../lib/store';
 import { Badge, BadgeId, BadgeTrail, computeBadges, nextBadge } from '../lib/badges';
 import { useHikes } from '../lib/useHikes';
 import { BackIcon } from '../components/Icons';
+import { Placeholder } from '../components/Bobo';
 import boboUrl from '../assets/trail-bobo.svg';
 import './profile.css';
 
@@ -41,16 +42,25 @@ export function BadgeMedal({ id, size = 36 }: { id: BadgeId; size?: number }) {
 }
 
 export function Badges({ onBack, preset }: { onBack?: () => void; preset?: { activities: Activity[]; trails: BadgeTrail[] } }) {
-  const { activities, trails } = useHikes(preset);
+  const { activities, trails, loaded } = useHikes(preset);
   const badges = useMemo(() => computeBadges(activities, trails), [activities, trails]);
   const next = nextBadge(badges);
   const done = badges.filter((b) => b.earned).length;
   const pct = next ? Math.round((next.progress.have / next.progress.need) * 100) : 100;
 
+  if (!loaded) {
+    return (
+      <div className="screen pf">
+        <div className="bd-top">{onBack && <button className="round" onClick={onBack} aria-label="Back to Profile"><BackIcon /></button>}<h1>Badges</h1></div>
+        <Placeholder title="Loading your badges…" />
+      </div>
+    );
+  }
+
   return (
     <div className="screen pf">
       <div className="bd-top">
-        {onBack && <button className="bd-back" onClick={onBack}><BackIcon size={18} />Profile</button>}
+        {onBack && <button className="round" onClick={onBack} aria-label="Back to Profile"><BackIcon /></button>}
         <h1>Badges · {done} of {badges.length}</h1>
       </div>
 
