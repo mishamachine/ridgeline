@@ -127,7 +127,7 @@ class BuildOnSample(unittest.TestCase):
             seen = 0
             for cell in index['cells']:
                 body = read_json(os.path.join(out, cell + '.json'))
-                for _, g, z in (m for r in body['r'] for m in r['m']):
+                for _, g, z, *_rest in (m for r in body['r'] for m in r['m']):
                     self.assertEqual(len(z), len(g) // 2)
                     self.assertTrue(all(v > 0 for v in elevation.decode_deltas(z)))
                     seen += 1
