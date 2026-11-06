@@ -45,7 +45,8 @@ KEEP = ['name', 'ref', 'route', 'sac_scale', 'surface', 'dog', 'operator', 'desc
 MAX_DESC = 300
 JUNCTION_RE = re.compile(r'^(path|footway|track|bridleway|steps)$')
 MODE_KEYS = ('bicycle', 'horse', 'dog')
-WATER_KINDS = {'', 'lake', 'pond', 'reservoir'}
+WATER_KINDS = {'lake', 'pond', 'reservoir'}   # explicit water=*; river, stream, canal etc. are not lakes
+COMPACT_MAX = 40   # untagged natural=water counts only if closed and not long and thin (perimeter^2 / area; square 16)
 ROAD_NUMBER_RE = re.compile(r'^[\d\s./-]+[A-Z]?$')            # "5030-612", "9030"
 ROAD_WORD_RE = re.compile(r'\b(road|rd|forest service|fs)\b', re.I)
 
@@ -92,12 +93,17 @@ class RouteHandler(osmium.SimpleHandler):
         super().__init__()
         self.routes = {}       # relation id -> {tags, ways: [way ids]}
         self.member_ways = set()
-        self.water_outer = set()   # outer ways of natural=water multipolygons
+        self.water_outer = set()     # outer ways of natural=water multipolygons tagged lake/pond/reservoir
+        self.water_untagged = set()  # same, with no water=* tag: only the compact closed ones count
 
     def relation(self, r):
-        if r.tags.get('type') == 'multipolygon' and r.tags.get('natural') == 'water' \
-                and r.tags.get('water', '') in WATER_KINDS:
-            self.water_outer.update(m.ref for m in r.members if m.type == 'w' and m.role == 'outer')
+        if r.tags.get('type') == 'multipolygon' and r.tags.get('natural') == 'water':
+            kind = r.tags.get('water', '')
+            outers = (m.ref for m in r.members if m.type == 'w' and m.role == 'outer')
+            if kind in WATER_KINDS:
+                self.water_outer.update(outers)
+            elif not kind:
+                self.water_untagged.update(outers)
             return
         if not ROUTE_RE.match(r.tags.get('route', '')):
             return
@@ -113,10 +119,11 @@ class RouteHandler(osmium.SimpleHandler):
 class WayHandler(osmium.SimpleHandler):
     """Pass 2: geometry for route members and named paths, plus the places highlights are drawn from."""
 
-    def __init__(self, member_ways, water_outer=()):
+    def __init__(self, member_ways, water_outer=(), water_untagged=()):
         super().__init__()
         self.member_ways = member_ways
         self.water_outer = water_outer
+        self.water_untagged = water_untagged
         self.geoms = {}        # way id -> [(lon, lat)]
         self.nodes = {}        # way id -> node ids, one per vertex in geoms
         self.names = {}        # way id -> name
@@ -125,7 +132,7 @@ class WayHandler(osmium.SimpleHandler):
         self.features = {k: hl.PointIndex() for k in hl.FEATURES}
         self.parking = []      # (lon, lat)
 
-    def _feature(self, tags, is_water_outer=False):
+    def _feature(self, tags, is_water_outer=False, compact=False):
         if tags.get('tourism') == 'viewpoint' or tags.get('natural') == 'peak':
             return 'view'
         if tags.get('waterway') == 'waterfall' or tags.get('natural') == 'waterfall':
@@ -133,6 +140,8 @@ class WayHandler(osmium.SimpleHandler):
         if tags.get('natural') == 'beach':
             return 'beach'
         if (tags.get('natural') == 'water' and tags.get('water', '') in WATER_KINDS) or is_water_outer:
+            return 'lake'
+        if compact and (tags.get('natural') == 'water' and not tags.get('water')):
             return 'lake'
         return None
 
@@ -150,7 +159,12 @@ class WayHandler(osmium.SimpleHandler):
         hw = w.tags.get('highway', '')
         name = w.tags.get('name', '')
         is_path = bool(PATH_RE.match(hw)) and bool(name) and is_trail_name(hw, name)
-        kind = self._feature(w.tags, w.id in self.water_outer)
+        untagged = (w.tags.get('natural') == 'water' and not w.tags.get('water')) or w.id in self.water_untagged
+        compact = False
+        if untagged and not (w.id in self.water_outer):
+            pts = [(n.location.lon, n.location.lat) for n in w.nodes if n.location.valid()]
+            compact = len(pts) > 3 and pts[0] == pts[-1] and hl.compactness(pts) <= COMPACT_MAX
+        kind = self._feature(w.tags, w.id in self.water_outer or (w.id in self.water_untagged and compact), compact)
         is_parking = w.tags.get('amenity') == 'parking'
         if not (is_member or is_path or kind or is_parking):
             return
@@ -201,9 +215,12 @@ class JunctionHandler(osmium.SimpleHandler):
         pts = [(round(n.location.lon, 5), round(n.location.lat, 5)) for n in w.nodes if n.location.valid()]
         name = w.tags.get('name', '')
         mine = self.keys.get(w.id) or ({('n', name)} if name else set())
+        rids = sorted(k[1] for k in mine if k[0] == 'r')
         for i, ref in enumerate(refs):
             for wid, vi in self.at.get(ref, ()):
-                if wid == w.id or (self.keys[wid] & mine):
+                # Skip only a pure continuation of every trail this way is on. A way on another route too
+                # is kept, tagged with its routes, so the app can drop it for the trails it belongs to.
+                if wid == w.id or (self.keys[wid] and self.keys[wid] <= mine):
                     continue
                 for step, rng in ((-1, range(i - 1, -1, -1)), (1, range(i + 1, len(refs)))):
                     nxt = i + step
@@ -212,7 +229,7 @@ class JunctionHandler(osmium.SimpleHandler):
                     p = hl.branch_point(pts[i], [pts[k] for k in rng])
                     if not p:
                         continue
-                    branch = p + [name] if name else p
+                    branch = p + [name, rids] if rids else (p + [name] if name else p)
                     lst = self.result.setdefault(wid, {}).setdefault(vi, [])
                     if branch not in lst:
                         lst.append(branch)
@@ -277,10 +294,11 @@ def describe(way_ids, ways, rel_modes, parking_xy):
     lengths = [way_length(ways.geoms[w]) for w in way_ids]
     shares = hl.mode_share([ways.modes[w] for w in way_ids], lengths)
     for fam, v in (rel_modes or {}).items():
+        yes, no = shares[fam]   # the relation wins, but ways that say the opposite make it uncertain
         if v in hl.MODE_YES[fam]:
-            shares[fam] = (1.0, 0.0)
+            shares[fam] = (1.0, no)
         elif v == 'no':
-            shares[fam] = (0.0, 1.0)
+            shares[fam] = (yes, 1.0)
     h = hl.combine_highlights(feats, hl.mode_highlights(shares))
     node_lists = [ways.nodes[w] for w in way_ids]
     ends = hl.chain_ends(node_lists)
@@ -292,7 +310,7 @@ def describe(way_ids, ways, rel_modes, parking_xy):
 def build(pbf, out_dir, source, dem_dir=None):
     routes = RouteHandler()
     routes.apply_file(pbf)
-    ways = WayHandler(routes.member_ways, routes.water_outer)
+    ways = WayHandler(routes.member_ways, routes.water_outer, routes.water_untagged)
     ways.apply_file(pbf, locations=True, idx='flex_mem')
 
     lats = [c[1] for g in ways.geoms.values() for c in g]
@@ -306,7 +324,7 @@ def build(pbf, out_dir, source, dem_dir=None):
             keys.setdefault(w, set()).add(('r', rid))
     for w in ways.geoms:
         keys.setdefault(w, set())
-        if ways.names[w]:
+        if ways.names[w] and not keys[w]:   # a way's identity is its routes, or its name if it is on none
             keys[w].add(('n', ways.names[w]))
     jh = JunctionHandler(ways.nodes, keys)
     jh.apply_file(pbf, locations=True, idx='flex_mem')

@@ -31,6 +31,25 @@
   <way id="400" version="1"><nd ref="3"/><nd ref="60"/><tag k="highway" v="path"/></way>
   <way id="401" version="1"><nd ref="3"/><nd ref="61"/><tag k="highway" v="path"/><tag k="name" v="Side Spur"/></way>
   <way id="402" version="1"><nd ref="2"/><nd ref="62"/><tag k="highway" v="footway"/></way>
+  <!-- Two routes that share a way and then split: Fork A = 600 + 601, Fork B = 600 + 602 -->
+  <node id="80" lat="47.450" lon="-121.950" version="1"/>
+  <node id="81" lat="47.450" lon="-121.940" version="1"/>
+  <node id="82" lat="47.455" lon="-121.935" version="1"/>
+  <node id="83" lat="47.445" lon="-121.935" version="1"/>
+  <!-- Water: an untagged compact pond, an untagged long thin riverbank, and a river-tagged area; only the pond is a lake -->
+  <node id="90" lat="47.4560" lon="-121.9350" version="1"/>
+  <node id="91" lat="47.4560" lon="-121.9340" version="1"/>
+  <node id="92" lat="47.4570" lon="-121.9340" version="1"/>
+  <node id="93" lat="47.4570" lon="-121.9350" version="1"/>
+  <node id="94" lat="47.4458" lon="-121.9500" version="1"/>
+  <node id="95" lat="47.4458" lon="-121.8500" version="1"/>
+  <node id="96" lat="47.4460" lon="-121.8500" version="1"/>
+  <node id="97" lat="47.4460" lon="-121.9500" version="1"/>
+  <way id="600" version="1"><nd ref="80"/><nd ref="81"/><tag k="highway" v="path"/></way>
+  <way id="601" version="1"><nd ref="81"/><nd ref="82"/><tag k="highway" v="path"/><tag k="dog" v="no"/></way>
+  <way id="602" version="1"><nd ref="81"/><nd ref="83"/><tag k="highway" v="path"/></way>
+  <way id="510" version="1"><nd ref="90"/><nd ref="91"/><nd ref="92"/><nd ref="93"/><nd ref="90"/><tag k="natural" v="water"/></way>
+  <way id="511" version="1"><nd ref="94"/><nd ref="95"/><nd ref="96"/><nd ref="97"/><nd ref="94"/><tag k="natural" v="water"/></way>
   <way id="100" version="1"><nd ref="1"/><nd ref="2"/><tag k="highway" v="path"/><tag k="name" v="Ridge Route"/><tag k="bicycle" v="designated"/></way>
   <way id="101" version="1"><nd ref="2"/><nd ref="3"/><nd ref="4"/><tag k="highway" v="path"/></way>
   <way id="200" version="1"><nd ref="10"/><nd ref="11"/><nd ref="12"/><tag k="highway" v="path"/><tag k="name" v="Creek Path"/><tag k="surface" v="dirt"/><tag k="dog" v="leashed"/></way>
@@ -42,6 +61,14 @@
     <member type="way" ref="100" role=""/>
     <member type="way" ref="101" role=""/>
     <tag k="type" v="route"/><tag k="route" v="hiking"/><tag k="name" v="Ridge Route"/><tag k="sac_scale" v="mountain_hiking"/><tag k="horse" v="yes"/>
+  </relation>
+  <relation id="902" version="1">
+    <member type="way" ref="600" role=""/><member type="way" ref="601" role=""/>
+    <tag k="type" v="route"/><tag k="route" v="hiking"/><tag k="name" v="Fork A"/><tag k="dog" v="yes"/>
+  </relation>
+  <relation id="903" version="1">
+    <member type="way" ref="600" role=""/><member type="way" ref="602" role=""/>
+    <tag k="type" v="route"/><tag k="route" v="hiking"/><tag k="name" v="Fork B"/>
   </relation>
   <relation id="901" version="1">
     <member type="way" ref="300" role=""/>

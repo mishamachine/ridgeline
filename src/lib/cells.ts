@@ -9,7 +9,8 @@ export interface CellIndex { v: number; built: string; source: string; elevation
  * Optional, from newer builds (old apps ignore them):
  * h: highlights; th: trailhead [lon, lat, 1 if a car park]; j: [[vertex index, [[lon, lat, name?], ...]], ...].
  */
-type CellJunctions = [number, ([number, number] | [number, number, string])[]][];
+type CellBranch = [number, number] | [number, number, string] | [number, number, string, number[]]; // [lon, lat, name?, routes?]
+type CellJunctions = [number, CellBranch[]][];
 interface CellRoute { id: number; t: Record<string, string>; n: number; m: [number, number[], number[]?, CellJunctions?][]; h?: string[]; th?: number[] }
 interface CellWay { id: number; t: Record<string, string>; g: number[]; z?: number[]; h?: string[]; th?: number[]; j?: CellJunctions }
 export interface CellFile { v: number; r: CellRoute[]; w: CellWay[] }
@@ -57,7 +58,7 @@ function addElevations(into: Map<string, number>, flat: number[], z?: number[]) 
   }
 }
 
-type Branches = Junction['branches'];
+type Branches = (Junction['branches'][number] & { routes?: number[] })[];
 /** Vertex key -> branches, from one way's junction list. */
 function addJunctions(into: Map<string, Branches>, flat: number[], j?: CellJunctions) {
   for (const [i, bs] of j ?? []) {
@@ -66,7 +67,9 @@ function addJunctions(into: Map<string, Branches>, flat: number[], j?: CellJunct
     const list = into.get(key) ?? [];
     for (const b of bs) {
       const point: LngLat = [b[0], b[1]];
-      if (!list.some((x) => x.point[0] === point[0] && x.point[1] === point[1])) list.push(b.length > 2 ? { name: b[2] as string, point } : { point });
+      if (list.some((x) => x.point[0] === point[0] && x.point[1] === point[1])) continue;
+      const name = b[2] || undefined;
+      list.push({ ...(name ? { name } : {}), point, ...(b.length > 3 ? { routes: b[3] } : {}) });
     }
     into.set(key, list);
   }
@@ -153,8 +156,11 @@ export function cellsToTrails(files: CellFile[]): Trail[] {
       const info = routeInfo.get(+r[1])!;
       hs = info.h; ths = info.th; maps = [info.j];
     } else if (w && groupOf.has(+w[1])) {
+      // Same-named trails far apart share an id prefix: use only the ways that lie on this trail.
+      const onTrail = new Set(t.coords.map((c) => `${c[0]},${c[1]}`));
       for (const id of groupOf.get(+w[1])!) {
         const way = ways.get(id)!;
+        if (!pairs(way.g).some((c) => onTrail.has(`${c.lon},${c.lat}`))) continue;
         hs.push(way.h); ths.push(way.th);
         if (wayJ.has(id)) maps.push(wayJ.get(id)!);
       }
@@ -168,7 +174,10 @@ export function cellsToTrails(files: CellFile[]): Trail[] {
       const junctions: Junction[] = [];
       for (let i = 1; i < t.coords.length - 1; i++) {
         const key = `${t.coords[i][0]},${t.coords[i][1]}`;
-        const branches = maps.flatMap((m) => m.get(key) ?? []);
+        // Drop branches that are this trail itself (its own route, or a way with its name).
+        const branches = maps.flatMap((m) => m.get(key) ?? [])
+          .filter((b) => !(r && b.routes?.includes(+r[1])) && b.name !== t.name)
+          .map(({ name, point }) => (name ? { name, point } : { point }));
         if (branches.length) junctions.push({ along: cum[i], branches });
       }
       out.junctions = junctions;
