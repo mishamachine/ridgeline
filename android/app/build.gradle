@@ -1,5 +1,8 @@
 apply plugin: 'com.android.application'
 
+def ridgelineVersionCode = Integer.parseInt(System.getenv('RIDGELINE_VERSION_CODE') ?: '1')
+def ridgelineVersionName = System.getenv('RIDGELINE_VERSION_NAME') ?: '1.0'
+
 android {
     namespace = "com.bbprojectfactory.ridgeline"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +10,8 @@ android {
         applicationId "com.bbprojectfactory.ridgeline"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode (System.getenv("RIDGELINE_VERSION_CODE") ?: "1").toInteger()
-        versionName (System.getenv("RIDGELINE_VERSION_NAME") ?: "1.0")
+        versionCode ridgelineVersionCode
+        versionName ridgelineVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
