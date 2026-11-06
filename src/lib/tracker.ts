@@ -14,10 +14,14 @@ export function trackDistance(points: TrackPoint[]): number {
 /** Adds a GPS fix to the activity if it is accurate and has moved. Returns true if added. */
 export function addFix(a: Activity, pos: GeolocationPosition): boolean {
   const { longitude, latitude, altitude, accuracy } = pos.coords;
-  if (accuracy > MAX_ACCURACY_M) return false;
+  return addPoint(a, { lon: longitude, lat: latitude, alt: altitude, acc: accuracy, t: pos.timestamp });
+}
+
+export function addPoint(a: Activity, p: TrackPoint): boolean {
+  if (p.acc > MAX_ACCURACY_M) return false;
   const last = a.points.at(-1);
-  if (last && haversine([last.lon, last.lat], [longitude, latitude]) < MIN_STEP_M) return false;
-  a.points.push({ lon: longitude, lat: latitude, alt: altitude, acc: accuracy, t: pos.timestamp });
+  if (last && haversine([last.lon, last.lat], [p.lon, p.lat]) < MIN_STEP_M) return false;
+  a.points.push(p);
   if (a.points.length % 10 === 0) putActivity(a);
   return true;
 }
