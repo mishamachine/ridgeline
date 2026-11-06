@@ -2,15 +2,19 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Map as MLMap } from 'maplibre-gl';
 import { MapView, setGeo, metersToPixels } from '../components/MapView';
 import { LocateIcon, SwapIcon } from '../components/Icons';
-import { cumulative, projectOnLine, totalAscent, LngLat } from '../lib/geo';
+import { cumulative, totalAscent, LngLat } from '../lib/geo';
 import { estimateMinutes, Trail } from '../lib/trails';
-import { addFix, newActivity, keepAwake, trackDistance } from '../lib/tracker';
+import { addPoint, newActivity, keepAwake, trackDistance } from '../lib/tracker';
 import { putActivity, Activity } from '../lib/store';
 import { duration, ft, mi } from '../lib/format';
+import { INK } from '../lib/mapStyle';
+import { GpsEngine, GpsState } from '../lib/gps/engine';
+import { WebLocationSource } from '../lib/gps/source';
+import { QUALITY_LABEL } from '../lib/gps/quality';
+import { requestCompassPermission, startCompass } from '../lib/gps/compass';
 
 interface Props { tpl: string; trail: Trail; saved: boolean; onEnd: () => void }
 
-const NEAR_TRAIL_M = 250;     // farther than this: show distance to the trail instead
 const MIN_PROGRESS_M = 400;   // walked this far before adjusting time to your own pace
 
 export function Navigate({ tpl, trail, saved, onEnd }: Props) {
@@ -22,8 +26,10 @@ export function Navigate({ tpl, trail, saved, onEnd }: Props) {
   const pausedMsRef = useRef(0);
   const pauseStartRef = useRef<number | null>(null);
 
-  const [fix, setFix] = useState<GeolocationPosition | null>(null);
-  const [gpsError, setGpsError] = useState<string | null>(null);
+  const pausedRef = useRef(false);
+  const hereRef = useRef(false);
+  const [here, setHere] = useState(false);
+  const [hereMsg, setHereMsg] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
   const [reversed, setReversed] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
@@ -38,6 +44,17 @@ export function Navigate({ tpl, trail, saved, onEnd }: Props) {
   }, [trail, reversed]);
   const total = route.cum.at(-1)!;
 
+  const [engine] = useState(() => new GpsEngine(new WebLocationSource(), {
+    route: { coords: route.coords, elevation: route.elevation },
+    onAccepted: (f) => {
+      if (!pausedRef.current) addPoint(actRef.current, { lon: f.lon, lat: f.lat, alt: f.altitude ?? null, acc: f.accuracy, t: f.t });
+    },
+  }));
+  const [g, setG] = useState<GpsState>(engine.state);
+  useEffect(() => {
+    engine.setRoute({ coords: route.coords, elevation: route.elevation });
+  }, [engine, route]);
+
   // GPS, screen wake lock, connectivity, clock.
   useEffect(() => {
     let release = () => {};
@@ -47,35 +64,33 @@ export function Navigate({ tpl, trail, saved, onEnd }: Props) {
     const net = () => setOnline(navigator.onLine);
     window.addEventListener('online', net);
     window.addEventListener('offline', net);
-    const tick = setInterval(() => setNow(Date.now()), 1000);
-    const watch = navigator.geolocation?.watchPosition(
-      (p) => { setGpsError(null); setFix(p); },
-      (e) => setGpsError(e.code === e.PERMISSION_DENIED ? 'Location is blocked. Allow it in your browser settings.' : 'Looking for GPS…'),
-      { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 },
-    );
+    const tick = setInterval(() => { setNow(Date.now()); engine.tick(Date.now()); }, 1000);
+    const unsub = engine.subscribe(setG);
+    const stopCompass = startCompass((r) => engine.ingestCompass(r));
+    engine.start();
     return () => {
+      unsub();
+      stopCompass();
+      engine.stop();
       release();
       document.removeEventListener('visibilitychange', onVis);
       window.removeEventListener('online', net);
       window.removeEventListener('offline', net);
       clearInterval(tick);
-      if (watch != null) navigator.geolocation.clearWatch(watch);
     };
-  }, []);
+  }, [engine]);
 
-  const pos: LngLat | null = fix ? [fix.coords.longitude, fix.coords.latitude] : null;
-  const proj = pos ? projectOnLine(route.coords, route.cum, pos) : null;
-  const near = proj && proj.offset <= NEAR_TRAIL_M;
-  const offRoute = !!proj && near && proj.offset > Math.max(40, (fix?.coords.accuracy ?? 0) * 1.5);
-  const along = near ? proj!.along : null;
+  const pos: LngLat | null = g.position;
+  const near = g.along != null;
+  const offRoute = g.offRoute;
+  const along = g.along;
   const remaining = along != null ? total - along : total;
 
-  // Record the track (not while paused) and note where you joined the trail.
+  // Note where you joined the trail.
   useEffect(() => {
-    if (!fix || paused) return;
-    addFix(actRef.current, fix);
+    if (paused) return;
     if (along != null && startAlongRef.current == null) startAlongRef.current = along;
-  }, [fix, paused, along]);
+  }, [paused, along]);
 
   // Direction changed: measure pace from here.
   useEffect(() => { startAlongRef.current = null; }, [reversed]);
@@ -108,15 +123,25 @@ export function Navigate({ tpl, trail, saved, onEnd }: Props) {
     const behind = along != null ? sliceTo(route.coords, route.cum, along) : [];
     setGeo(map, 'trails', { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { active: true }, geometry: { type: 'LineString', coordinates: ahead } }] });
     setGeo(map, 'done', { type: 'FeatureCollection', features: behind.length > 1 ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: behind } }] : [] });
-    if (pos && fix) {
-      setGeo(map, 'me', { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { r: metersToPixels(map, fix.coords.accuracy, pos[1]) }, geometry: { type: 'Point', coordinates: pos } }] });
+    if (pos && g.uncertaintyM != null) {
+      setGeo(map, 'me', { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { r: metersToPixels(map, g.uncertaintyM, pos[1]), anchored: g.anchored }, geometry: { type: 'Point', coordinates: pos } }] });
       if (followRef.current) map.easeTo({ center: pos, duration: 600 });
     }
-  }, [fix, along, route]);
+  }, [g, route]);
 
   function onReady(map: MLMap) {
     mapRef.current = map;
     map.on('dragstart', () => { followRef.current = false; setFollowing(false); });
+    // Hollow dot while the position is a manual "I'm here" anchor.
+    map.setPaintProperty('me-dot', 'circle-color', ['case', ['boolean', ['get', 'anchored'], false], '#FFFFFF', INK]);
+    map.setPaintProperty('me-dot', 'circle-stroke-color', ['case', ['boolean', ['get', 'anchored'], false], INK, '#FFFFFF']);
+    map.on('click', (e) => {
+      if (!hereRef.current) return;
+      const r = engine.manualAnchor([e.lngLat.lng, e.lngLat.lat]);
+      hereRef.current = false;
+      setHere(false);
+      setHereMsg(r.ok ? 'Position set to the trail. It clears when GPS agrees again.' : r.reason);
+    });
     setGeo(map, 'trails', { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { active: true }, geometry: { type: 'LineString', coordinates: route.coords } }] });
   }
 
@@ -126,11 +151,24 @@ export function Navigate({ tpl, trail, saved, onEnd }: Props) {
     if (pos) mapRef.current?.easeTo({ center: pos, zoom: Math.max(15, mapRef.current.getZoom()) });
   }
 
+  function recalibrate() {
+    setHereMsg(null);
+    engine.recalibrate();
+    requestCompassPermission(); // iOS asks on a tap
+  }
+
+  function toggleHere() {
+    hereRef.current = !here;
+    setHere(!here);
+    setHereMsg(null);
+  }
+
   function togglePause() {
     if (paused) {
       pausedMsRef.current += Date.now() - (pauseStartRef.current ?? Date.now());
       pauseStartRef.current = null;
     } else pauseStartRef.current = Date.now();
+    pausedRef.current = !paused;
     setPaused(!paused);
   }
 
@@ -142,7 +180,11 @@ export function Navigate({ tpl, trail, saved, onEnd }: Props) {
   }
 
   const start = trail.coords[0];
-  const status = gpsError ?? (!fix ? 'Looking for GPS…' : `GPS ±${Math.round(fix.coords.accuracy * 3.28084)} ft`);
+  const status = g.error?.code === 'denied' || g.error?.code === 'unsupported' ? g.error.message
+    : g.recalibrating ? 'Recalibrating GPS…'
+    : g.accuracyFt == null ? 'Looking for GPS…'
+    : g.warmingUp ? `GPS warming up ±${g.accuracyFt} ft`
+    : `GPS ${QUALITY_LABEL[g.quality!]} ±${g.accuracyFt} ft`;
   const net = online ? '' : saved ? ' · No signal, map saved' : ' · No signal';
 
   return (
@@ -158,13 +200,19 @@ export function Navigate({ tpl, trail, saved, onEnd }: Props) {
 
       <div className="pad" style={{ flex: 'none' }}>
         {offRoute ? (
-          <div className="notice alert" style={{ margin: '12px 0 0' }} role="alert">Off route · {ft(proj!.offset)} ft from the trail</div>
+          <div className="notice alert" style={{ margin: '12px 0 0' }} role="alert">Off route · {ft(g.offsetM ?? 0)} ft from the trail</div>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 0', borderBottom: '1px solid var(--hair)', fontWeight: 600 }}>
             <span aria-hidden="true" style={{ width: 10, height: 10, background: near ? 'var(--red)' : 'var(--grey)' }} />
-            {paused ? 'Paused' : near ? 'On route' : proj ? `${mi(proj.offset)} mi to the trail` : 'Starting…'}
+            {paused ? 'Paused' : g.warmingUp && !near ? 'GPS warming up — get a lock at the trailhead' : near ? (g.anchored ? 'On route · position set by you' : 'On route') : g.offsetM != null ? `${mi(g.offsetM)} mi to the trail` : 'Starting…'}
           </div>
         )}
+        <div className="chips" style={{ padding: '10px 0' }}>
+          <button className="chip" onClick={recalibrate}>Recalibrate</button>
+          <button className="chip" aria-pressed={here} onClick={toggleHere}>I'm here</button>
+        </div>
+        {(here || hereMsg) && <div className="notice" style={{ margin: '0 0 10px' }} role="status">{here ? 'Tap the map where you are on the trail.' : hereMsg}</div>}
+        {g.needsCalibration && g.compassAccuracy != null && <div className="notice" style={{ margin: '0 0 10px' }}>Compass needs calibrating. Move your phone in a figure 8.</div>}
         <div style={{ padding: '10px 0', borderBottom: '1px solid var(--ink)' }}>
           <div style={{ font: '800 96px/0.9 var(--display)', letterSpacing: '-0.05em' }}>{mi(remaining)}</div>
           <div className="label">miles {near ? 'remaining' : 'on this trail'}</div>
@@ -174,7 +222,7 @@ export function Navigate({ tpl, trail, saved, onEnd }: Props) {
           <div className="stat" style={{ borderBottom: 0 }}><div className="num-md">{climbAhead != null ? `${ft(climbAhead)} ft` : '—'}</div><div className="label">climb ahead</div></div>
         </div>
         <div className="meta" style={{ paddingBottom: 10 }}>
-          {mi(trackDistance(actRef.current.points))} mi walked · {duration(Math.max(0, movingMin))} moving
+          {mi(trackDistance(actRef.current.points))} mi walked · {duration(Math.max(0, movingMin))} moving{g.progress != null ? ` · ${Math.round(g.progress * 100)}% done` : ''}
         </div>
       </div>
 
