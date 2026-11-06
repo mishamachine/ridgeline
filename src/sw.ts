@@ -14,7 +14,7 @@ cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST);
 // /privacy/ and /support/ are static pages, not app routes: don't answer them with the app shell.
 const staticPages = ['privacy/', 'support/'].map((p) => new URL(p, self.registration.scope).pathname);
-registerRoute(new NavigationRoute(createHandlerBoundToURL('index.html'), { denylist: staticPages.map((p) => new RegExp('^' + p)) }));
+registerRoute(new NavigationRoute(createHandlerBoundToURL('index.html'), { denylist: staticPages.map((p) => new RegExp('^' + p.replace(/\/$/, '') + '(/|$)')) }));
 
 const tileExpiry = new CacheExpiration(RUNTIME_TILE_CACHE, { maxEntries: 3000, maxAgeSeconds: 14 * 24 * 3600 });
 const emptyTile = () => new Response(new ArrayBuffer(0), { status: 200, headers: { 'Content-Type': 'application/x-protobuf' } });
