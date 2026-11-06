@@ -17,12 +17,23 @@ export interface Trail {
   elevation?: number[];
   ascentM?: number;
   descentM?: number;
-  /** From the hosted data when present: 'view', 'lake', 'falls', 'beach', 'bikes', 'horses', 'dogs', 'nodogs' (a trailing '?' = partial evidence). */
+  /**
+   * Highlight kinds from the hosted data: view, lake, falls, beach, bikes, horses, dogs, nodogs, climb, long.
+   * A trailing '?' means partial or mixed evidence. Absent for Overpass trails and old files.
+   */
   highlights?: string[];
-  /** [lon, lat] to drive to. `trailheadIsParking` is true for a mapped parking lot, false for just a trail end. */
-  trailhead?: [number, number];
+  /** Where to start: nearest car park to a trail end if the data has one, else the start of the line. */
+  trailhead?: LngLat;
   trailheadIsParking?: boolean;
+  /** Places where another path meets the trail, in order from the start. Absent when the data has none. */
+  junctions?: Junction[];
 }
+
+/** `along` is metres from the start of `coords`; each branch has a point about 20 m along it. */
+export interface Junction { along: number; branches: { name?: string; point: LngLat }[] }
+
+export const HIGHLIGHT_CLIMB_FT = 2500;
+export const HIGHLIGHT_LONG_MI = 8;
 
 // Public Overpass servers, tried in order. The main one is often at capacity.
 export const OVERPASS_SERVERS = [
@@ -36,13 +47,11 @@ const MIN_TRAIL_M = 500;
 const LOOP_TOLERANCE_M = 100;
 
 type OsmPoint = { lat: number; lon: number } | null;
-type Extra = { h?: string[]; th?: [number, number, number] | null };
-type OsmWay = { type: 'way'; id: number; geometry?: OsmPoint[]; tags?: Record<string, string>; extra?: Extra };
+type OsmWay = { type: 'way'; id: number; geometry?: OsmPoint[]; tags?: Record<string, string> };
 type OsmRel = {
   type: 'relation';
   id: number;
   tags?: Record<string, string>;
-  extra?: Extra;
   members: { type: string; ref: number; role: string; geometry?: OsmPoint[] }[];
 };
 type OsmElement = OsmWay | OsmRel;
@@ -124,15 +133,12 @@ export function chainSegments(input: LngLat[][]): LngLat[][] {
   return chains.sort((a, b) => lineLength(b) - lineLength(a));
 }
 
-function makeTrail(id: string, name: string, coords: LngLat[], partial: boolean, osmUrl: string, tags: Record<string, string>, extra?: Extra): Trail {
-  const t: Trail = {
+function makeTrail(id: string, name: string, coords: LngLat[], partial: boolean, osmUrl: string, tags: Record<string, string>): Trail {
+  return {
     id, name, coords, partial, osmUrl, tags,
     lengthM: lineLength(coords),
     loop: haversine(coords[0], coords.at(-1)!) < LOOP_TOLERANCE_M,
   };
-  if (extra?.h?.length) t.highlights = extra.h;
-  if (extra?.th) { t.trailhead = [extra.th[0], extra.th[1]]; t.trailheadIsParking = extra.th[2] === 1; }
-  return t;
 }
 
 export function parseOverpass(elements: OsmElement[]): Trail[] {
@@ -159,11 +165,11 @@ export function parseOverpass(elements: OsmElement[]): Trail[] {
     }
     const chain = chainSegments(segs)[0];
     if (!chain || lineLength(chain) < MIN_TRAIL_M) continue;
-    trails.push(makeTrail(`osm-r${el.id}`, name, chain, clipped, `https://www.openstreetmap.org/relation/${el.id}`, keepTags(el.tags), el.extra));
+    trails.push(makeTrail(`osm-r${el.id}`, name, chain, clipped, `https://www.openstreetmap.org/relation/${el.id}`, keepTags(el.tags)));
   }
 
   // Named paths not already part of a route: group by name, then chain.
-  const byName = new Map<string, { segs: LngLat[][]; ids: number[]; clipped: boolean; tags: Record<string, string>; extra?: Extra }>();
+  const byName = new Map<string, { segs: LngLat[][]; ids: number[]; clipped: boolean; tags: Record<string, string> }>();
   for (const el of elements) {
     if (el.type !== 'way' || memberWayIds.has(el.id) || !el.tags?.name) continue;
     const g = byName.get(el.tags.name) ?? { segs: [], ids: [], clipped: false, tags: {} };
@@ -172,7 +178,6 @@ export function parseOverpass(elements: OsmElement[]): Trail[] {
     g.ids.push(el.id);
     g.clipped ||= r.clipped;
     g.tags = { ...keepTags(el.tags), ...g.tags };
-    g.extra ??= el.extra;
     byName.set(el.tags.name, g);
   }
   const relNames = new Set(trails.map((t) => t.name.toLowerCase()));
@@ -181,7 +186,7 @@ export function parseOverpass(elements: OsmElement[]): Trail[] {
     chainSegments(g.segs).forEach((chain, i) => {
       if (lineLength(chain) < MIN_TRAIL_M) return;
       const id = `osm-w${Math.min(...g.ids)}-${i}`;
-      trails.push(makeTrail(id, name, chain, g.clipped, `https://www.openstreetmap.org/way/${Math.min(...g.ids)}`, g.tags, g.extra));
+      trails.push(makeTrail(id, name, chain, g.clipped, `https://www.openstreetmap.org/way/${Math.min(...g.ids)}`, g.tags));
     });
   }
   return trails.sort((a, b) => b.lengthM - a.lengthM);

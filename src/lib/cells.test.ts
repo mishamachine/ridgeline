@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { cellsFor, covers, cellsToTrails, type CellFile, type CellIndex } from './cells';
-import { profileFromVertices } from './trails';
+import { cellsFor, covers, cellsToTrails, mergeHighlights, type CellFile, type CellIndex } from './cells';
+import { cumulative } from './geo';
+import { profileFromVertices, type Trail } from './trails';
+
 
 // Output of scripts/build_trails.py on scripts/sample.osm (two of its cells).
 const A: CellFile = {
@@ -71,6 +73,109 @@ describe('hosted trail cells', () => {
     const [t] = cellsToTrails([f]);
     const ends = [t.elevation![0], t.elevation!.at(-1)];
     expect(ends.sort()).toEqual([100, 400]);
+  });
+});
+
+// Real shapes from scripts/build_trails.py on scripts/sample.osm (th: [lon, lat, 1 = car park]; j: [[vertex, branches]]).
+const R1 = { id: 900, t: { name: 'Ridge Route' }, n: 2, h: ['view', 'bikes?', 'horses'], th: [-121.8005, 47.4905, 1] };
+const NEW_A: CellFile = {
+  v: 1,
+  r: [{ ...R1, m: [[100, [-121.8, 47.49, -121.76, 47.49], [150, 19], [[1, [[-121.7605, 47.488]]]]], [101, [-121.76, 47.49, -121.74, 47.5, -121.7, 47.51], [169, 812, 367], [[0, [[-121.7605, 47.488]]], [1, [[-121.7405, 47.5002], [-121.74, 47.4982, 'Side Spur']]]]]] }],
+  w: [],
+};
+
+describe('highlights, trailhead and junctions', () => {
+  const ridge = () => cellsToTrails([NEW_A]).find((t) => t.name === 'Ridge Route')!;
+
+  it('carries highlights and a parking trailhead', () => {
+    expect(ridge().highlights).toEqual(['view', 'bikes?', 'horses', 'climb']);
+    expect(ridge().trailhead).toEqual([-121.8005, 47.4905]);
+    expect(ridge().trailheadIsParking).toBe(true);
+  });
+
+  it('maps junction vertices to distance along the trail, without duplicating the shared joint', () => {
+    const t = ridge();
+    const cum = cumulative(t.coords);
+    expect(t.junctions).toHaveLength(2);
+    expect(t.junctions![0].along).toBeCloseTo(cum[1], 3);     // joint between the two ways
+    expect(t.junctions![1].along).toBeCloseTo(cum[2], 3);
+    expect(t.junctions![0].branches).toEqual([{ point: [-121.7605, 47.488] }]);
+    expect(t.junctions![1].branches).toEqual([{ point: [-121.7405, 47.5002] }, { name: 'Side Spur', point: [-121.74, 47.4982] }]);
+  });
+
+  it('keeps junction distances right when ways are joined backwards', () => {
+    const f: CellFile = { v: 1, r: [], w: [
+      { id: 1, t: { name: 'Flip' }, g: [-121.9, 47.4, -121.89, 47.4], z: [100, 100] },
+      { id: 2, t: { name: 'Flip' }, g: [-121.85, 47.4, -121.89, 47.4], z: [400, -300], j: [[1, [[-121.89, 47.401]]]] },
+    ] };
+    const [t] = cellsToTrails([f]);
+    const i = t.coords.findIndex((c) => c[0] === -121.89);
+    expect(t.junctions).toHaveLength(1);
+    expect(t.junctions![0].along).toBeCloseTo(cumulative(t.coords)[i], 3);
+    // whichever way round the chain ended up, the junction is at the joint between the two ways, 0.01 deg of lon from one end
+    expect(t.junctions![0].along).toBeGreaterThan(700);
+  });
+
+  it('falls back to the start of the line when there is no car park near an end', () => {
+    const far: CellFile = { ...NEW_A, r: [{ ...NEW_A.r[0], th: [-121.5, 47.0, 1] }] };
+    const t = cellsToTrails([far]).find((x) => x.name === 'Ridge Route')!;
+    expect(t.trailheadIsParking).toBe(false);
+    expect(t.trailhead).toEqual(t.coords[0]);
+  });
+
+  it('merges the same route from two cells once, and takes path highlights from a group of ways', () => {
+    expect(cellsToTrails([NEW_A, NEW_A]).filter((t) => t.name === 'Ridge Route')).toHaveLength(1);
+    const f: CellFile = { v: 1, r: [], w: [
+      { id: 7, t: { name: 'Lake Path' }, g: [-121.9, 47.4, -121.89, 47.4], z: [100, 0], h: ['lake', 'dogs?'] },
+      { id: 8, t: { name: 'Lake Path' }, g: [-121.89, 47.4, -121.88, 47.4], z: [100, 0], h: ['dogs'], th: [-121.9, 47.4, 1] },
+    ] };
+    const [t] = cellsToTrails([f]);
+    expect(t.highlights).toEqual(['lake', 'dogs']);
+    expect(t.trailhead).toEqual([-121.9, 47.4]);
+  });
+
+
+  it('does not mix data between same-named trails far apart', () => {
+    // Two "Lake Trail"s ~110 km apart, each long enough to be a trail (> 500 m).
+    const f: CellFile = { v: 1, r: [], w: [
+      { id: 10, t: { name: 'Lake Trail' }, g: [-121.9, 47.4, -121.89, 47.4], z: [100, 0], h: ['lake'], th: [-121.9, 47.4, 1], j: [[1, [[-121.89, 47.401]]]] },
+      { id: 11, t: { name: 'Lake Trail' }, g: [-120.9, 48.4, -120.89, 48.4], z: [100, 0], h: ['view'], th: [-120.9, 48.4, 1] },
+    ] };
+    const trails = cellsToTrails([f]).filter((t) => t.name === 'Lake Trail');
+    expect(trails).toHaveLength(2);
+    const a = trails.find((t) => t.coords[0][1] < 48)!, b = trails.find((t) => t.coords[0][1] > 48)!;
+    expect(a.highlights).toEqual(['lake']);
+    expect(b.highlights).toEqual(['view']);
+    expect(b.trailhead).toEqual([-120.9, 48.4]);
+    expect(b.junctions).toBeUndefined();
+  });
+
+  it('keeps the other route at a split and drops the trail\'s own', () => {
+    // Fork A = ways 1 + 2, Fork B = ways 1 + 3; way 1 ends at the split. Branch = [lon, lat, name, routes].
+    const g1 = [-121.95, 47.45, -121.94, 47.45], g2 = [-121.94, 47.45, -121.935, 47.455], g3 = [-121.94, 47.45, -121.935, 47.445];
+    const p2: [number, number, string, number[]] = [-121.9395, 47.4503, '', [1]];
+    const p3: [number, number, string, number[]] = [-121.9395, 47.4497, '', [2]];
+    const f: CellFile = { v: 1, r: [
+      { id: 1, t: { name: 'Fork A' }, n: 2, m: [[1, g1, [100, 0], [[1, [p2, p3]]]], [2, g2, [100, 0], [[0, [p3]]]]] },
+      { id: 2, t: { name: 'Fork B' }, n: 2, m: [[1, g1, [100, 0], [[1, [p2, p3]]]], [3, g3, [100, 0], [[0, [p2]]]]] },
+    ], w: [] };
+    const trails = cellsToTrails([f]);
+    const only = (name: string) => trails.find((t) => t.name === name)!.junctions!.map((j) => j.branches);
+    expect(only('Fork A')).toEqual([[{ point: [-121.9395, 47.4497] }]]);   // sees B's way, not its own
+    expect(only('Fork B')).toEqual([[{ point: [-121.9395, 47.4503] }]]);
+  });
+
+  it('leaves the new fields off for files that do not have them', () => {
+    const [t] = cellsToTrails([A]).filter((x) => x.name === 'Creek Path');
+    expect(t.highlights).toBeUndefined();
+    expect(t.junctions).toBeUndefined();
+    expect(t.trailhead).toBeUndefined();
+  });
+
+  it('adds climb and long from the stitched trail, and never dogs', () => {
+    const t = { lengthM: 13000, ascentM: 800 } as Trail;
+    expect(mergeHighlights([['lake', 'dogs?']], t)).toEqual(['lake', 'dogs?', 'climb', 'long']);
+    expect(mergeHighlights([], { lengthM: 1000, ascentM: 10 } as Trail)).toBeUndefined();
   });
 });
 

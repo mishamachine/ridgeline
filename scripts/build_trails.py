@@ -13,6 +13,13 @@ Trails are the same two kinds the app searches for:
 
 Every way also carries `z`: the elevation in whole metres at each of its vertices, sampled
 from the Copernicus DEM GLO-90 (scripts/elevation.py) and delta-encoded ([z0, z1-z0, ...]).
+Optional fields (old apps ignore them; `v` stays 1), see scripts/highlights.py:
+  h   highlights of the route / connected path ('view','lake','falls','beach','bikes','horses',
+      'dogs','nodogs'; a trailing '?' means partial or mixed evidence). 'climb' and 'long' come
+      from the stitched trail in the app.
+  th  trailhead [lon, lat, 1|0]: nearest amenity=parking within 300 m of a trail end (1), else a trail end (0)
+  j   junctions on a way: [[vertex index, [[lon, lat, name?], ...]], ...], one point ~20 m along each
+      other path that meets the trail at that vertex (routes: inside the member as a 4th item)
 The app stitches ways into trails at run time and builds each trail's profile from these.
 The build fails if a needed DEM tile cannot be fetched. Tiles are cached in $DEM_CACHE_DIR
 (default scripts/.dem-cache, git-ignored).
@@ -30,6 +37,7 @@ import numpy as np
 import osmium
 
 import elevation
+import highlights as hl
 import name_index
 
 CELL = 0.25  # degrees, ~28 km north-south, ~19 km east-west at 47°N
@@ -37,6 +45,10 @@ ROUTE_RE = re.compile(r'^(hiking|foot)$')
 PATH_RE = re.compile(r'^(path|footway|track|bridleway)$')
 KEEP = ['name', 'ref', 'route', 'sac_scale', 'surface', 'dog', 'operator', 'description', 'trail_visibility', 'website']
 MAX_DESC = 300
+JUNCTION_RE = re.compile(r'^(path|footway|track|bridleway|steps)$')
+MODE_KEYS = ('bicycle', 'horse', 'dog')
+WATER_KINDS = {'lake', 'pond', 'reservoir'}   # explicit water=*; river, stream, canal etc. are not lakes
+COMPACT_MAX = 40   # untagged natural=water counts only if closed and not long and thin (perimeter^2 / area; square 16)
 ROAD_NUMBER_RE = re.compile(r'^[\d\s./-]+[A-Z]?$')            # "5030-612", "9030"
 ROAD_WORD_RE = re.compile(r'\b(road|rd|forest service|fs)\b', re.I)
 
@@ -59,6 +71,10 @@ def keep_tags(tags):
     return out
 
 
+def mode_tags(tags):
+    return {k: tags[k] for k in MODE_KEYS if tags.get(k)}
+
+
 def cell_of(lon, lat):
     return math.floor((lon + 180) / CELL), math.floor((lat + 90) / CELL)
 
@@ -79,8 +95,18 @@ class RouteHandler(osmium.SimpleHandler):
         super().__init__()
         self.routes = {}       # relation id -> {tags, ways: [way ids]}
         self.member_ways = set()
+        self.water_outer = set()     # outer ways of natural=water multipolygons tagged lake/pond/reservoir
+        self.water_untagged = set()  # same, with no water=* tag: only the compact closed ones count
 
     def relation(self, r):
+        if r.tags.get('type') == 'multipolygon' and r.tags.get('natural') == 'water':
+            kind = r.tags.get('water', '')
+            outers = (m.ref for m in r.members if m.type == 'w' and m.role == 'outer')
+            if kind in WATER_KINDS:
+                self.water_outer.update(outers)
+            elif not kind:
+                self.water_untagged.update(outers)
+            return
         if not ROUTE_RE.match(r.tags.get('route', '')):
             return
         if not (r.tags.get('name') or r.tags.get('ref')):
@@ -88,35 +114,127 @@ class RouteHandler(osmium.SimpleHandler):
         ways = [m.ref for m in r.members if m.type == 'w']
         if not ways:
             return
-        self.routes[r.id] = {'tags': keep_tags(r.tags), 'ways': ways}
+        self.routes[r.id] = {'tags': keep_tags(r.tags), 'ways': ways, 'modes': mode_tags(r.tags)}
         self.member_ways.update(ways)
 
 
 class WayHandler(osmium.SimpleHandler):
-    """Pass 2: geometry for route members and named paths."""
+    """Pass 2: geometry for route members and named paths, plus the places highlights are drawn from."""
 
-    def __init__(self, member_ways):
+    def __init__(self, member_ways, water_outer=(), water_untagged=()):
         super().__init__()
         self.member_ways = member_ways
+        self.water_outer = water_outer
+        self.water_untagged = water_untagged
         self.geoms = {}        # way id -> [(lon, lat)]
+        self.nodes = {}        # way id -> node ids, one per vertex in geoms
+        self.names = {}        # way id -> name
+        self.modes = {}        # way id -> bicycle/horse/dog tags
         self.paths = {}        # way id -> tags, for named paths not in a route
+        self.features = {k: hl.PointIndex() for k in hl.FEATURES}
+        self.parking = []      # (lon, lat)
+
+    def _feature(self, tags, is_water_outer=False, compact=False):
+        if tags.get('tourism') == 'viewpoint' or tags.get('natural') == 'peak':
+            return 'view'
+        if tags.get('waterway') == 'waterfall' or tags.get('natural') == 'waterfall':
+            return 'falls'
+        if tags.get('natural') == 'beach':
+            return 'beach'
+        if (tags.get('natural') == 'water' and tags.get('water', '') in WATER_KINDS) or is_water_outer:
+            return 'lake'
+        if compact and (tags.get('natural') == 'water' and not tags.get('water')):
+            return 'lake'
+        return None
+
+    def node(self, n):
+        if not n.tags or not n.location.valid():
+            return
+        kind = self._feature(n.tags)
+        if kind in ('view', 'falls', 'beach'):
+            self.features[kind].add(hl.xy([(n.location.lon, n.location.lat)]))
+        if n.tags.get('amenity') == 'parking':
+            self.parking.append((round(n.location.lon, 5), round(n.location.lat, 5)))
 
     def way(self, w):
         is_member = w.id in self.member_ways
         hw = w.tags.get('highway', '')
         name = w.tags.get('name', '')
         is_path = bool(PATH_RE.match(hw)) and bool(name) and is_trail_name(hw, name)
-        if not (is_member or is_path):
+        untagged = (w.tags.get('natural') == 'water' and not w.tags.get('water')) or w.id in self.water_untagged
+        compact = False
+        if untagged and not (w.id in self.water_outer):
+            pts = [(n.location.lon, n.location.lat) for n in w.nodes if n.location.valid()]
+            compact = len(pts) > 3 and pts[0] == pts[-1] and hl.compactness(pts) <= COMPACT_MAX
+        kind = self._feature(w.tags, w.id in self.water_outer or (w.id in self.water_untagged and compact), compact)
+        is_parking = w.tags.get('amenity') == 'parking'
+        if not (is_member or is_path or kind or is_parking):
             return
-        coords = []
+        coords, refs = [], []
         for n in w.nodes:
             if n.location.valid():
                 coords.append((round(n.location.lon, 5), round(n.location.lat, 5)))
+                refs.append(n.ref)
         if len(coords) < 2:
             return
+        if kind:
+            self.features[kind].add(hl.densify(coords))
+        if is_parking:
+            self.parking.append((round(sum(c[0] for c in coords) / len(coords), 5), round(sum(c[1] for c in coords) / len(coords), 5)))
+        if not (is_member or is_path):
+            return
         self.geoms[w.id] = coords
+        self.nodes[w.id] = refs
+        self.names[w.id] = name
+        self.modes[w.id] = mode_tags(w.tags)
         if is_path and not is_member:
             self.paths[w.id] = keep_tags(w.tags)
+
+
+class JunctionHandler(osmium.SimpleHandler):
+    """
+    Pass 3: where another path, footway, track, bridleway or steps way meets a trail at a shared node.
+    result: trail way id -> {vertex index: [[lon, lat, name?], ...]}, one point ~20 m along each branch.
+    Ways of the same trail (same route or same name) are not branches.
+    """
+
+    def __init__(self, nodes, keys):
+        super().__init__()
+        self.at = {}           # node id -> [(trail way id, vertex index)]
+        for wid, refs in nodes.items():
+            for i, ref in enumerate(refs):
+                self.at.setdefault(ref, []).append((wid, i))
+        self.nodeset = {wid: set(refs) for wid, refs in nodes.items()}
+        self.keys = keys
+        self.result = {}
+
+    def way(self, w):
+        if not JUNCTION_RE.match(w.tags.get('highway', '')):
+            return
+        refs = [n.ref for n in w.nodes if n.location.valid()]
+        if not any(r in self.at for r in refs):
+            return
+        pts = [(round(n.location.lon, 5), round(n.location.lat, 5)) for n in w.nodes if n.location.valid()]
+        name = w.tags.get('name', '')
+        mine = self.keys.get(w.id) or ({('n', name)} if name else set())
+        rids = sorted(k[1] for k in mine if k[0] == 'r')
+        for i, ref in enumerate(refs):
+            for wid, vi in self.at.get(ref, ()):
+                # Skip only a pure continuation of every trail this way is on. A way on another route too
+                # is kept, tagged with its routes, so the app can drop it for the trails it belongs to.
+                if wid == w.id or (self.keys[wid] and self.keys[wid] <= mine):
+                    continue
+                for step, rng in ((-1, range(i - 1, -1, -1)), (1, range(i + 1, len(refs)))):
+                    nxt = i + step
+                    if not 0 <= nxt < len(refs) or refs[nxt] in self.nodeset[wid]:
+                        continue  # no branch this way, or it runs along the trail
+                    p = hl.branch_point(pts[i], [pts[k] for k in rng])
+                    if not p:
+                        continue
+                    branch = p + [name, rids] if rids else (p + [name] if name else p)
+                    lst = self.result.setdefault(wid, {}).setdefault(vi, [])
+                    if branch not in lst:
+                        lst.append(branch)
 
 
 def flat(coords):
@@ -138,11 +256,90 @@ def sample_elevations(geoms, tiles):
     return out
 
 
+def junction_list(by_vertex):
+    """{vertex index: branches} -> [[index, [[lon, lat, name?], ...]], ...] in vertex order."""
+    return [[i, by_vertex[i]] for i in sorted(by_vertex)]
+
+
+def path_groups(ways):
+    """Named paths outside routes -> lists of way ids: same name and connected by a shared node."""
+    parent = {w: w for w in ways.paths}
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    owner = {}
+    for wid in ways.paths:
+        for key in {(ways.names[wid], n) for n in ways.nodes[wid]}:
+            if key in owner:
+                parent[find(wid)] = find(owner[key])
+            else:
+                owner[key] = wid
+    groups = {}
+    for wid in ways.paths:
+        groups.setdefault(find(wid), []).append(wid)
+    return list(groups.values())
+
+
+def way_length(coords):
+    p = hl.xy(coords)
+    return float(np.hypot(*(p[1:] - p[:-1]).T).sum()) if len(p) > 1 else 0.0
+
+
+def describe(way_ids, ways, rel_modes, parking_xy):
+    """(highlights, trailhead, owner way id) for one trail: a route's ways or a connected set of named-path ways."""
+    dense = np.vstack([hl.densify(ways.geoms[w]) for w in way_ids])
+    feats = {k for k in hl.FEATURES if ways.features[k].near(dense)}
+    lengths = [way_length(ways.geoms[w]) for w in way_ids]
+    shares = hl.mode_share([ways.modes[w] for w in way_ids], lengths)
+    for fam, v in (rel_modes or {}).items():
+        yes, no = shares[fam]   # the relation wins, but ways that say the opposite make it uncertain
+        if v in hl.MODE_YES[fam]:
+            shares[fam] = (1.0, no)
+        elif v == 'no':
+            shares[fam] = (yes, 1.0)
+    h = hl.combine_highlights(feats, hl.mode_highlights(shares))
+    node_lists = [ways.nodes[w] for w in way_ids]
+    ends = hl.chain_ends(node_lists)
+    end_pts = [ways.geoms[way_ids[wi]][pos] for wi, pos in ends]
+    th, ei = hl.pick_trailhead(end_pts, ways.parking, parking_xy)
+    return h, th, way_ids[ends[ei][0]]
+
+
 def build(pbf, out_dir, source, dem_dir=None):
     routes = RouteHandler()
     routes.apply_file(pbf)
-    ways = WayHandler(routes.member_ways)
+    ways = WayHandler(routes.member_ways, routes.water_outer, routes.water_untagged)
     ways.apply_file(pbf, locations=True, idx='flex_mem')
+
+    lats = [c[1] for g in ways.geoms.values() for c in g]
+    if lats:
+        hl.set_ref_lat(float(np.median(lats)))
+    parking_xy = hl.xy(ways.parking) if ways.parking else np.zeros((0, 2))
+    route_ways = {rid: [w for w in dict.fromkeys(r['ways']) if w in ways.geoms] for rid, r in routes.routes.items()}
+    keys = {}
+    for rid, wids in route_ways.items():
+        for w in wids:
+            keys.setdefault(w, set()).add(('r', rid))
+    for w in ways.geoms:
+        keys.setdefault(w, set())
+        if ways.names[w] and not keys[w]:   # a way's identity is its routes, or its name if it is on none
+            keys[w].add(('n', ways.names[w]))
+    jh = JunctionHandler(ways.nodes, keys)
+    jh.apply_file(pbf, locations=True, idx='flex_mem')
+
+    route_info, path_info = {}, {}
+    for rid, wids in route_ways.items():
+        if wids:
+            h, th, _ = describe(wids, ways, routes.routes[rid]['modes'], parking_xy)
+            route_info[rid] = {'h': h, 'th': th}
+    for wids in path_groups(ways):
+        h, th, owner = describe(wids, ways, None, parking_xy)
+        for w in wids:
+            path_info[w] = {'h': h, 'th': th if w == owner else None}
 
     tiles = elevation.DemTiles(dem_dir or os.environ.get('DEM_CACHE_DIR') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '.dem-cache'))
     zs = sample_elevations(ways.geoms, tiles)
@@ -158,14 +355,27 @@ def build(pbf, out_dir, source, dem_dir=None):
             g = ways.geoms.get(wid)
             if not g:
                 continue
+            member = [wid, flat(g), zs[wid]]
+            if wid in jh.result:
+                member.append(junction_list(jh.result[wid]))
             for key in cells_for(g):
                 entry = cell(key)['r'].setdefault(rid, {'id': rid, 't': route['tags'], 'n': total, 'm': []})
-                entry['m'].append([wid, flat(g), zs[wid]])
+                if rid in route_info:
+                    entry['h'] = route_info[rid]['h']
+                    entry['th'] = route_info[rid]['th']
+                entry['m'].append(member)
 
     for wid, tags in ways.paths.items():
         g = ways.geoms[wid]
+        entry = {'id': wid, 't': tags, 'g': flat(g), 'z': zs[wid]}
+        if path_info[wid]['h']:
+            entry['h'] = path_info[wid]['h']
+        if path_info[wid]['th']:
+            entry['th'] = path_info[wid]['th']
+        if wid in jh.result:
+            entry['j'] = junction_list(jh.result[wid])
         for key in cells_for(g):
-            cell(key)['w'].append({'id': wid, 't': tags, 'g': flat(g), 'z': zs[wid]})
+            cell(key)['w'].append(entry)
 
     os.makedirs(out_dir, exist_ok=True)
     total_bytes = 0
