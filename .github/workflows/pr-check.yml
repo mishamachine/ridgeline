@@ -2,7 +2,8 @@ name: PR check
 
 # Runs on every pull request into main. Mirrors the check steps of deploy.yml
 # (tests, the trail build script on sample data, and the site build) plus the typecheck script.
-# Never deploys or publishes, downloads no map extract and reads no secrets.
+# Never deploys or publishes, downloads no map extract and reads no secrets. The sample trail
+# build fetches one public Copernicus DEM tile (about 5 MB) from the open AWS bucket, no credentials.
 
 on:
   pull_request:
@@ -31,13 +32,34 @@ jobs:
         with:
           python-version: '3.12'
 
-      - run: pip install osmium
+      - run: pip install -r scripts/requirements.txt
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
 
+      - name: Test the elevation code (synthetic tiles, no network)
+        run: python -m unittest discover -s scripts -p "test_*.py"
+
       - name: Check the trail build script on sample data
         run: python scripts/build_trails.py scripts/sample.osm /tmp/sample-trails sample
+
+      - name: Sample build must carry elevation for every way
+        run: |
+          python - <<'PY'
+          import json, glob
+          idx = json.load(open('/tmp/sample-trails/index.json'))
+          assert idx.get('elevation') == 'Copernicus DEM GLO-90', idx
+          n = 0
+          for f in glob.glob('/tmp/sample-trails/[0-9]*_[0-9]*.json'):
+              body = json.load(open(f))
+              ways = [(m[1], m[2] if len(m) > 2 else None) for r in body['r'] for m in r['m']]
+              ways += [(w['g'], w.get('z')) for w in body['w']]
+              for g, z in ways:
+                  assert z and len(z) == len(g) // 2, f'{f}: missing or short elevation'
+                  n += 1
+          assert n > 0, 'no ways found in the sample build'
+          print(f'{n} ways carry elevation')
+          PY
 
       - run: npm run build
         env:

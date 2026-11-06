@@ -1,10 +1,11 @@
 // Hosted trail data: small grid-cell files built from OpenStreetMap (scripts/build_trails.py).
 import type { BBox } from './geo';
-import { parseOverpass, type Trail } from './trails';
+import { parseOverpass, profileFromVertices, withElevation, type Trail } from './trails';
 
-export interface CellIndex { v: number; built: string; source: string; cell: number; bbox: [number, number, number, number] | null; cells: string[] }
-interface CellRoute { id: number; t: Record<string, string>; n: number; m: [number, number[]][] }
-interface CellWay { id: number; t: Record<string, string>; g: number[] }
+export interface CellIndex { v: number; built: string; source: string; elevation?: string; cell: number; bbox: [number, number, number, number] | null; cells: string[] }
+/** z: elevation (m) per vertex, delta-encoded: [z0, z1 - z0, z2 - z1, ...]. */
+interface CellRoute { id: number; t: Record<string, string>; n: number; m: [number, number[], number[]?][] }
+interface CellWay { id: number; t: Record<string, string>; g: number[]; z?: number[] }
 export interface CellFile { v: number; r: CellRoute[]; w: CellWay[] }
 
 const base = () => `${import.meta.env.BASE_URL ?? '/'}trails/`;
@@ -40,6 +41,16 @@ const pairs = (flat: number[]) => {
   return out;
 };
 
+/** Vertex key -> elevation (m), from the delta-encoded `z` arrays. Vertices shared by ways have one value. */
+function addElevations(into: Map<string, number>, flat: number[], z?: number[]) {
+  if (!z || z.length * 2 !== flat.length) return;
+  let acc = 0;
+  for (let i = 0; i < z.length; i++) {
+    acc += z[i];
+    into.set(`${flat[2 * i]},${flat[2 * i + 1]}`, acc);
+  }
+}
+
 /**
  * Merge cell files into Overpass-style elements, then reuse the same parser.
  * A route that crosses cells is stitched back together from the members each cell holds;
@@ -48,13 +59,14 @@ const pairs = (flat: number[]) => {
 export function cellsToTrails(files: CellFile[]): Trail[] {
   const routes = new Map<number, { t: Record<string, string>; n: number; members: Map<number, number[]> }>();
   const ways = new Map<number, CellWay>();
+  const zAt = new Map<string, number>();
   for (const f of files) {
     for (const r of f.r) {
       const e = routes.get(r.id) ?? { t: r.t, n: r.n, members: new Map() };
-      for (const [wid, g] of r.m) e.members.set(wid, g);
+      for (const [wid, g, z] of r.m) { e.members.set(wid, g); addElevations(zAt, g, z); }
       routes.set(r.id, e);
     }
-    for (const w of f.w) ways.set(w.id, w);
+    for (const w of f.w) { ways.set(w.id, w); addElevations(zAt, w.g, w.z); }
   }
   const elements: unknown[] = [];
   for (const [id, r] of routes) {
@@ -64,7 +76,13 @@ export function cellsToTrails(files: CellFile[]): Trail[] {
   }
   for (const [id, w] of ways) elements.push({ type: 'way', id, tags: w.t, geometry: pairs(w.g) });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return parseOverpass(elements as any);
+  return parseOverpass(elements as any).map((t) => {
+    // Build the profile only if every vertex has a height (older files have none).
+    const z = t.coords.map((c) => zAt.get(`${c[0]},${c[1]}`));
+    if (z.some((v) => v === undefined)) return t;
+    const profile = profileFromVertices(t.coords, z as number[]);
+    return profile.length ? withElevation(t, profile) : t;
+  });
 }
 
 /** Trails for an area from hosted cells. Returns null if the area isn't covered. */

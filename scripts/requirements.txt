@@ -1,0 +1,5 @@
+# Build-time dependencies for scripts/build_trails.py (Python 3.12 in CI), pinned to exact versions.
+# Wheels only: no compiler or system GDAL is needed on a GitHub Actions runner.
+osmium==4.3.2
+numpy==2.0.2
+rasterio==1.4.3

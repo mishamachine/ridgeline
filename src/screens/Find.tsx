@@ -4,15 +4,14 @@ import { MapView, setGeo } from '../components/MapView';
 import { TrailRow } from '../components/TrailRow';
 import { SearchIcon, LocateIcon } from '../components/Icons';
 import { fetchCellTrails } from '../lib/cells';
-import { fetchTrails, fetchElevation, withElevation, difficulty, Trail } from '../lib/trails';
-import { getElevation, putElevation, getSetting, putSetting } from '../lib/store';
+import { fetchTrails, difficulty, Trail } from '../lib/trails';
+import { getSetting, putSetting } from '../lib/store';
 import { M_TO_MI, LngLat } from '../lib/geo';
 
 interface Props { tpl: string; visible: boolean; savedIds: Set<string>; onOpen: (t: Trail) => void }
 type Status = { kind: 'idle' | 'loading' | 'zoom' | 'error' | 'offline'; msg?: string };
 
 const MAX_SPAN_DEG = 0.5; // ~35 km across: a handful of trail cells
-const ELEVATION_PREFETCH = 25; // one small request each, run one at a time
 
 export function Find({ tpl, visible, savedIds, onOpen }: Props) {
   const mapRef = useRef<MLMap | null>(null);
@@ -50,25 +49,6 @@ export function Find({ tpl, visible, savedIds, onOpen }: Props) {
     });
   }, [shown, activeId]);
 
-  // Fill in elevation (cached first) for the top of the list so difficulty and climb show.
-  const idsKey = trails.map((t) => t.id).join(',');
-  const trailsRef = useRef(trails);
-  trailsRef.current = trails;
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      for (const t of trailsRef.current.slice(0, ELEVATION_PREFETCH)) {
-        if (cancelled || t.elevation) continue;
-        try {
-          const e = (await getElevation(t.id)) ?? (await fetchElevation(t.coords));
-          await putElevation(t.id, e);
-          if (!cancelled) setTrails((all) => all.map((x) => (x.id === t.id ? withElevation(x, e) : x)));
-        } catch { /* offline or rate-limited: leave blank */ }
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [idsKey]);
-
   async function loadArea() {
     const map = mapRef.current;
     if (!map) return;
@@ -93,12 +73,7 @@ export function Find({ tpl, visible, savedIds, onOpen }: Props) {
         if (!navigator.onLine) { setStatus({ kind: 'offline' }); return; }
         found = await fetchTrails(box, ac.signal);
       }
-      // Reuse cached elevation immediately.
-      const withCached = await Promise.all(found.map(async (t) => {
-        const e = await getElevation(t.id);
-        return e ? withElevation(t, e) : t;
-      }));
-      setTrails(withCached);
+      setTrails(found);
       setStatus({ kind: 'idle' });
       const c = map.getCenter();
       putSetting('lastView', { center: [c.lng, c.lat], zoom: map.getZoom() });
