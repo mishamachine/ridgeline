@@ -10,6 +10,7 @@ import { removeTrailOffline, storageEstimate } from '../lib/offline';
 import { Backup, MAX_BACKUP_BYTES, downloadBackup, exportBackup, parseBackup, restoreBackup } from '../lib/backup';
 import { ELEVATION_NOTICE } from '../lib/credits';
 import { shareUrl } from '../lib/shareUrl';
+import { count } from '../lib/counter';
 import { features } from '../lib/features';
 import { ChevronIcon } from '../components/Icons';
 import boboUrl from '../assets/trail-bobo.svg';
@@ -111,8 +112,9 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, preset }: 
     const url = shareUrl();
     const data = { title: 'Ridgeline', text: 'Trail maps that work offline, from Ridgeline.', url };
     try {
-      if (navigator.share) { await navigator.share(data); return; }
+      if (navigator.share) { await navigator.share(data); count('share'); return; }
       await navigator.clipboard.writeText(url);
+      count('share');
       setShareMsg('Link copied');
     } catch (e) {
       if ((e as Error).name !== 'AbortError') setShareMsg(`Copy this link: ${url}`);

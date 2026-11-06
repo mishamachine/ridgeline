@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { saveTrailOffline } from './offline';
+import { count } from './counter';
 import { bookmark } from './saved';
 import type { Trail } from './trails';
 
@@ -17,6 +18,7 @@ export function useDownload(trail: Trail, onDone: () => void) {
     setProgress(0);
     try {
       await saveTrailOffline(trail, (d, n) => setProgress(d / n), ac.signal);
+      count('offline_save');
       await bookmark(trail);
       onDone();
     } catch (e) {
