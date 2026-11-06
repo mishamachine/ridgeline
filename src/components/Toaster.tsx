@@ -10,11 +10,9 @@ export function Toaster() {
   return (
     <>
       <div className="toast" role="status" aria-live="polite" hidden={!msg}>{msg}</div>
-      {update && (
-        <div className="toast update-toast" role="status">
-          Update ready <button type="button" onClick={applyUpdate}>Reload</button>
-        </div>
-      )}
+      <div className="toast update-toast" role="status" aria-live="polite" hidden={!update}>
+        {update && <>Update ready <button type="button" onClick={applyUpdate}>Reload</button></>}
+      </div>
     </>
   );
 }

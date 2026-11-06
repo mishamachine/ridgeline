@@ -19,7 +19,10 @@ let waiting: ServiceWorker | null = null;
 let applying = false;
 let readyListener: (ready: boolean) => void = () => {};
 
-export const setHikeActive = (v: boolean) => { hikeActive = v; };
+export const setHikeActive = (v: boolean) => {
+  hikeActive = v;
+  if (!v && waiting) handleWaiting(waiting); // the hike ended: apply the update that was waiting
+};
 export const onUpdateReady = (l: (ready: boolean) => void) => { readyListener = l; return () => { readyListener = () => {}; }; };
 
 const lastReload = (): number | null => {
@@ -28,12 +31,12 @@ const lastReload = (): number | null => {
 
 /** Tell the waiting worker to take over; the page reloads once when it does. */
 export function applyUpdate() {
-  if (!waiting) return;
+  if (!waiting) { location.reload(); return; } // another tab already updated: just reload
   applying = true;
   waiting.postMessage('SKIP_WAITING');
 }
 
-function handleWaiting(w: ServiceWorker) {
+export function handleWaiting(w: ServiceWorker) {
   waiting = w;
   if (decideUpdate(hikeActive) === 'apply' && mayReload(lastReload(), Date.now())) applyUpdate();
   else readyListener(true);
@@ -44,7 +47,8 @@ export function initSwUpdate() {
   const sw = navigator.serviceWorker;
   const hadController = !!sw.controller;
   sw.addEventListener('controllerchange', () => {
-    if (!hadController || !applying) return; // first install, or a change we did not ask for
+    if (!hadController) return; // first install
+    if (!applying) { readyListener(true); return; } // another tab applied an update: offer this one a reload
     try { sessionStorage.setItem(RELOAD_KEY, String(Date.now())); } catch { /* ignore */ }
     location.reload();
   });

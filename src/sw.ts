@@ -10,6 +10,11 @@ declare const self: ServiceWorkerGlobalScope & { __WB_MANIFEST: Array<{ url: str
 
 // Take over only when the page asks (not mid-hike); claim open pages once active.
 // cleanupOutdatedCaches drops old workbox precaches only; the rl-* map caches saved offline are never touched.
+// Workers older than this protocol never ask the page to apply updates (their page script is stuck), so the first
+// new worker skips waiting once on install. The marker cache is not an rl-* or workbox cache.
+const PROTOCOL = 'sw-protocol-2';
+self.addEventListener('install', (e) => e.waitUntil(caches.has(PROTOCOL).then((v2) => { if (!v2) return self.skipWaiting(); })));
+self.addEventListener('activate', (e) => e.waitUntil(caches.open(PROTOCOL)));
 self.addEventListener('message', (e) => { if (e.data === 'SKIP_WAITING') self.skipWaiting(); });
 clientsClaim();
 cleanupOutdatedCaches();
