@@ -54,7 +54,7 @@ jobs:
           cp deploy/htaccess dist-root/.htaccess
       - name: Fail if the old domain appears in either build
         run: |
-          if grep -ri bobolearns dist dist-root; then echo "old domain found in build output"; exit 1; fi
+          if grep -rIil bobolearns dist dist-root; then echo "old domain found in build output"; exit 1; fi
       - name: Publish the Hostinger copy to the 'hostinger' branch
         if: github.ref == 'refs/heads/main'
         run: |
