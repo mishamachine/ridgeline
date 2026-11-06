@@ -13,6 +13,15 @@ export interface HikeStats {
   time?: string;
 }
 
+/**
+ * Where share links point. On the web: the origin the app is served from. On native, and for anything
+ * that outlives the host (the printed card URL and QR), the canonical SITE_URL.
+ */
+export function shareBase(): string {
+  if (typeof window === 'undefined' || (window as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()) return SITE_URL;
+  return `${window.location.origin}${import.meta.env.BASE_URL}`.replace(/\/+$/, '');
+}
+
 export const isTrailId = (id: unknown): id is string => typeof id === 'string' && TRAIL_ID.test(id);
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
@@ -27,17 +36,17 @@ export function formatTime(minutes: number): string {
  * Returns the plain site address when the trail id is not usable.
  */
 export function hikeShareUrl(h: { trailId: string; distanceM: number; climbFt: number; movingMs: number }): string {
-  if (!isTrailId(h.trailId)) return SITE_URL;
+  if (!isTrailId(h.trailId)) return shareBase();
   const miles = clamp(Number.isFinite(h.distanceM) ? h.distanceM * 0.000621371 : 0, 0, MAX_MILES).toFixed(1);
   const climb = Math.round(clamp(Number.isFinite(h.climbFt) ? h.climbFt : 0, 0, MAX_CLIMB_FT));
   const time = formatTime(Number.isFinite(h.movingMs) ? h.movingMs / 60000 : 0);
-  return `${SITE_URL}/h/${encodeURIComponent(h.trailId)}?d=${miles}&c=${climb}&t=${time}`;
+  return `${shareBase()}/h/${encodeURIComponent(h.trailId)}?d=${miles}&c=${climb}&t=${time}`;
 }
 
 /** Plain marker so a counter could count shares. It carries no id and stores nothing. */
-export const appShareUrl = () => `${SITE_URL}/?ref=share`;
+export const appShareUrl = () => `${shareBase()}/?ref=share`;
 
-/** Short address printed on the card, and the trail-only link its QR code opens. */
+/** Short address printed on the card, and the trail-only link its QR code opens. Always the canonical host: the card outlives any one web host. */
 export const SITE_HOST = SITE_URL.replace(/^https?:\/\//, '');
 export const trailUrl = (trailId: string) => (isTrailId(trailId) ? `${SITE_URL}/h/${encodeURIComponent(trailId)}` : SITE_URL);
 

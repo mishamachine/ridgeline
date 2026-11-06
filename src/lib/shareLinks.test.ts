@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SITE_URL } from './site';
 import { appShareUrl, hikeShareUrl, isTrailId, parseHikeParams, parseHikePath, statsLine, trailUrl } from './shareLinks';
 
@@ -79,5 +79,19 @@ describe('isTrailId', () => {
     expect(isTrailId('osm-r1')).toBe(true);
     expect(isTrailId('a b')).toBe(false);
     expect(isTrailId(5)).toBe(false);
+  });
+});
+
+describe('web vs native base', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it('uses the serving origin on the web, but the canonical host on the card', () => {
+    vi.stubGlobal('window', { location: { origin: 'https://example.test' } });
+    expect(appShareUrl()).toBe('https://example.test/?ref=share');
+    expect(hikeShareUrl(hike).startsWith('https://example.test/h/osm-r123?')).toBe(true);
+    expect(trailUrl('osm-r123')).toBe(`${SITE_URL}/h/osm-r123`);
+  });
+  it('uses SITE_URL on native', () => {
+    vi.stubGlobal('window', { location: { origin: 'capacitor://localhost' }, Capacitor: { isNativePlatform: () => true } });
+    expect(appShareUrl()).toBe(`${SITE_URL}/?ref=share`);
   });
 });

@@ -147,7 +147,7 @@ describe('layoutCard: content and layout', () => {
 
 describe('qrModules', () => {
   it('makes a real QR code with finder patterns', () => {
-    const m = qrModules('https://hike.bobolearns.com/h/osm-r123');
+    const m = qrModules('https://hike.bbprojectfactory.com/h/osm-r123');
     expect(m.length).toBeGreaterThanOrEqual(21);
     expect(m.every((r) => r.length === m.length)).toBe(true);
     for (const [r, c] of [[0, 0], [0, 6], [6, 0], [6, 6], [2, 2], [3, 3]]) expect(m[r][c]).toBe(true);
