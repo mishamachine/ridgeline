@@ -105,11 +105,13 @@ describe('web source', () => {
 });
 
 describe('engine', () => {
+  let mono = 0;
   const mk = () => {
+    mono = 0;
     let restarts = 0;
     const src: LocationSource = { start() {}, stop() {}, restart() { restarts++; } };
     const accepted: Fix[] = [];
-    const e = new GpsEngine(src, { route: { coords: line, elevation: [100, 200] }, onAccepted: (f) => accepted.push(f), now: () => T0 });
+    const e = new GpsEngine(src, { route: { coords: line, elevation: [100, 200] }, onAccepted: (f) => accepted.push(f), mono: () => mono });
     return { e, accepted, restarts: () => restarts };
   };
 
@@ -134,18 +136,59 @@ describe('engine', () => {
     expect(accepted).toHaveLength(1);
   });
 
-  it('recalibrate restarts the source, resets and ignores stale fixes', () => {
+  it('recalibrate restarts the source, resets, keeps the old dot as a stale fallback and ignores cached repeats', () => {
     const { e, restarts } = mk();
     e.ingest(at(10, 0, 0));
+    const before = e.state.position;
     e.recalibrate();
     expect(restarts()).toBe(1);
     expect(e.state.hasFix).toBe(false);
     expect(e.state.recalibrating).toBe(true);
-    e.ingest(at(10, 0, -30)); // older than the recalibrate time (T0)
+    expect(e.state.stalePosition).toBe(true);
+    expect(e.state.position).toEqual(before);
+    e.ingest(at(10, 0, 0)); // same timestamp as before: a cached repeat
     expect(e.state.hasFix).toBe(false);
     e.ingest(at(12, 0, 1));
     expect(e.state.hasFix).toBe(true);
     expect(e.state.recalibrating).toBe(false);
+  });
+
+  it('recalibrate survives a phone clock that is far behind: fixes are judged by arrival, and a timeout is reported', () => {
+    const { e } = mk();
+    e.ingest(at(10, 0, 100));
+    e.recalibrate();
+    e.ingest(at(11, 0, -86_400)); // clock stepped back a day: still not dropped forever
+    expect(e.state.hasFix).toBe(false); // older than the last pre-recalibrate fix: treated as cached...
+    mono = 31_000;
+    e.tick(T0 + 31_000);
+    expect(e.state.recalTimedOut).toBe(true);
+    e.ingest(at(11, 0, -86_399)); // ...until the timeout, then accepted
+    expect(e.state.hasFix).toBe(true);
+    expect(e.state.recalTimedOut).toBe(false);
+  });
+
+  it('never alerts off-route before joining the trail, shows a bearing, and holds alerts when the trail is far', () => {
+    const { e } = mk();
+    for (let t = 0; t < 8; t++) e.ingest(at(100, 80, t, 8)); // car park 80 m north of the trail
+    expect(e.state.offRoute).toBe(false);
+    expect(e.state.along).not.toBeNull();
+    expect(e.state.trailBearing).toBeGreaterThan(170);
+    expect(e.state.trailBearing).toBeLessThan(190); // trail is due south
+    for (let t = 8; t < 20; t++) e.ingest(at(100 + t, 2, t, 8)); // join
+    expect(e.state.matched).toBe(true);
+    for (let t = 20; t < 45; t++) e.ingest(at(120, 80, t, 8)); // genuinely wander off
+    expect(e.state.offRoute).toBe(true);
+    for (let t = 45; t < 90; t++) e.ingest(at(120, 400, t, 8)); // far away: no alert, "x mi to the trail"
+    expect(e.state.offRoute).toBe(false);
+  });
+
+  it('gates needsCalibration on a reported compass accuracy', () => {
+    const { e } = mk();
+    e.ingest(at(0, 0, 0));
+    e.ingestCompass({ degrees: 10, accuracy: null });
+    expect(e.state.needsCalibration).toBe(false);
+    e.ingestCompass({ degrees: 10, accuracy: 40 });
+    expect(e.state.needsCalibration).toBe(true);
   });
 
   it('manual anchor: refuses taps outside the circle, snaps inside, then releases on a good agreeing fix', () => {
@@ -154,11 +197,25 @@ describe('engine', () => {
     for (let t = 0; t < 5; t++) e.ingest(at(200, 12, t, 20));
     const far = e.manualAnchor(fr.toLngLat(300, 0));
     expect(far.ok).toBe(false);
+    // the tap is inside the drawn circle, but the trail point it snaps to is not
+    const r = e.state.uncertaintyM!;
+    const edge = e.manualAnchor(fr.toLngLat(200, 12 + r - 1));
+    expect(edge.ok).toBe(false);
     const ok = e.manualAnchor(fr.toLngLat(205, 0));
     expect(ok.ok).toBe(true);
     expect(e.state.anchored).toBe(true);
     expect(e.state.along).toBeCloseTo(205, 0);
     e.ingest(at(207, 3, 6, 10)); // good again but not <=15 m of agreement? it is: released
+    expect(e.state.anchored).toBe(false);
+  });
+
+  it('anchor releases after 3 good fixes even if they disagree', () => {
+    const { e } = mk();
+    for (let t = 0; t < 5; t++) e.ingest(at(200, 12, t, 20));
+    e.manualAnchor(fr.toLngLat(205, 0));
+    for (let t = 5; t < 7; t++) e.ingest(at(240, 12, t, 10)); // good but 35 m away
+    expect(e.state.anchored).toBe(true);
+    e.ingest(at(241, 12, 7, 10));
     expect(e.state.anchored).toBe(false);
   });
 

@@ -26,12 +26,15 @@ export interface GpsEngineOptions {
   onAccepted?: (f: Fix) => void;
   barometer?: BarometerHook;
   deadReckoning?: DeadReckoningHook;
-  now?: () => number;
+  /** Monotonic clock in ms (performance.now by default). Used only for Recalibrate timing. */
+  mono?: () => number;
 }
 
 export const NEAR_ROUTE_M = 250;
 export const ANCHOR_GOOD_M = 15;
 export const ANCHOR_MAX_MS = 120_000;
+export const ANCHOR_RELEASE_FIXES = 3;
+export const RECAL_TIMEOUT_MS = 30_000;
 
 export interface GpsState {
   hasFix: boolean;
@@ -43,6 +46,12 @@ export interface GpsState {
   quality: Quality | null;
   warmingUp: boolean;
   recalibrating: boolean;
+  /** Recalibrate has waited too long for a fresh fix. */
+  recalTimedOut: boolean;
+  /** The dot is the last known position, shown while Recalibrate waits. */
+  stalePosition: boolean;
+  /** Compass bearing (deg) from you to the nearest trail point, for "X mi to the trail". */
+  trailBearing: number | null;
   matched: boolean;
   /** Distance along the route (m); null when the route is more than 250 m away or there is no fix. */
   along: number | null;
@@ -68,7 +77,7 @@ export type AnchorResult = { ok: true } | { ok: false; reason: string };
 
 const EMPTY: GpsState = {
   hasFix: false, position: null, filtered: null, uncertaintyM: null, accuracyFt: null, quality: null, warmingUp: true,
-  recalibrating: false, matched: false, along: null, offsetM: null, offRoute: false, progress: null, total: 0,
+  recalibrating: false, recalTimedOut: false, stalePosition: false, trailBearing: null, matched: false, along: null, offsetM: null, offRoute: false, progress: null, total: 0,
   deadReckoning: false, anchored: false, altitudeM: null, baroAltitudeM: null, heading: null, headingSource: null,
   needsCalibration: false, compassAccuracy: null, error: null,
 };
@@ -81,7 +90,12 @@ export class GpsEngine {
   private listeners = new Set<(s: GpsState) => void>();
   private lastRaw: Fix | null = null;
   private locked = false;
-  private recalAt: number | null = null;
+  private recalMono: number | null = null;
+  private staleT = -Infinity;
+  private fallback: LngLat | null = null;
+  private joined = false;
+  private goodRun = 0;
+  private nowMono = 0;
   private compass: CompassReading | null = null;
   private anchor: { point: LngLat; t: number } | null = null;
   private lastMatch: MatchResult | null = null;
@@ -112,15 +126,21 @@ export class GpsEngine {
     return () => { this.listeners.delete(fn); };
   }
 
-  /** Restart the stream, reset the filter and throw away anything older than now. */
+  private mono() { return this.opts.mono?.() ?? (typeof performance !== 'undefined' ? performance.now() : Date.now()); }
+
+  /** Restart the stream and reset the filter. Fixes are judged by arrival, never by comparing their clock to ours. */
   recalibrate() {
-    this.recalAt = this.opts.now?.() ?? Date.now();
+    this.recalMono = this.nowMono = this.mono();
+    this.staleT = this.lastRaw?.t ?? this.staleT;
+    this.fallback = this.state.position ?? this.fallback;
     this.filter.reset();
     this.matcher?.reset();
     this.anchor = null;
     this.lastRaw = null;
     this.locked = false;
     this.lastMatch = null;
+    this.joined = false;
+    this.goodRun = 0;
     this.error = null;
     this.source.restart();
     this.publish(this.clock);
@@ -131,13 +151,16 @@ export class GpsEngine {
     const here = this.filter.position();
     if (!here || !this.lastRaw) return { ok: false, reason: 'No GPS position yet.' };
     if (!this.matcher) return { ok: false, reason: 'There is no trail to snap to.' };
-    const radius = Math.max(this.filter.radius(this.clock), this.lastRaw.accuracy);
+    const radius = this.filter.radius(this.clock); // the circle the hiker sees
     if (haversine(tap, here) > radius) return { ok: false, reason: `Tap inside the circle around your dot (about ${accuracyFt(radius)} ft).` };
     const n = this.matcher.nearest(tap, this.lastMatch?.along ?? null);
     if (!n || n.offset > Math.max(radius, 25)) return { ok: false, reason: 'No trail near that spot.' };
+    if (haversine(n.point, here) > radius) return { ok: false, reason: `That trail point is outside the circle around your dot (about ${accuracyFt(radius)} ft).` };
     this.filter.setPosition(n.point, 8, this.clock);
     this.matcher.seed(n.along, this.clock);
     this.anchor = { point: n.point, t: this.clock };
+    this.goodRun = 0;
+    this.joined = true;
     this.lastMatch = { snapped: n.point, along: n.along, offset: 0, matched: true, offRoute: false, routeOffset: 0 };
     this.publish(this.clock);
     return { ok: true };
@@ -152,16 +175,21 @@ export class GpsEngine {
   ingest(f: Fix) {
     this.clock = Math.max(this.clock, f.t);
     this.error = null;
-    if (this.recalAt != null) {
-      if (f.t < this.recalAt - 1000) return; // a cached fix from before Recalibrate
-      this.recalAt = null;
+    this.nowMono = this.mono();
+    if (this.recalMono != null) {
+      // A fix with the same timestamp as the last one before Recalibrate is a cached repeat, unless we have waited a long time.
+      if (f.t <= this.staleT && this.nowMono - this.recalMono < RECAL_TIMEOUT_MS) return;
+      this.recalMono = null;
+      this.fallback = null;
     }
     this.lastRaw = f;
     if (isLocked(f.accuracy)) this.locked = true;
     if (this.filter.update(f).accepted) {
       this.opts.onAccepted?.(f);
       if (this.matcher) this.lastMatch = this.matcher.match(this.filter.position()!, this.filter.radius(f.t), f.t);
-      if (this.anchor && f.accuracy <= ANCHOR_GOOD_M && haversine([f.lon, f.lat], this.anchor.point) <= f.accuracy + 15) this.anchor = null;
+      if (this.lastMatch?.matched) this.joined = true;
+      this.goodRun = f.accuracy <= ANCHOR_GOOD_M ? this.goodRun + 1 : 0;
+      if (this.anchor && f.accuracy <= ANCHOR_GOOD_M && (this.goodRun >= ANCHOR_RELEASE_FIXES || haversine([f.lon, f.lat], this.anchor.point) <= f.accuracy + 15)) this.anchor = null;
     }
     this.publish(f.t);
   }
@@ -169,6 +197,7 @@ export class GpsEngine {
   /** Call about once a second so staleness and dropout growth show without new fixes. */
   tick(now: number) {
     this.clock = Math.max(this.clock, now);
+    this.nowMono = this.mono();
     this.publish(now);
   }
 
@@ -180,22 +209,27 @@ export class GpsEngine {
     const near = m != null && m.routeOffset <= NEAR_ROUTE_M;
     const total = this.matcher?.total ?? 0;
     const along = near ? m.along : null;
+    const recal = this.recalMono != null;
     const speed = filtered ? this.filter.speed() : null;
     const head = pickHeading(speed, speed != null ? this.filter.course() : null, this.compass);
     const dem = along != null && this.elevation && this.elevation.length > 1 && total > 0 ? demAt(this.elevation, along / total) : null;
     const next: GpsState = {
       hasFix: filtered != null,
-      position: m?.matched && m.snapped ? m.snapped : filtered,
+      position: m?.matched && m.snapped ? m.snapped : filtered ?? (recal ? this.fallback : null),
       filtered,
       uncertaintyM: filtered ? this.filter.radius(now) : null,
       accuracyFt: raw ? accuracyFt(raw.accuracy) : null,
       quality: raw ? qualityOf(raw.accuracy, now - raw.t) : null,
       warmingUp: !this.locked,
-      recalibrating: this.recalAt != null,
+      recalibrating: recal,
+      recalTimedOut: recal && this.nowMono - this.recalMono! >= RECAL_TIMEOUT_MS,
+      stalePosition: recal && filtered == null && this.fallback != null,
+      trailBearing: m && !m.matched && m.nearestPoint ? bearing(filtered!, m.nearestPoint) : null,
       matched: !!m?.matched,
       along,
       offsetM: m ? m.routeOffset : null,
-      offRoute: !!m?.offRoute && !this.anchor,
+      // Never alert before the hiker has joined the route, nor when the trail is far away (car park).
+      offRoute: !!m?.offRoute && near && this.joined && !this.anchor,
       progress: along != null && total > 0 ? Math.min(1, Math.max(0, along / total)) : null,
       total,
       deadReckoning: this.opts.deadReckoning?.active() ?? false,
@@ -204,7 +238,8 @@ export class GpsEngine {
       baroAltitudeM: this.opts.barometer?.altitudeM() ?? null,
       heading: head?.degrees ?? null,
       headingSource: head?.source ?? null,
-      needsCalibration: head?.source === 'compass' ? head.needsCalibration : false,
+      // Only when the OS reports an accuracy; web Android gives none, so it would nag forever.
+      needsCalibration: head?.source === 'compass' && this.compass?.accuracy != null ? head.needsCalibration : false,
       compassAccuracy: this.compass?.accuracy ?? null,
       error: this.error,
     };
@@ -217,4 +252,9 @@ function demAt(profile: number[], frac: number): number {
   const x = Math.min(1, Math.max(0, frac)) * (profile.length - 1);
   const i = Math.min(profile.length - 2, Math.floor(x));
   return profile[i] + (profile[i + 1] - profile[i]) * (x - i);
+}
+
+function bearing(a: LngLat, b: LngLat): number {
+  const dx = (b[0] - a[0]) * Math.cos((a[1] * Math.PI) / 180), dy = b[1] - a[1];
+  return ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360;
 }

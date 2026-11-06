@@ -82,7 +82,7 @@ export function Navigate({ tpl, trail, saved, onEnd }: Props) {
 
   const pos: LngLat | null = g.position;
   const near = g.along != null;
-  const offRoute = g.offRoute;
+  const offRoute = g.offRoute && near; // engine also holds alerts until you have joined the trail
   const along = g.along;
   const remaining = along != null ? total - along : total;
 
@@ -123,8 +123,8 @@ export function Navigate({ tpl, trail, saved, onEnd }: Props) {
     const behind = along != null ? sliceTo(route.coords, route.cum, along) : [];
     setGeo(map, 'trails', { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { active: true }, geometry: { type: 'LineString', coordinates: ahead } }] });
     setGeo(map, 'done', { type: 'FeatureCollection', features: behind.length > 1 ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: behind } }] : [] });
-    if (pos && g.uncertaintyM != null) {
-      setGeo(map, 'me', { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { r: metersToPixels(map, g.uncertaintyM, pos[1]), anchored: g.anchored }, geometry: { type: 'Point', coordinates: pos } }] });
+    if (pos) {
+      setGeo(map, 'me', { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { r: metersToPixels(map, g.uncertaintyM ?? 0, pos[1]), anchored: g.anchored || g.stalePosition }, geometry: { type: 'Point', coordinates: pos } }] });
       if (followRef.current) map.easeTo({ center: pos, duration: 600 });
     }
   }, [g, route]);
@@ -181,6 +181,7 @@ export function Navigate({ tpl, trail, saved, onEnd }: Props) {
 
   const start = trail.coords[0];
   const status = g.error?.code === 'denied' || g.error?.code === 'unsupported' ? g.error.message
+    : g.recalTimedOut ? 'No fresh GPS yet. Move to open sky and wait.'
     : g.recalibrating ? 'Recalibrating GPS…'
     : g.accuracyFt == null ? 'Looking for GPS…'
     : g.warmingUp ? `GPS warming up ±${g.accuracyFt} ft`
@@ -204,7 +205,7 @@ export function Navigate({ tpl, trail, saved, onEnd }: Props) {
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 0', borderBottom: '1px solid var(--hair)', fontWeight: 600 }}>
             <span aria-hidden="true" style={{ width: 10, height: 10, background: near ? 'var(--red)' : 'var(--grey)' }} />
-            {paused ? 'Paused' : g.warmingUp && !near ? 'GPS warming up — get a lock at the trailhead' : near ? (g.anchored ? 'On route · position set by you' : 'On route') : g.offsetM != null ? `${mi(g.offsetM)} mi to the trail` : 'Starting…'}
+            {paused ? 'Paused' : g.warmingUp && !near ? 'GPS warming up — get a lock at the trailhead' : near ? (g.anchored ? 'On route · position set by you' : 'On route') : g.offsetM != null ? `${mi(g.offsetM)} mi to the trail${g.trailBearing != null ? ` · ${compassPoint(g.trailBearing)}` : ''}` : 'Starting…'}
           </div>
         )}
         <div className="chips" style={{ padding: '10px 0' }}>
@@ -212,7 +213,7 @@ export function Navigate({ tpl, trail, saved, onEnd }: Props) {
           <button className="chip" aria-pressed={here} onClick={toggleHere}>I'm here</button>
         </div>
         {(here || hereMsg) && <div className="notice" style={{ margin: '0 0 10px' }} role="status">{here ? 'Tap the map where you are on the trail.' : hereMsg}</div>}
-        {g.needsCalibration && g.compassAccuracy != null && <div className="notice" style={{ margin: '0 0 10px' }}>Compass needs calibrating. Move your phone in a figure 8.</div>}
+        {g.needsCalibration && <div className="notice" style={{ margin: '0 0 10px' }}>Compass needs calibrating. Move your phone in a figure 8.</div>}
         <div style={{ padding: '10px 0', borderBottom: '1px solid var(--ink)' }}>
           <div style={{ font: '800 96px/0.9 var(--display)', letterSpacing: '-0.05em' }}>{mi(remaining)}</div>
           <div className="label">miles {near ? 'remaining' : 'on this trail'}</div>
@@ -233,6 +234,8 @@ export function Navigate({ tpl, trail, saved, onEnd }: Props) {
     </>
   );
 }
+
+const compassPoint = (deg: number) => ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(deg / 45) % 8];
 
 function sliceFrom(coords: LngLat[], cum: number[], d: number): LngLat[] {
   const i = cum.findIndex((c) => c > d);

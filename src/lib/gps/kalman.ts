@@ -38,11 +38,11 @@ class Axis {
     const pv = this.pv + dt * this.vv + (q * dt ** 3) / 2;
     this.pp = pp; this.pv = pv; this.vv += q * dt * dt;
   }
-  update(z: number, r: number, vmax: number) {
+  update(z: number, r: number) {
     const s = this.pp + r;
     const kp = this.pp / s, kv = this.pv / s, y = z - this.p;
     this.p += kp * y;
-    this.v = Math.max(-vmax, Math.min(vmax, this.v + kv * y));
+    this.v += kv * y;
     this.vv -= kv * this.pv;
     this.pp *= 1 - kp;
     this.pv *= 1 - kp;
@@ -107,7 +107,9 @@ export class PositionFilter {
     }
     const q = this.o.accelSigma ** 2;
     this.x.predict(dt, q); this.y.predict(dt, q);
-    this.x.update(zx, r, vmax); this.y.update(zy, r, vmax);
+    this.x.update(zx, r); this.y.update(zy, r);
+    const sp = Math.hypot(this.x.v, this.y.v);
+    if (sp > vmax) { this.x.v *= vmax / sp; this.y.v *= vmax / sp; }
     this.lastT = f.t; this.lastAcc = f.accuracy;
     return { accepted: true };
   }

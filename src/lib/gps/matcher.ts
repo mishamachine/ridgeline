@@ -33,6 +33,8 @@ export interface MatchResult {
   offRoute: boolean;
   /** Distance to the route's nearest point anywhere, m (what off-route is judged on). */
   routeOffset: number;
+  /** Nearest route point to the position, for pointing the way back. */
+  nearestPoint?: LngLat;
 }
 
 interface Cand { along: number; d: number }
@@ -144,7 +146,9 @@ export class RouteMatcher {
     else if (this.off && this.backCount >= this.o.backN) this.off = false;
 
     const matched = pick.d <= snapR;
+    const nearest = matched ? undefined : this.nearest(p, null)?.point;
     return {
+      nearestPoint: nearest,
       snapped: matched ? pointAt(this.coords, this.cum, pick.along) : null,
       along: pick.along,
       offset: pick.d,
