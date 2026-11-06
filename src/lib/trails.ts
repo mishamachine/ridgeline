@@ -17,7 +17,23 @@ export interface Trail {
   elevation?: number[];
   ascentM?: number;
   descentM?: number;
+  /**
+   * Highlight kinds from the hosted data: view, lake, falls, beach, bikes, horses, dogs, nodogs, climb, long.
+   * A trailing '?' means partial or mixed evidence. Absent for Overpass trails and old files.
+   */
+  highlights?: string[];
+  /** Where to start: nearest car park to a trail end if the data has one, else the start of the line. */
+  trailhead?: LngLat;
+  trailheadIsParking?: boolean;
+  /** Places where another path meets the trail, in order from the start. Absent when the data has none. */
+  junctions?: Junction[];
 }
+
+/** `along` is metres from the start of `coords`; each branch has a point about 20 m along it. */
+export interface Junction { along: number; branches: { name?: string; point: LngLat }[] }
+
+export const HIGHLIGHT_CLIMB_FT = 2500;
+export const HIGHLIGHT_LONG_MI = 8;
 
 // Public Overpass servers, tried in order. The main one is often at capacity.
 export const OVERPASS_SERVERS = [
