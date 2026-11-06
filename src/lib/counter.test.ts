@@ -7,6 +7,8 @@ const beacon = vi.fn(() => true);
 const fetchMock = vi.fn(() => Promise.resolve(new Response()));
 const blobText = (b: Blob) => b.text();
 const store = { setItem: vi.fn(), getItem: vi.fn(), length: 0 };
+const session = { setItem: vi.fn() };
+const idb = { open: vi.fn() };
 const doc = { referrer: '', cookieWrites: 0 };
 
 beforeEach(() => {
@@ -18,6 +20,8 @@ beforeEach(() => {
   vi.stubGlobal('location', { search: '?utm_source=  news  &utm_medium=email&utm_campaign=' + 'x'.repeat(100), hostname: 'hike.bbprojectfactory.com' });
   vi.stubGlobal('document', doc);
   vi.stubGlobal('localStorage', store);
+  vi.stubGlobal('sessionStorage', session);
+  vi.stubGlobal('indexedDB', idb);
 });
 afterEach(() => { features.counter = false; vi.unstubAllGlobals(); });
 
@@ -26,6 +30,27 @@ describe('counter', () => {
     (['session', 'offline_save', 'hike_start', 'share'] as const).forEach(count);
     expect(beacon).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(store.setItem).not.toHaveBeenCalled();
+    expect(doc.cookieWrites).toBe(0);
+    expect(session.setItem).not.toHaveBeenCalled();
+    expect(idb.open).not.toHaveBeenCalled();
+  });
+
+  it('sanitises UTM values and blanks IP and same-host referrers', async () => {
+    features.counter = true;
+    vi.stubGlobal('location', { search: '?utm_source=a%20b<x>&utm_medium=me@x.com&utm_campaign=ok-1_2.3', hostname: 'hike.bbprojectfactory.com' });
+    const ref = async (r: string) => { resetCounterForTests(); beacon.mockClear(); doc.referrer = r; count('session'); return JSON.parse(await blobText((beacon.mock.calls[0] as unknown as [string, Blob])[1])); };
+    const a = await ref('http://192.168.1.5/x');
+    expect(a.src).toEqual({ utm_source: 'abx', utm_medium: '', utm_campaign: 'ok-1_2.3', ref: '' });
+    expect((await ref('http://[::1]/')).src.ref).toBe('');
+    expect((await ref('https://hike.bbprojectfactory.com/trail/1')).src.ref).toBe('');
+    doc.referrer = '';
+  });
+
+  it('uses a non-preflight content type', () => {
+    features.counter = true;
+    count('share');
+    expect((beacon.mock.calls[0] as unknown as [string, Blob])[1].type.toLowerCase()).toBe('text/plain;charset=utf-8');
   });
 
   it('targets SITE_URL/v', () => { expect(COUNTER_URL).toBe('https://hike.bbprojectfactory.com/v'); });
@@ -65,7 +90,7 @@ describe('counter', () => {
     vi.stubGlobal('Capacitor', { isNativePlatform: () => true });
     count('share');
     expect(beacon).not.toHaveBeenCalled();
-    expect(fetchMock).toHaveBeenCalledWith(COUNTER_URL, { method: 'POST', keepalive: true, credentials: 'omit', headers: { 'content-type': 'application/json' }, body: '{"p":"ridgeline","e":"share","si":0}' });
+    expect(fetchMock).toHaveBeenCalledWith(COUNTER_URL, { method: 'POST', keepalive: true, credentials: 'omit', headers: { 'content-type': 'text/plain;charset=UTF-8' }, body: '{"p":"ridgeline","e":"share","si":0}' });
   });
 
   it('swallows errors and stores nothing', () => {

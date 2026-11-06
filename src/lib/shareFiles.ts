@@ -44,6 +44,6 @@ export const shareFiles: ShareFiles = async ({ files, title, text, url }) => {
   }
   files.forEach(download);
   const copied = await copyLink(url);
-  count('share');
+  if (files.length > 0 || copied) count('share'); // only when a file was saved or the link copied
   return { status: 'fallback', copied };
 };
