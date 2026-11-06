@@ -51,8 +51,14 @@ export function Detail({ tpl, trail, bookmarked, onBack, onStart, onSavedChange 
   const b = useMemo(() => bboxOf(trail.coords), [trail]);
   const onReady = (map: MLMap) => {
     map.setPaintProperty('bg', 'background-color', '#E9ECE4'); // map ground shows even when tiles are slow or offline
+    // The trailhead is its own marker (never the "you are here" dot): a P on a white disc for a mapped lot, else a black start dot.
     const th = trailheadOf(trail);
-    setGeo(map, 'me', { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { r: 0 }, geometry: { type: 'Point', coordinates: [th.lon, th.lat] } }] });
+    const parking = !!trail.trailhead && !!trail.trailheadIsParking;
+    map.addSource('trailhead', { type: 'geojson', data: { type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [th.lon, th.lat] } } });
+    map.addLayer({ id: 'trailhead-dot', type: 'circle', source: 'trailhead', paint: parking
+      ? { 'circle-radius': 12, 'circle-color': '#FFFFFF', 'circle-stroke-color': '#111111', 'circle-stroke-width': 2.5 }
+      : { 'circle-radius': 7, 'circle-color': '#111111', 'circle-stroke-color': '#FFFFFF', 'circle-stroke-width': 3 } });
+    if (parking) map.addLayer({ id: 'trailhead-p', type: 'symbol', source: 'trailhead', layout: { 'text-field': 'P', 'text-font': ['Noto Sans Bold'], 'text-size': 14, 'text-allow-overlap': true }, paint: { 'text-color': '#111111' } });
     setGeo(map, 'trails', {
       type: 'FeatureCollection',
       features: [{ type: 'Feature', properties: { active: true }, geometry: { type: 'LineString', coordinates: trail.coords } }],
