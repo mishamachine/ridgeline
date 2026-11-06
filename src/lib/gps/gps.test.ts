@@ -183,6 +183,16 @@ describe('engine', () => {
     expect(e.state.offRoute).toBe(true);
   });
 
+  it('Recalibrate does not clear the off-route alert for a hiker who has joined and then left', () => {
+    const { e } = mk();
+    for (let t = 0; t < 12; t++) e.ingest(at(100 + t, 2, t, 8)); // join
+    for (let t = 12; t < 40; t++) e.ingest(at(112, 120, t, 8)); // walk off
+    expect(e.state.offRoute).toBe(true);
+    e.recalibrate();
+    e.ingest(at(112, 120, 41, 8));
+    expect(e.state.offRoute).toBe(true);
+  });
+
   it('gates needsCalibration on a reported compass accuracy', () => {
     const { e } = mk();
     e.ingest(at(0, 0, 0));

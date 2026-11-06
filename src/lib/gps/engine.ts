@@ -112,6 +112,7 @@ export class GpsEngine {
     this.elevation = route?.elevation;
     this.anchor = null;
     this.lastMatch = null;
+    this.joined = false;
     this.publish(this.clock);
   }
 
@@ -134,13 +135,11 @@ export class GpsEngine {
     this.staleT = this.lastRaw?.t ?? this.staleT;
     this.fallback = this.state.position ?? this.fallback;
     this.filter.reset();
-    this.matcher?.reset();
     this.anchor = null;
     this.lastRaw = null;
     this.locked = false;
     this.lastMatch = null;
-    this.joined = false;
-    this.goodRun = 0;
+    this.goodRun = 0; // `joined` and the matcher's off-route state survive: an off-trail hiker stays alerted
     this.error = null;
     this.source.restart();
     this.publish(this.clock);
