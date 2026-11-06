@@ -22,3 +22,10 @@ AddType application/json .json
 <IfModule mod_deflate.c>
   AddOutputFilterByType DEFLATE text/html text/css application/javascript application/json application/manifest+json
 </IfModule>
+
+# Trail data is public: let the native apps (capacitor://localhost, https://localhost) read it
+<IfModule mod_headers.c>
+  <FilesMatch "\.json$">
+    Header set Access-Control-Allow-Origin "*"
+  </FilesMatch>
+</IfModule>

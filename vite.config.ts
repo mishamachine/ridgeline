@@ -5,11 +5,13 @@ import { VitePWA } from 'vite-plugin-pwa';
 // BASE_PATH is set at deploy time for GitHub Pages (e.g. "/ridgeline/").
 const base = process.env.BASE_PATH ?? '/';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   base,
   plugins: [
     react(),
     VitePWA({
+      // The native apps bundle everything; no service worker there (vite build --mode native).
+      disable: mode === 'native',
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.ts',
@@ -37,4 +39,4 @@ export default defineConfig({
       },
     }),
   ],
-});
+}));
