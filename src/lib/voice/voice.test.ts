@@ -1,0 +1,139 @@
+import { describe, it, expect } from 'vitest';
+import { cumulative, LngLat } from '../geo';
+import { Frame } from '../gps/frame';
+import { findReversals } from '../gps/reversals';
+import type { Junction } from '../trails';
+import { Announcer, type Utterance } from './announcer';
+import { forksFor, nextStep } from './forkpoints';
+import { offRouteSide } from './offroute';
+import { shortDistance, spokenDistance } from './units';
+
+const fr = new Frame([-121.7, 47.5]);
+const P = (x: number, y: number) => fr.toLngLat(x, y);
+// A trail running east for 1,000 m. A Y-junction at 400 m: one path leaves to the north-east, one to the north-west.
+const COORDS: LngLat[] = [P(0, 0), P(500, 0), P(1000, 0)];
+const TOTAL = cumulative(COORDS).at(-1)!;
+const JUNCTIONS: Junction[] = [{ along: 400, branches: [{ name: 'Side Path', point: P(417, 10) }, { point: P(383, 10) }] }];
+const T0 = 1_700_000_000_000;
+
+function walk(a: Announcer, from: number, to: number, jitter = 0): Utterance[] {
+  const out: Utterance[] = [];
+  const step = to >= from ? 1.2 : -1.2;
+  for (let k = 0, d = from; step > 0 ? d <= to : d >= to; k++, d += step) {
+    const wobble = jitter ? Math.sin(k * 1.7) * jitter : 0;
+    out.push(...a.update({ t: T0 + k * 1000, along: Math.max(0, d + wobble), offRoute: false }));
+  }
+  return out;
+}
+
+describe('forks from junctions', () => {
+  it('stays right when the other path leaves to the left, and flips on a reversed route', () => {
+    const fwd = forksFor(COORDS, JUNCTIONS, false, 'Mount Test Trail');
+    expect(fwd).toEqual([expect.objectContaining({ along: 400, side: 'right', kind: 'fork', otherName: 'Side Path' })]);
+    const rev = forksFor(COORDS, JUNCTIONS, true, 'Mount Test Trail');
+    expect(rev).toEqual([expect.objectContaining({ along: TOTAL - 400, side: 'left', kind: 'fork' })]);
+  });
+  it('has nothing to say when the trail has no junctions or they sit at the ends', () => {
+    expect(forksFor(COORDS, undefined, false, 'T')).toEqual([]);
+    expect(forksFor(COORDS, [{ along: 10, branches: [{ point: P(10, 20) }] }], false, 'T')).toEqual([]);
+  });
+  it('picks the next step from where you are', () => {
+    const forks = forksFor(COORDS, JUNCTIONS, false, 'T');
+    expect(nextStep(forks, [], TOTAL, 100)).toMatchObject({ kind: 'fork', toM: expect.closeTo(300, 0) });
+    expect(nextStep(forks, [], TOTAL, 600)).toMatchObject({ kind: 'follow', target: 'end' });
+    expect(nextStep(forks, [800], TOTAL, 600)).toMatchObject({ kind: 'follow', target: 'turnaround' });
+    expect(nextStep(forks, [800], TOTAL, 795)).toMatchObject({ kind: 'turnaround' });
+  });
+});
+
+describe('announcer on a simulated walk', () => {
+  const texts = (u: Utterance[]) => u.map((x) => x.text);
+  it('says the fork twice, the finish once, and nothing else', () => {
+    const a = new Announcer({ forks: forksFor(COORDS, JUNCTIONS, false, 'Mount Test Trail'), turnarounds: [], total: TOTAL });
+    expect(texts(walk(a, 0, TOTAL))).toEqual(['In 500 feet, stay right for Mount Test Trail.', 'Stay right.', 'You made it.']);
+  });
+  it('never repeats when the position wobbles back and forth across the trigger points', () => {
+    const a = new Announcer({ forks: forksFor(COORDS, JUNCTIONS, false, 'Mount Test Trail'), turnarounds: [], total: TOTAL });
+    const said = texts(walk(a, 200, TOTAL, 12));
+    expect(said.filter((t) => t === 'Stay right.')).toHaveLength(1);
+    expect(said.filter((t) => t.startsWith('In 500'))).toHaveLength(1);
+    expect(said.filter((t) => t === 'You made it.')).toHaveLength(1);
+  });
+  it('interrupts the earlier line at the fork, not when it first speaks', () => {
+    const a = new Announcer({ forks: forksFor(COORDS, JUNCTIONS, false, 'T'), turnarounds: [], total: TOTAL });
+    const u = walk(a, 0, 420);
+    expect(u.map((x) => x.interrupt)).toEqual([false, true]);
+  });
+  it('reversed route: the walk the other way says stay left', () => {
+    const a = new Announcer({ forks: forksFor(COORDS, JUNCTIONS, true, 'Mount Test Trail'), turnarounds: [], total: TOTAL });
+    expect(texts(walk(a, 0, TOTAL))).toEqual(['In 500 feet, stay left for Mount Test Trail.', 'Stay left.', 'You made it.']);
+  });
+  it('metric', () => {
+    const a = new Announcer({ forks: forksFor(COORDS, JUNCTIONS, false, 'Mount Test Trail'), turnarounds: [], total: TOTAL }, 'metric');
+    expect(texts(walk(a, 0, 420))[0]).toBe('In 150 metres, stay right for Mount Test Trail.');
+  });
+  it('a turn in the trail says turn, not stay', () => {
+    const bend: LngLat[] = [P(0, 0), P(300, 0), P(300, 300)];
+    const j: Junction[] = [{ along: 300, branches: [{ point: P(320, 0) }] }];
+    const f = forksFor(bend, j, false, 'Bend Trail');
+    expect(f[0]).toMatchObject({ kind: 'turn', side: 'left' });
+    const a = new Announcer({ forks: f, turnarounds: [], total: 600 });
+    expect(texts(walk(a, 0, 300))).toEqual(['In 500 feet, turn left onto Bend Trail.', 'Turn left.']);
+  });
+  it('off the trail: once, again only after 60 s, then back on', () => {
+    const a = new Announcer({ forks: [], turnarounds: [], total: TOTAL });
+    const off = (s: number, side: 'left' | 'behind' = 'left') => a.update({ t: T0 + s * 1000, along: 300, offRoute: true, off: { distM: 36.6, side } });
+    expect(texts(off(0))).toEqual(["You're off the trail. The trail is 120 feet to your left."]);
+    expect(off(20)).toEqual([]);
+    expect(off(59)).toEqual([]);
+    expect(texts(off(61, 'behind'))).toEqual(["You're off the trail. The trail is 120 feet behind you."]);
+    expect(texts(a.update({ t: T0 + 80_000, along: 300, offRoute: false }))).toEqual(['Back on the trail.']);
+    expect(a.update({ t: T0 + 81_000, along: 301, offRoute: false })).toEqual([]);
+  });
+  it('off the trail in metric', () => {
+    const a = new Announcer({ forks: [], turnarounds: [], total: TOTAL }, 'metric');
+    expect(a.update({ t: T0, along: 300, offRoute: true, off: { distM: 36.6, side: 'right' } })[0].text).toBe("You're off the trail. The trail is 35 metres to your right.");
+  });
+  it('says nothing about forks while off the trail', () => {
+    const a = new Announcer({ forks: forksFor(COORDS, JUNCTIONS, false, 'T'), turnarounds: [], total: TOTAL });
+    expect(a.update({ t: T0, along: 380, offRoute: true, off: { distM: 50, side: 'left' } }).map((u) => u.kind)).toEqual(['off-route']);
+  });
+  it('turnaround point, once', () => {
+    const spur: LngLat[] = [P(0, 0), P(300, 0), P(300, 1), P(0, 1)];
+    const tips = findReversals([P(0, 0), P(300, 0), P(0, 2)]);
+    expect(tips).toHaveLength(1);
+    const a = new Announcer({ forks: [], turnarounds: tips, total: 600 });
+    void spur;
+    expect(texts(walk(a, 0, 330))).toEqual(['Turnaround point. Head back the way you came.']);
+  });
+  it('a loop does not "finish" at the trailhead before you have walked it', () => {
+    const a = new Announcer({ forks: [], turnarounds: [], total: TOTAL });
+    expect(a.update({ t: T0, along: TOTAL - 5, offRoute: false })).toEqual([]);
+    a.update({ t: T0 + 1000, along: TOTAL / 2, offRoute: false });
+    expect(texts(a.update({ t: T0 + 2000, along: TOTAL - 5, offRoute: false }))).toEqual(['You made it.']);
+  });
+});
+
+describe('off-route side', () => {
+  it('left, right, behind and ahead, relative to the way you face', () => {
+    // Standing 40 m north of an eastbound trail.
+    const north = P(500, 40);
+    expect(offRouteSide(COORDS, north, 90)).toMatchObject({ side: 'right' });  // facing east, trail is south = right
+    expect(offRouteSide(COORDS, north, 270)).toMatchObject({ side: 'left' });  // facing west, trail is south = left
+    expect(offRouteSide(COORDS, north, 0)).toMatchObject({ side: 'behind' });  // facing north, trail is behind
+    expect(offRouteSide(COORDS, north, 180)).toMatchObject({ side: 'ahead' });
+    expect(offRouteSide(COORDS, north, null)).toMatchObject({ side: 'right' }); // no heading: facing along the route
+    expect(offRouteSide(COORDS, north, 90).distM).toBeCloseTo(40, 0);
+  });
+});
+
+describe('units', () => {
+  it('short and spoken forms', () => {
+    expect(shortDistance(152, 'imperial')).toBe('500 ft');
+    expect(shortDistance(1930, 'imperial')).toBe('1.2 mi');
+    expect(shortDistance(150, 'metric')).toBe('150 m');
+    expect(shortDistance(1900, 'metric')).toBe('1.9 km');
+    expect(spokenDistance(36.6, 'imperial')).toBe('120 feet');
+    expect(spokenDistance(36.6, 'metric')).toBe('35 metres');
+  });
+});
