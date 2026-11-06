@@ -189,8 +189,10 @@ describe('engine', () => {
     for (let t = 12; t < 40; t++) e.ingest(at(112, 120, t, 8)); // walk off
     expect(e.state.offRoute).toBe(true);
     e.recalibrate();
+    expect(e.state.recalLastOffRoute).toBe(true);
     e.ingest(at(112, 120, 41, 8));
     expect(e.state.offRoute).toBe(true);
+    expect(e.state.recalLastOffRoute).toBe(false);
   });
 
   it('gates needsCalibration on a reported compass accuracy', () => {
