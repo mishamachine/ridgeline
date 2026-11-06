@@ -11,6 +11,15 @@ export interface SavedTrail {
 
 export interface TrackPoint { lon: number; lat: number; alt: number | null; acc: number; t: number }
 
+/** What badges need to know about the trail, kept on the hike so they survive "Clear offline maps". */
+export interface TrailSnapshot {
+  name: string;
+  ascentM?: number;
+  highlights?: string[];
+  /** Share (0..1) of the trail the recorded track covered. */
+  coverage: number;
+}
+
 export interface Activity {
   id: string;
   name: string;
@@ -18,6 +27,11 @@ export interface Activity {
   startedAt: number;
   endedAt?: number;
   points: TrackPoint[];
+  /** Set by the hiker after the hike (badges: Trail Buddy, Rain or Shine). */
+  withDog?: boolean;
+  rain?: boolean;
+  /** Written when the hike finishes (see snapshotForActivity in badges.ts). */
+  snapshot?: TrailSnapshot;
 }
 
 const T = 'trail:', A = 'act:', S = 'sl:';
@@ -33,6 +47,10 @@ export async function listSaved(): Promise<SavedTrail[]> {
 }
 
 export const putActivity = (a: Activity) => set(A + a.id, a);
+export const patchActivity = async (id: string, patch: Partial<Pick<Activity, 'withDog' | 'rain'>>) => {
+  const a = await get<Activity>(A + id);
+  if (a) await set(A + id, { ...a, ...patch });
+};
 export const deleteActivity = (id: string) => del(A + id);
 
 export async function listActivities(): Promise<Activity[]> {
