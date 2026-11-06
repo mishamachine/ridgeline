@@ -71,6 +71,8 @@ class Geometry(unittest.TestCase):
     def test_branch_point_follows_the_branch_and_stops_at_its_end(self):
         p = hl.branch_point((-121.8, 47.4), [(-121.8, 47.4009), (-121.8, 47.4100)])
         self.assertAlmostEqual(p[1], 47.4 + 20 / 110574, places=4)
+        self.assertGreater(hl.compactness([(0, 47), (0, 47.001), (0.001, 47.001), (0.001, 47), (0, 47)]), 15)
+        self.assertGreater(hl.compactness([(0, 47), (0, 47.0002), (0.1, 47.0002), (0.1, 47), (0, 47)]), 200)
         self.assertIsNone(hl.branch_point((-121.8, 47.4), [(-121.8, 47.40001)]))                # ~1 m: not a branch
         short = hl.branch_point((-121.8, 47.4), [(-121.8, 47.4001)])                    # ~11 m: kept, at its end
         self.assertEqual(short, [-121.8, 47.4001])
@@ -133,6 +135,23 @@ class BuildOnSample(unittest.TestCase):
                     self.assertAlmostEqual((unnamed[1] - 47.50) * 110574, 20, delta=2)  # path 400 runs due north from node 3
                     spur = [b for i, bs in m[3] if i == 1 for b in bs if len(b) == 3][0]
                     self.assertAlmostEqual((47.50 - spur[1]) * 110574, 20, delta=2)
+
+    def fork(self, rid):
+        return [r for f in self.files for r in f['r'] if r['id'] == rid]
+
+    def test_split_keeps_each_route_branch_with_its_routes(self):
+        # Fork A (600 + 601) and Fork B (600 + 602) split at node 81, the end of way 600.
+        a = {m[0]: {i: b for i, b in m[3]} for r in self.fork(902) for m in r['m'] if len(m) > 3}
+        branches = a[600][1]
+        self.assertEqual(sorted(b[3] for b in branches), [[902], [903]])   # both ways out, each tagged with its route
+        self.assertEqual([b[3] for b in a[601][0]], [[903]])   # at its own start, 601 sees only the other route's way (600 continues its route)
+
+    def test_water_needs_a_lake_shape(self):
+        self.assertIn('lake', self.fork(902)[0]['h'])        # compact untagged pond ~110 m from the end of 601
+        self.assertNotIn('lake', self.fork(903)[0]['h'])     # a long thin untagged area 90 m away is a riverbank, not a lake
+
+    def test_relation_dog_yes_is_uncertain_when_a_way_says_no(self):
+        self.assertIn('dogs?', self.fork(902)[0]['h'])
 
     def test_cell_version_stays_1_and_old_fields_remain(self):
         for f in self.files:

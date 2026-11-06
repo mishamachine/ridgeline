@@ -134,6 +134,37 @@ describe('highlights, trailhead and junctions', () => {
     expect(t.trailhead).toEqual([-121.9, 47.4]);
   });
 
+
+  it('does not mix data between same-named trails far apart', () => {
+    // Two "Lake Trail"s ~110 km apart, each long enough to be a trail (> 500 m).
+    const f: CellFile = { v: 1, r: [], w: [
+      { id: 10, t: { name: 'Lake Trail' }, g: [-121.9, 47.4, -121.89, 47.4], z: [100, 0], h: ['lake'], th: [-121.9, 47.4, 1], j: [[1, [[-121.89, 47.401]]]] },
+      { id: 11, t: { name: 'Lake Trail' }, g: [-120.9, 48.4, -120.89, 48.4], z: [100, 0], h: ['view'], th: [-120.9, 48.4, 1] },
+    ] };
+    const trails = cellsToTrails([f]).filter((t) => t.name === 'Lake Trail');
+    expect(trails).toHaveLength(2);
+    const a = trails.find((t) => t.coords[0][1] < 48)!, b = trails.find((t) => t.coords[0][1] > 48)!;
+    expect(a.highlights).toEqual(['lake']);
+    expect(b.highlights).toEqual(['view']);
+    expect(b.trailhead).toEqual([-120.9, 48.4]);
+    expect(b.junctions).toBeUndefined();
+  });
+
+  it('keeps the other route at a split and drops the trail\'s own', () => {
+    // Fork A = ways 1 + 2, Fork B = ways 1 + 3; way 1 ends at the split. Branch = [lon, lat, name, routes].
+    const g1 = [-121.95, 47.45, -121.94, 47.45], g2 = [-121.94, 47.45, -121.935, 47.455], g3 = [-121.94, 47.45, -121.935, 47.445];
+    const p2: [number, number, string, number[]] = [-121.9395, 47.4503, '', [1]];
+    const p3: [number, number, string, number[]] = [-121.9395, 47.4497, '', [2]];
+    const f: CellFile = { v: 1, r: [
+      { id: 1, t: { name: 'Fork A' }, n: 2, m: [[1, g1, [100, 0], [[1, [p2, p3]]]], [2, g2, [100, 0], [[0, [p3]]]]] },
+      { id: 2, t: { name: 'Fork B' }, n: 2, m: [[1, g1, [100, 0], [[1, [p2, p3]]]], [3, g3, [100, 0], [[0, [p2]]]]] },
+    ], w: [] };
+    const trails = cellsToTrails([f]);
+    const only = (name: string) => trails.find((t) => t.name === name)!.junctions!.map((j) => j.branches);
+    expect(only('Fork A')).toEqual([[{ point: [-121.9395, 47.4497] }]]);   // sees B's way, not its own
+    expect(only('Fork B')).toEqual([[{ point: [-121.9395, 47.4503] }]]);
+  });
+
   it('leaves the new fields off for files that do not have them', () => {
     const [t] = cellsToTrails([A]).filter((x) => x.name === 'Creek Path');
     expect(t.highlights).toBeUndefined();

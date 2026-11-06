@@ -35,6 +35,15 @@ def xy(coords):
     return np.column_stack([a[:, 0] * M_LON * math.cos(math.radians(REF_LAT)), a[:, 1] * M_LAT])
 
 
+def compactness(ring):
+    """Perimeter^2 / area of a closed ring [(lon, lat)]: about 12.6 for a circle, 16 for a square, large for a river."""
+    p = xy(ring)
+    x, y = p[:, 0], p[:, 1]
+    area = abs(float(np.dot(x[:-1], y[1:]) - np.dot(x[1:], y[:-1]))) / 2
+    perim = float(np.hypot(np.diff(x), np.diff(y)).sum())
+    return perim * perim / area if area > 0 else float('inf')
+
+
 def densify(coords, step=DENSIFY_M):
     """Points along a line at most `step` metres apart (vertices kept), as (n, 2) metres."""
     p = xy(coords)
