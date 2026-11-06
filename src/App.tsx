@@ -11,6 +11,7 @@ import type { LngLat } from './lib/geo';
 import { Bobo, Placeholder } from './components/Bobo';
 import { ConfirmSheet } from './components/ConfirmSheet';
 import { FindIcon, HikeIcon, ProfileIcon, SavedIcon } from './components/NavIcons';
+import { count } from './lib/counter';
 import { setHikeActive } from './lib/swUpdate';
 import { Toaster } from './components/Toaster';
 import { Find } from './screens/Find';
@@ -49,6 +50,7 @@ export function App() {
   const [trailState, setTrailState] = useState<'idle' | 'loading' | 'missing'>('idle');
   const [hike, setHike] = useState<Trail | null>(null);
   useEffect(() => { setHikeActive(!!hike); }, [hike]);
+  useEffect(() => { count('session'); }, []);
   const [saved, setSaved] = useState<{ marked: Set<string>; offline: Set<string>; version: number }>({ marked: new Set(), offline: new Set(), version: 0 });
   const [removing, setRemoving] = useState<Trail | null>(null);
   const [depth, setDepth] = useState(0); // pages the app itself pushed, so Back knows whether it can go back
@@ -115,7 +117,7 @@ export function App() {
   const startHike = useCallback((t: Trail) => {
     const a = startAction(hike, t);
     if (a === 'confirm') { setSwitching(t); return; }
-    if (a === 'start') setHike(t);
+    if (a === 'start') { setHike(t); count('hike_start'); }
     go({ kind: 'tab', tab: 'hike' }); // same trail: just go back to the hike in progress
   }, [go, hike]);
 

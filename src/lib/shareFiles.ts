@@ -1,3 +1,5 @@
+import { count } from './counter';
+
 // The one place that hands a file to the phone's share sheet. A native wrapper can replace this later; keep the shape.
 export interface ShareArgs {
   files: File[];
@@ -34,11 +36,14 @@ export const shareFiles: ShareFiles = async ({ files, title, text, url }) => {
   try {
     if (typeof navigator.canShare === 'function' && typeof navigator.share === 'function' && navigator.canShare({ files })) {
       await navigator.share({ files, title, text });
+      count('share');
       return { status: 'shared', copied: false };
     }
   } catch (e) {
     if ((e as DOMException)?.name === 'AbortError') return { status: 'cancelled', copied: false };
   }
   files.forEach(download);
-  return { status: 'fallback', copied: await copyLink(url) };
+  const copied = await copyLink(url);
+  if (files.length > 0 || copied) count('share'); // only when a file was saved or the link copied
+  return { status: 'fallback', copied };
 };
