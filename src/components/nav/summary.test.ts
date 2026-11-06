@@ -21,6 +21,10 @@ describe('hike summary', () => {
     expect(s.completedFraction).toBeLessThan(0.2);
     expect(s.highlightsHit).toEqual([]);
   });
+  it('adds the climb of the way out when the hiker turned back automatically', () => {
+    const s = buildSummary({ ...base, maxAlong: 1000, startAlong: 0, priorClimbM: 100 });
+    expect(s.climbFt).toBe(Math.round(350 * 3.28084));
+  });
   it('gives no highlights when you turned back early', () => {
     const s = buildSummary({ ...base, maxAlong: 400 });
     expect(s.completedFraction).toBeCloseTo(0.4);

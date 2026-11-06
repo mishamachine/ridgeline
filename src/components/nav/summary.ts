@@ -29,15 +29,17 @@ export function buildSummary(o: {
   total: number;
   startAlong: number | null;
   maxAlong: number;
+  /** Climb of an earlier leg (the way out, when the hiker turned back automatically), m. */
+  priorClimbM?: number;
 }): HikeSummary {
   const { trail, activity, total } = o;
   const distanceM = trackDistance(activity.points);
   // A mis-snap at the trailhead can put you far along the route; you cannot have covered more than you walked.
   const completedFraction = total > 0 ? Math.min(1, Math.max(0, Math.min(o.maxAlong, distanceM) / total)) : 0;
-  let climbM = 0;
+  let climbM = o.priorClimbM ?? 0;
   if (o.elevation && o.elevation.length > 1 && total > 0 && o.startAlong != null && o.maxAlong > o.startAlong) {
     const k = (d: number) => Math.round((d / total) * (o.elevation!.length - 1));
-    climbM = totalAscent(o.elevation.slice(k(o.startAlong), k(o.maxAlong) + 1));
+    climbM += totalAscent(o.elevation.slice(k(o.startAlong), k(o.maxAlong) + 1));
   }
   return {
     trail,

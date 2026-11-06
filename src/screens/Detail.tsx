@@ -12,6 +12,7 @@ import { ft, hm, mb, mi } from '../lib/format';
 import { ELEVATION_NOTICE, ELEVATION_LIABILITY } from '../lib/credits';
 
 import { requestCompassPermission } from '../lib/gps/compass';
+import { primeSpeech } from '../lib/voice/speak';
 
 interface Props {
   tpl: string;
@@ -141,7 +142,7 @@ export function Detail({ tpl, trail: initial, onBack, onStart, onSavedChange }: 
         ) : (
           <button className="action primary" onClick={save}><span>Save offline</span><small>Map, route and profile</small></button>
         )}
-        <button className="action dark" onClick={() => { requestCompassPermission(); onStart(trail); }}><span>Start hike</span><small>Live GPS</small></button>
+        <button className="action dark" onClick={() => { requestCompassPermission(); primeSpeech(); onStart(trail); }}><span>Start hike</span><small>Live GPS</small></button>
       </div>
       </div>
     </>

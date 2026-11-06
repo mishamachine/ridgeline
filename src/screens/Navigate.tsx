@@ -24,6 +24,7 @@ import { getUnits, getVoiceOn, setVoiceOn } from '../lib/voice/prefs';
 import { cancelSpeech, primeSpeech, speak } from '../lib/voice/speak';
 import { climbText, shortDistance } from '../lib/voice/units';
 import { offRouteText } from '../lib/voice/announcer';
+import { TurnBack } from '../lib/voice/turnback';
 
 export type { HikeSummary };
 
@@ -44,6 +45,9 @@ export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
   const startAlongRef = useRef<number | null>(null);
   const maxAlongRef = useRef(0);
   const walkedRef = useRef(0);
+  const autoTurnedRef = useRef(false);
+  const priorFractionRef = useRef(0);
+  const priorClimbRef = useRef(0);
   const followRef = useRef(true);
   const pausedMsRef = useRef(0);
   const pauseStartRef = useRef<number | null>(null);
@@ -62,6 +66,7 @@ export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
   const [pocket, setPocket] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [more, setMore] = useState(false);
+  const [headingBack, setHeadingBack] = useState(false);
   const [units] = useState(getUnits);
   const [voiceOn, setVoice] = useState(getVoiceOn);
   const voiceRef = useRef(voiceOn);
@@ -133,6 +138,23 @@ export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
 
   // Direction changed: measure pace from here.
   useEffect(() => { startAlongRef.current = null; maxAlongRef.current = 0; }, [reversed]);
+
+  // Out-and-back: at the end (or turned round near it) switch to the way back, same as Reverse, once.
+  const turnBack = useMemo(() => new TurnBack(total, !!trail.loop), [total, trail.loop, reversed]);
+  useEffect(() => {
+    if (paused || autoTurnedRef.current || g !== engine.state) return;
+    if (!turnBack.update(along, offRoute)) return;
+    autoTurnedRef.current = true;
+    priorFractionRef.current = maxAlongRef.current / total;
+    if (route.elevation && startAlongRef.current != null && total > 0) {
+      const k = (d: number) => Math.round((d / total) * (route.elevation!.length - 1));
+      priorClimbRef.current = totalAscent(route.elevation.slice(k(startAlongRef.current), k(maxAlongRef.current) + 1));
+    }
+    navigator.vibrate?.([200, 100, 200]);
+    if (voiceRef.current) speak('Turnaround point. Head back the way you came.', true);
+    setHeadingBack(true);
+    setReversed((r) => !r);
+  }, [g, turnBack, paused, along, offRoute]);
 
   // Which way the trail lies when you are off it.
   const offSide = useMemo(
@@ -289,7 +311,7 @@ export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
     if (!onFinish) return onEnd();
     onFinish(buildSummary({
       trail, activity: a, endedAt, pausedMs: pausedMsRef.current, elevation: route.elevation, total,
-      startAlong: startAlongRef.current, maxAlong: maxAlongRef.current,
+      startAlong: startAlongRef.current, maxAlong: Math.max(maxAlongRef.current, priorFractionRef.current * total), priorClimbM: priorClimbRef.current,
     }));
   }
 
@@ -317,6 +339,7 @@ export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
       <div className="nv-map">
         <MapView tileTemplate={tpl} center={start} zoom={15} onReady={onReady} label={`Navigation map for ${trail.name}`} />
         <div className={`nv-chip${caution ? ' caution' : ''}`} style={{ top: 8 }} role="status">{paused ? 'Paused · ' : ''}{status}{net}</div>
+        {headingBack && <div className="nv-tag">Heading back</div>}
         <div className="nv-map-btns">
           {!following && <button className="nv-pill" aria-label="Center on me" onClick={recenter}><LocateIcon size={18} />Center</button>}
           <button className="nv-pill" onClick={() => setMore(true)}>More</button>
