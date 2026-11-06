@@ -21,7 +21,7 @@ adb shell "am broadcast -n $PKG/.DebugHikeReceiver --es title 'In 500 ft, stay l
 sleep 4
 for pt in "-121.7218 47.4897" "-121.7216 47.4899"; do adb emu geo fix $pt; sleep 1; done
 adb shell dumpsys activity services "$PKG" | grep -E "HikeService|isForeground|foregroundServiceType" | head -5 | tee shots/service.txt
-adb shell dumpsys notification --noredact | grep -A12 "pkg=$PKG" | head -30 | tee shots/notification.txt
+adb shell dumpsys notification --noredact > shots/notification.txt; grep -E "android.title|android.text|android.progress" shots/notification.txt | grep -v "^ *$" | head -6
 adb shell cmd statusbar expand-notifications
 sleep 3
 adb exec-out screencap -p > shots/notification-shade.png
