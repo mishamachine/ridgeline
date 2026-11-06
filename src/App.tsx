@@ -21,6 +21,7 @@ import { toCelebrateSummary } from './components/nav/summary';
 import type { HikeSummary } from './lib/hype';
 import { ConfirmSheet } from './components/ConfirmSheet';
 import { FindIcon, HikeIcon, ProfileIcon, SavedIcon } from './components/NavIcons';
+import { setHikeActive } from './lib/swUpdate';
 import { Toaster } from './components/Toaster';
 import { Find } from './screens/Find';
 import { Detail } from './screens/Detail';
@@ -52,6 +53,7 @@ export function App() {
   const [trail, setTrail] = useState<Trail | null>(null);       // trail shown on a /trail/<id> page
   const [trailState, setTrailState] = useState<'idle' | 'loading' | 'missing'>('idle');
   const [hike, setHike] = useState<Trail | null>(null);
+  useEffect(() => { setHikeActive(!!hike); }, [hike]);
   const [saved, setSaved] = useState<{ marked: Set<string>; offline: Set<string>; version: number }>({ marked: new Set(), offline: new Set(), version: 0 });
   const [removing, setRemoving] = useState<Trail | null>(null);
   const [onboarding, setOnboarding] = useState<null | 'first' | 'replay'>(() => (shouldShowOnboarding() ? (getSettings().onboardingSeen ? 'replay' : 'first') : null));
