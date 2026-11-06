@@ -14,7 +14,24 @@
   <!-- An unnamed path (ignored) and a road (ignored) -->
   <node id="20" lat="47.30" lon="-121.60" version="1"/>
   <node id="21" lat="47.31" lon="-121.61" version="1"/>
-  <way id="100" version="1"><nd ref="1"/><nd ref="2"/><tag k="highway" v="path"/><tag k="name" v="Ridge Route"/></way>
+  <!-- Highlights: a viewpoint ~55 m, a waterfall ~90 m and a lake ~110 m from the route; a car park ~60 m from its west end; a beach far away -->
+  <node id="50" lat="47.5005" lon="-121.7405" version="1"><tag k="tourism" v="viewpoint"/></node>
+  <node id="51" lat="47.4908" lon="-121.7600" version="1"><tag k="waterway" v="waterfall"/></node>
+  <node id="52" lat="47.4905" lon="-121.8005" version="1"><tag k="amenity" v="parking"/></node>
+  <node id="53" lat="47.5500" lon="-121.8000" version="1"><tag k="natural" v="beach"/></node>
+  <node id="54" lat="47.4910" lon="-121.8010" version="1"/>
+  <node id="55" lat="47.4910" lon="-121.7990" version="1"/>
+  <node id="56" lat="47.4920" lon="-121.7990" version="1"/>
+  <node id="57" lat="47.4920" lon="-121.8010" version="1"/>
+  <way id="500" version="1"><nd ref="54"/><nd ref="55"/><nd ref="56"/><nd ref="57"/><nd ref="54"/><tag k="natural" v="water"/><tag k="water" v="lake"/></way>
+  <!-- Junctions: an unnamed path and a named spur leave node 3 (inside way 101); another path leaves node 2, where the route's two ways meet -->
+  <node id="60" lat="47.5020" lon="-121.7405" version="1"/>
+  <node id="61" lat="47.4990" lon="-121.7400" version="1"/>
+  <node id="62" lat="47.4880" lon="-121.7605" version="1"/>
+  <way id="400" version="1"><nd ref="3"/><nd ref="60"/><tag k="highway" v="path"/></way>
+  <way id="401" version="1"><nd ref="3"/><nd ref="61"/><tag k="highway" v="path"/><tag k="name" v="Side Spur"/></way>
+  <way id="402" version="1"><nd ref="2"/><nd ref="62"/><tag k="highway" v="footway"/></way>
+  <way id="100" version="1"><nd ref="1"/><nd ref="2"/><tag k="highway" v="path"/><tag k="name" v="Ridge Route"/><tag k="bicycle" v="designated"/></way>
   <way id="101" version="1"><nd ref="2"/><nd ref="3"/><nd ref="4"/><tag k="highway" v="path"/></way>
   <way id="200" version="1"><nd ref="10"/><nd ref="11"/><nd ref="12"/><tag k="highway" v="path"/><tag k="name" v="Creek Path"/><tag k="surface" v="dirt"/><tag k="dog" v="leashed"/></way>
   <way id="302" version="1"><nd ref="20"/><nd ref="21"/><tag k="highway" v="track"/><tag k="name" v="5030-612"/></way>
@@ -24,7 +41,7 @@
   <relation id="900" version="1">
     <member type="way" ref="100" role=""/>
     <member type="way" ref="101" role=""/>
-    <tag k="type" v="route"/><tag k="route" v="hiking"/><tag k="name" v="Ridge Route"/><tag k="sac_scale" v="mountain_hiking"/>
+    <tag k="type" v="route"/><tag k="route" v="hiking"/><tag k="name" v="Ridge Route"/><tag k="sac_scale" v="mountain_hiking"/><tag k="horse" v="yes"/>
   </relation>
   <relation id="901" version="1">
     <member type="way" ref="300" role=""/>
