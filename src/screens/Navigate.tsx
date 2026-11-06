@@ -82,7 +82,7 @@ export function Navigate({ tpl, trail, saved, onEnd }: Props) {
 
   const pos: LngLat | null = g.position;
   const near = g.along != null;
-  const offRoute = g.offRoute && near; // engine also holds alerts until you have joined the trail
+  const offRoute = g.offRoute; // the engine holds alerts until you have joined the trail
   const along = g.along;
   const remaining = along != null ? total - along : total;
 

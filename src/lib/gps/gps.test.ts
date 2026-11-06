@@ -167,7 +167,7 @@ describe('engine', () => {
     expect(e.state.recalTimedOut).toBe(false);
   });
 
-  it('never alerts off-route before joining the trail, shows a bearing, and holds alerts when the trail is far', () => {
+  it('never alerts off-route before joining the trail, shows a bearing, and alerts at any distance once joined', () => {
     const { e } = mk();
     for (let t = 0; t < 8; t++) e.ingest(at(100, 80, t, 8)); // car park 80 m north of the trail
     expect(e.state.offRoute).toBe(false);
@@ -178,8 +178,9 @@ describe('engine', () => {
     expect(e.state.matched).toBe(true);
     for (let t = 20; t < 45; t++) e.ingest(at(120, 80, t, 8)); // genuinely wander off
     expect(e.state.offRoute).toBe(true);
-    for (let t = 45; t < 90; t++) e.ingest(at(120, 400, t, 8)); // far away: no alert, "x mi to the trail"
-    expect(e.state.offRoute).toBe(false);
+    for (let t = 45; t < 90; t++) { e.ingest(at(120, 400, t, 8)); if (t > 55) expect(e.state.offRoute).toBe(true); }; // 400 m away: still the red alert
+    expect(e.state.along).toBeNull();
+    expect(e.state.offRoute).toBe(true);
   });
 
   it('gates needsCalibration on a reported compass accuracy', () => {

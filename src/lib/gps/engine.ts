@@ -228,8 +228,8 @@ export class GpsEngine {
       matched: !!m?.matched,
       along,
       offsetM: m ? m.routeOffset : null,
-      // Never alert before the hiker has joined the route, nor when the trail is far away (car park).
-      offRoute: !!m?.offRoute && near && this.joined && !this.anchor,
+      // Never alert before the hiker has joined the route (car park); once joined, always alert, however far.
+      offRoute: !!m?.offRoute && this.joined && !this.anchor,
       progress: along != null && total > 0 ? Math.min(1, Math.max(0, along / total)) : null,
       total,
       deadReckoning: this.opts.deadReckoning?.active() ?? false,
