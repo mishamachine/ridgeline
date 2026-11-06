@@ -7,11 +7,11 @@ export interface Speaker {
 
 let live: unknown[] = []; // browsers can drop an utterance that nothing references
 
+/** An English voice that runs on the device. Never a network voice: it must work offline and not send the text anywhere. */
 function pickVoice(synth: SpeechSynthesis): SpeechSynthesisVoice | undefined {
-  const voices = synth.getVoices();
   const lang = (typeof navigator !== 'undefined' ? navigator.language : 'en-US') || 'en-US';
-  const en = voices.filter((v) => v.lang.toLowerCase().startsWith('en'));
-  return en.find((v) => v.lang.toLowerCase() === lang.toLowerCase() && v.localService) ?? en.find((v) => v.lang.toLowerCase() === lang.toLowerCase()) ?? en.find((v) => v.localService) ?? en[0];
+  const local = synth.getVoices().filter((v) => v.localService && v.lang.toLowerCase().startsWith('en'));
+  return local.find((v) => v.lang.toLowerCase() === lang.toLowerCase()) ?? local[0];
 }
 
 export function webSpeaker(synth: SpeechSynthesis | undefined = typeof speechSynthesis === 'undefined' ? undefined : speechSynthesis): Speaker {
@@ -33,6 +33,14 @@ export function webSpeaker(synth: SpeechSynthesis | undefined = typeof speechSyn
     },
     cancel() { synth?.cancel(); live = []; },
   };
+}
+
+/** iOS only lets speech start from a tap. Call this inside one: it speaks a silent, empty line to unlock the engine. */
+export function primeSpeech(synth: SpeechSynthesis | undefined = typeof speechSynthesis === 'undefined' ? undefined : speechSynthesis) {
+  if (!synth || typeof SpeechSynthesisUtterance === 'undefined') return;
+  const u = new SpeechSynthesisUtterance(' ');
+  u.volume = 0;
+  synth.speak(u);
 }
 
 let speaker: Speaker = webSpeaker();

@@ -6,7 +6,7 @@ import { Banner } from '../components/nav/Banner';
 import { PocketMode } from '../components/nav/PocketMode';
 import { buildView } from '../components/nav/view';
 import { buildSummary, type HikeSummary } from '../components/nav/summary';
-import { cumulative, pointAt, totalAscent, LngLat } from '../lib/geo';
+import { cumulative, haversine, pointAt, totalAscent, LngLat } from '../lib/geo';
 import { estimateMinutes, Trail } from '../lib/trails';
 import { addPoint, newActivity, keepAwake } from '../lib/tracker';
 import { putActivity, Activity } from '../lib/store';
@@ -21,7 +21,7 @@ import { Announcer } from '../lib/voice/announcer';
 import { forksFor, nextStep } from '../lib/voice/forkpoints';
 import { offRouteSide } from '../lib/voice/offroute';
 import { getUnits, getVoiceOn, setVoiceOn } from '../lib/voice/prefs';
-import { cancelSpeech, speak } from '../lib/voice/speak';
+import { cancelSpeech, primeSpeech, speak } from '../lib/voice/speak';
 import { climbText, shortDistance } from '../lib/voice/units';
 
 export type { HikeSummary };
@@ -42,6 +42,7 @@ export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
   const actRef = useRef<Activity>(newActivity(trail.name, trail.id));
   const startAlongRef = useRef<number | null>(null);
   const maxAlongRef = useRef(0);
+  const walkedRef = useRef(0);
   const followRef = useRef(true);
   const pausedMsRef = useRef(0);
   const pauseStartRef = useRef<number | null>(null);
@@ -79,7 +80,9 @@ export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
   const [engine] = useState(() => new GpsEngine(new WebLocationSource(), {
     route: { coords: route.coords, elevation: route.elevation },
     onAccepted: (f) => {
-      if (!pausedRef.current) addPoint(actRef.current, { lon: f.lon, lat: f.lat, alt: f.altitude ?? null, acc: f.accuracy, t: f.t });
+      if (pausedRef.current) return;
+      const last = actRef.current.points.at(-1);
+      if (addPoint(actRef.current, { lon: f.lon, lat: f.lat, alt: f.altitude ?? null, acc: f.accuracy, t: f.t }) && last) walkedRef.current += haversine([last.lon, last.lat], [f.lon, f.lat]);
     },
   }));
   const [g, setG] = useState<GpsState>(engine.state);
@@ -137,12 +140,21 @@ export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
 
   // Talk, only when there is something to say. Vibrate with it.
   useEffect(() => {
-    if (paused || g.recalLastOffRoute) return; // Recalibrating: say nothing new, and do not call "back on the trail"
-    for (const u of announcer.update({ t: Date.now(), along, offRoute, off: offSide ?? undefined })) {
+    if (paused) return;
+    // After a reversal the screen can still hold the old direction's state for one render: wait for the engine's first state on the new route.
+    if (g !== engine.state) return;
+    for (const u of announcer.update({ t: Date.now(), along, offRoute, holdOff: g.recalLastOffRoute, walkedM: walkedRef.current, off: offSide ?? undefined })) {
       navigator.vibrate?.(u.vibrate);
       if (voiceRef.current) speak(u.text, u.interrupt);
     }
   }, [g, announcer, paused, along, offRoute, offSide]);
+
+  // iOS only starts speech from a tap: unlock it on the first touch on this screen.
+  useEffect(() => {
+    const once = () => primeSpeech();
+    window.addEventListener('pointerdown', once, { once: true });
+    return () => window.removeEventListener('pointerdown', once);
+  }, []);
 
   function toggleVoice() {
     const on = !voiceOn;
@@ -307,7 +319,7 @@ export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
         <div className="nv-row">
           <button className="chip" onClick={recalibrate}>Recalibrate</button>
           <button className="chip" aria-pressed={here} onClick={toggleHere}>I'm here</button>
-          <button className="chip" onClick={() => setPocket(true)}>Pocket mode</button>
+          <button className="chip" onClick={() => { primeSpeech(); setPocket(true); }}>Pocket mode</button>
         </div>
         <div className="nv-acts">
           <button className="nv-btn" onClick={togglePause}>{paused ? 'Resume' : 'Pause'}</button>

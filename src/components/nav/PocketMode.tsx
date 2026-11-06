@@ -26,11 +26,14 @@ export function PocketMode({ view, trailName, voiceOn, toGo, pace, climb, pct, n
   // Keep the screen on, and come back to it if the tab was hidden and returns.
   useEffect(() => {
     let release = () => {};
-    keepAwake().then((r) => (release = r));
-    const onVis = () => { if (document.visibilityState === 'visible') keepAwake().then((r) => { release(); release = r; }); };
+    let gone = false;
+    const hold = () => keepAwake().then((r) => { if (gone) r(); else { release(); release = r; } });
+    hold();
+    const onVis = () => { if (document.visibilityState === 'visible') hold(); };
     document.addEventListener('visibilitychange', onVis);
     document.documentElement.requestFullscreen?.().catch(() => {});
     return () => {
+      gone = true;
       document.removeEventListener('visibilitychange', onVis);
       release();
       if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
@@ -70,7 +73,7 @@ export function PocketMode({ view, trailName, voiceOn, toGo, pace, climb, pct, n
           <span style={{ fontSize: 13, color: '#BDBDBD' }}>{pct != null ? `${Math.round(pct * 100)}% done` : '—'}</span>
         </div>
       </div>
-      <p className="pocket-foot">Keep Ridgeline open; your screen stays on in pocket mode. Voice directions keep playing.</p>
+      <p className="pocket-foot">Keep Ridgeline open; your screen stays on in pocket mode.{voiceOn ? ' Voice directions keep playing.' : ''}</p>
       <button className={`pocket-exit${holding ? ' holding' : ''}`}
         onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && !e.repeat) { e.preventDefault(); start(); } }}
         onKeyUp={(e) => { if (e.key === 'Enter' || e.key === ' ') stop(); }}

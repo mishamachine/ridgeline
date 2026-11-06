@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { cumulative, LngLat } from '../geo';
 import { Frame } from '../gps/frame';
 import { findReversals } from '../gps/reversals';
+import { GpsEngine } from '../gps/engine';
 import type { Junction } from '../trails';
 import { Announcer, type Utterance } from './announcer';
 import { forksFor, nextStep } from './forkpoints';
@@ -112,11 +113,56 @@ describe('announcer on a simulated walk', () => {
     void spur;
     expect(texts(walk(a, 0, 330))).toEqual(['Turnaround point. Head back the way you came.']);
   });
+  it('two samples at total minus 5 on a loop, never seen mid-route: no finish', () => {
+    const a = new Announcer({ forks: [], turnarounds: [], total: TOTAL });
+    expect(a.update({ t: T0, along: TOTAL - 5, offRoute: false })).toEqual([]);
+    expect(a.update({ t: T0 + 1000, along: TOTAL - 5, offRoute: false })).toEqual([]);
+  });
+  it('a finish counts when you have walked half the route even if it was never seen mid-way', () => {
+    const a = new Announcer({ forks: [], turnarounds: [], total: TOTAL });
+    expect(texts(a.update({ t: T0, along: TOTAL - 5, offRoute: false, walkedM: TOTAL * 0.6 }))).toEqual(['You made it.']);
+  });
+  it('recalibrating while off the trail: no new line, no "back on", and the 60 s clock keeps running', () => {
+    const a = new Announcer({ forks: [], turnarounds: [], total: TOTAL });
+    const off = { distM: 36.6, side: 'left' as const };
+    expect(a.update({ t: T0, along: 300, offRoute: true, off })).toHaveLength(1);
+    expect(a.update({ t: T0 + 10_000, along: null, offRoute: false, holdOff: true })).toEqual([]);
+    expect(a.update({ t: T0 + 40_000, along: null, offRoute: false, holdOff: true })).toEqual([]);
+    expect(texts(a.update({ t: T0 + 61_000, along: 300, offRoute: true, off }))).toEqual(["You're off the trail. The trail is 120 feet to your left."]);
+  });
   it('a loop does not "finish" at the trailhead before you have walked it', () => {
     const a = new Announcer({ forks: [], turnarounds: [], total: TOTAL });
     expect(a.update({ t: T0, along: TOTAL - 5, offRoute: false })).toEqual([]);
     a.update({ t: T0 + 1000, along: TOTAL / 2, offRoute: false });
     expect(texts(a.update({ t: T0 + 2000, along: TOTAL - 5, offRoute: false }))).toEqual(['You made it.']);
+  });
+});
+
+describe('reversing the route', () => {
+  it('the engine drops the old along at once, so a stale screen state is told apart from the new one', () => {
+    const eng = new GpsEngine({ start() {}, stop() {}, restart() {} }, { route: { coords: COORDS } });
+    for (let d = 0; d <= 800; d += 4) { const p = P(d, 0); eng.ingest({ lon: p[0], lat: p[1], accuracy: 5, t: T0 + d * 250 }); }
+    const shown = eng.state;
+    expect(shown.along).toBeGreaterThan(700);
+    eng.setRoute({ coords: [...COORDS].reverse() });
+    expect(eng.state).not.toBe(shown); // Navigate skips announcements while the screen still holds `shown`
+    expect(eng.state.along).toBeNull();
+    const a = new Announcer({ forks: [], turnarounds: [], total: TOTAL });
+    expect(a.update({ t: T0, along: eng.state.along, offRoute: eng.state.offRoute })).toEqual([]);
+  });
+});
+
+describe('return leg of an out-and-back', () => {
+  it('a junction visited on the way out and on the way back is announced on both passes, with opposite sides', () => {
+    const out: LngLat[] = [P(0, 0), P(500, 0), P(1000, 0)];
+    const back: LngLat[] = [...out, P(500, 2), P(0, 2)];
+    // The side path leaves to the north at 500 m: on the way out that is the left, on the way back the right.
+    const j: Junction[] = [
+      { along: 500, branches: [{ name: 'Side Path', point: P(517, 10) }] },
+      { along: cumulative(back)[3], branches: [{ name: 'Side Path', point: P(483, 12) }] },
+    ];
+    const f = forksFor(back, j, false, 'Out And Back');
+    expect(f.map((x) => x.side)).toEqual(['right', 'left']);
   });
 });
 

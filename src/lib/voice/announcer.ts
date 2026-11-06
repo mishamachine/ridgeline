@@ -28,6 +28,10 @@ export interface AnnouncerInput {
   /** Distance along the route (m); null when the trail is not near. */
   along: number | null;
   offRoute: boolean;
+  /** Recalibrating after being off the trail: still off, say nothing new. */
+  holdOff?: boolean;
+  /** How far the hiker has actually walked (m). Lets a finish count when the route was never seen mid-way. */
+  walkedM?: number;
   /** Distance to the trail and which way it lies, when off route. */
   off?: { distM: number; side: OffSide };
 }
@@ -47,13 +51,16 @@ export class Announcer {
   private turnSaid = new Set<number>();
   private offAt: number | null = null;
   private finished = false;
-  private furthest = 0;
+  private seenMid = false;
 
   constructor(private route: AnnouncerRoute, private units: Units = 'imperial') {}
 
   update(i: AnnouncerInput): Utterance[] {
     const out: Utterance[] = [];
     const say = (kind: UtteranceKind, text: string, interrupt: boolean, vibrate: number[]) => out.push({ kind, text, interrupt, vibrate });
+
+    // Recalibrating while off the trail: still off. Keep the clock, add nothing, never "back on".
+    if (i.holdOff && this.offAt != null) return out;
 
     // Off the trail: say it once, then at most once a minute.
     if (i.offRoute) {
@@ -94,10 +101,10 @@ export class Announcer {
       }
     });
 
-    // On a loop the start is also the end, so only count the finish after most of the route is done.
-    const furthest = this.furthest;
-    this.furthest = Math.max(furthest, along);
-    if (!this.finished && furthest >= this.route.total * 0.5 && this.route.total - along <= FINISH_M) {
+    // On a loop the start is also the end: only count a finish once the hiker was seen mid-route or has walked half of it.
+    const seenMid = this.seenMid;
+    if (along >= this.route.total * 0.25 && along <= this.route.total * 0.75) this.seenMid = true;
+    if (!this.finished && (seenMid || (i.walkedM ?? 0) >= this.route.total * 0.5) && this.route.total - along <= FINISH_M) {
       this.finished = true;
       say('finish', 'You made it.', true, [100, 60, 100, 60, 300]);
     }

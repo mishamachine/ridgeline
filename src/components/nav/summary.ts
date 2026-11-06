@@ -14,7 +14,7 @@ export interface HikeSummary {
   endedAt: number;
   /** Trail highlights (lake, summit...) once you have covered most of the trail. */
   highlightsHit: string[];
-  /** 0..1: the furthest point reached along the route over the route's length. */
+  /** 0..1: the furthest point reached along the route, capped by the distance actually walked, over the route's length. */
   completedFraction: number;
 }
 
@@ -31,7 +31,9 @@ export function buildSummary(o: {
   maxAlong: number;
 }): HikeSummary {
   const { trail, activity, total } = o;
-  const completedFraction = total > 0 ? Math.min(1, Math.max(0, o.maxAlong / total)) : 0;
+  const distanceM = trackDistance(activity.points);
+  // A mis-snap at the trailhead can put you far along the route; you cannot have covered more than you walked.
+  const completedFraction = total > 0 ? Math.min(1, Math.max(0, Math.min(o.maxAlong, distanceM) / total)) : 0;
   let climbM = 0;
   if (o.elevation && o.elevation.length > 1 && total > 0 && o.startAlong != null && o.maxAlong > o.startAlong) {
     const k = (d: number) => Math.round((d / total) * (o.elevation!.length - 1));
@@ -40,7 +42,7 @@ export function buildSummary(o: {
   return {
     trail,
     activity,
-    distanceM: trackDistance(activity.points),
+    distanceM,
     climbFt: Math.round(climbM * M_TO_FT),
     movingMs: Math.max(0, o.endedAt - activity.startedAt - o.pausedMs),
     startedAt: activity.startedAt,

@@ -52,6 +52,16 @@ describe('route reversal (spur tip)', () => {
     const c = [[0, 0], [200, 0], [200, 100], [0, 100], [0, 10]].map(([x, y]) => fr.toLngLat(x, y));
     expect(findReversals(c)).toEqual([]);
   });
+  it('a V hairpin is not a spur tip', () => {
+    // Two legs 10 and 20 degrees apart: a sharp turn, but the legs separate.
+    const hairpin = (deg: number) => { const r = (deg * Math.PI) / 180; return [fr.toLngLat(0, 0), fr.toLngLat(400, 0), fr.toLngLat(400 - 400 * Math.cos(r), 400 * Math.sin(r))]; };
+    expect(findReversals(hairpin(10))).toEqual([]);
+    expect(findReversals(hairpin(20))).toEqual([]);
+  });
+  it('stacked switchbacks 20 m apart are not spur tips', () => {
+    const sw = [[0, 0], [300, 0], [300, 20], [0, 20], [0, 40], [300, 40], [300, 60], [0, 60]].map(([x, y]) => fr.toLngLat(x, y));
+    expect(findReversals(sw)).toEqual([]);
+  });
   it('sigma 15 m: under 1% of fixes land on the wrong leg, and progress never jumps at the tip', () => {
     const runs = [1, 2, 3, 4, 5].map((s) => wrongLeg(15, s));
     const wrong = runs.reduce((a, r) => a + r.wrong, 0) / runs.length;
