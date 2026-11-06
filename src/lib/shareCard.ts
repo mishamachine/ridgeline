@@ -168,6 +168,11 @@ export function qrModules(url: string): boolean[][] {
 
 // ---------- layout ----------
 
+export const QR_QUIET = 4;
+export const MIN_QR_CELL = 4;
+/** Whole pixels per module, so the code stays sharp when the card is shrunk. */
+export const qrCell = (size: number, modules: number) => Math.floor(size / (modules + 2 * QR_QUIET));
+
 const MIN_HERO = { story: 360, square: 190 };
 
 export function layoutCard(input: CardInput, measure: Measure): CardLayout {
@@ -208,7 +213,8 @@ function build(input: CardInput, measure: Measure, titleMax: number, wantBobo: b
 
   // blocks measured from the bottom
   const gap = story ? 24 : 16;
-  const qrSize = story ? 210 : 140;
+  const modules = qrModules(trailUrl(summary.trail.id));
+  const qrSize = Math.max(story ? 210 : 168, MIN_QR_CELL * (modules.length + 2 * QR_QUIET));
   const footerH = qrSize + 18; // rule + QR row; at most 15% of the card height
   const badgeText = input.newBadge?.name ? `New badge: ${input.newBadge.name}` : '';
   const route = options.showRoute ? routeForCard(summary.track, options.hideStart) : [];
@@ -289,7 +295,7 @@ function build(input: CardInput, measure: Measure, titleMax: number, wantBobo: b
   while (fs > 22 && measure(CARD_FOOTER, fs, 600, 'text') > textW) fs -= 2;
   text({ x: M, y: fy + qrSize * 0.4, text: CARD_FOOTER, size: fs, weight: 600, family: 'text', color: P.text });
   text({ x: M, y: fy + qrSize * 0.4 + fs * 1.35, text: SITE_HOST, size: Math.round(fs * 0.85), weight: 600, family: 'text', color: P.url });
-  ops.push({ kind: 'qr', x: w - M - qrSize, y: fy, size: qrSize, modules: qrModules(trailUrl(summary.trail.id)) });
+  ops.push({ kind: 'qr', x: w - M - qrSize, y: fy, size: qrSize, modules });
 
   return { w, h, ops, hero, routeShown, elevationShown: !!elevation, credits, footerH, theme: options.theme ?? 'dark' };
 }
@@ -346,12 +352,13 @@ export function drawCard(ctx: CanvasRenderingContext2D, layout: CardLayout, bobo
     } else if (op.kind === 'line') {
       ctx.strokeStyle = op.color; ctx.lineWidth = op.width; ctx.beginPath(); ctx.moveTo(op.x1, op.y1); ctx.lineTo(op.x2, op.y2); ctx.stroke();
     } else if (op.kind === 'qr') {
-      const quiet = 2;
+      const quiet = QR_QUIET;
       const n = op.modules.length;
-      const cell = op.size / (n + 2 * quiet);
+      const cell = qrCell(op.size, n);
+      const off = (op.size - cell * (n + 2 * quiet)) / 2;
       ctx.fillStyle = '#FFFFFF'; roundRect(ctx, op.x, op.y, op.size, op.size, 14); ctx.fill();
       ctx.fillStyle = '#111111';
-      for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (op.modules[r][c]) ctx.fillRect(op.x + (c + quiet) * cell, op.y + (r + quiet) * cell, Math.ceil(cell), Math.ceil(cell));
+      for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (op.modules[r][c]) ctx.fillRect(op.x + off + (c + quiet) * cell, op.y + off + (r + quiet) * cell, cell, cell);
     }
   }
 }

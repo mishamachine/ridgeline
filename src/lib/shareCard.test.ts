@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { haversine } from './geo';
 import { HikeSummary } from './hype';
-import { CARD_SIZES, DEFAULT_CARD_OPTIONS, CardOptions, Measure, Op, OSM_CREDIT, STORY_SAFE, TRIM_M, cardDate, layoutCard, projectRoute, qrModules, routeForCard, trimTrack } from './shareCard';
+import { CARD_SIZES, QR_QUIET, qrCell, DEFAULT_CARD_OPTIONS, CardOptions, Measure, Op, OSM_CREDIT, STORY_SAFE, TRIM_M, cardDate, layoutCard, projectRoute, qrModules, routeForCard, trimTrack } from './shareCard';
 import { ELEVATION_NOTICE } from './credits';
 import { SITE_HOST } from './shareLinks';
 
@@ -119,7 +119,7 @@ describe('layoutCard: content and layout', () => {
         const l = layoutCard({ summary: s, newBadge: { name: 'Ledge Sitter' }, badgeCount: 4, options: opts({ format, showRoute: true }) }, measure);
         expect([l.w, l.h]).toEqual([w, h]);
         expect(l.hero.h).toBeGreaterThanOrEqual(format === 'story' ? 360 : 190);
-        expect(l.footerH).toBeLessThanOrEqual(h * 0.15);
+        expect(l.footerH).toBeLessThanOrEqual(h * (format === 'story' ? 0.15 : 0.18));
         const t = texts(l.ops);
         for (const x of t) {
           expect(x.y).toBeLessThanOrEqual(h);
@@ -165,6 +165,19 @@ describe('layoutCard: content and layout', () => {
       for (const u of ['mi', 'ft', 'hr']) expect(texts(l.ops).find((t) => t.text === u)!.size).toBeGreaterThanOrEqual(36);
       const qr = l.ops.find((o) => o.kind === 'qr') as Extract<Op, { kind: 'qr' }>;
       if (format === 'story') expect(qr.size).toBeGreaterThanOrEqual(200);
+    }
+  });
+  it('keeps whole-pixel QR modules of at least 4 px, even for a 64-character trail id', () => {
+    const id = `osm-w${'1'.repeat(59)}`;
+    expect(id).toHaveLength(64);
+    for (const format of ['story', 'square'] as const) {
+      const l = layoutCard({ summary: summary({ trail: { id, name: 'X' } }), options: opts({ format }) }, measure);
+      const qr = l.ops.find((o) => o.kind === 'qr') as Extract<Op, { kind: 'qr' }>;
+      const cell = qrCell(qr.size, qr.modules.length);
+      expect(Number.isInteger(cell)).toBe(true);
+      expect(cell).toBeGreaterThanOrEqual(4);
+      expect(qr.size).toBeGreaterThanOrEqual(format === 'story' ? 210 : 168);
+      expect(QR_QUIET).toBe(4);
     }
   });
   it('clamps a long badge name to the card width', () => {
