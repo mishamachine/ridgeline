@@ -1,5 +1,6 @@
 // JS side of the local "RidgelineHike" Capacitor plugin (android/ HikePlugin.java, ios/ HikePlugin.swift).
 import { registerPlugin, type PluginListenerHandle } from '@capacitor/core';
+import type { Fix } from '../gps/source';
 
 export interface NavNotification {
   /** Big line: the next instruction, e.g. "Stay left for Mount Si Trail". */
@@ -10,12 +11,7 @@ export interface NavNotification {
   progress?: number;
 }
 
-export interface NativeFix {
-  lat: number; lon: number; accuracy: number;
-  altitude?: number; altitudeAccuracy?: number; speed?: number; heading?: number;
-  /** ms since epoch */
-  t: number;
-}
+export type NativeFix = Fix;
 
 export type PermissionState = 'prompt' | 'prompt-with-rationale' | 'granted' | 'denied';
 export interface HikePermissions { location: PermissionState; notifications: PermissionState }

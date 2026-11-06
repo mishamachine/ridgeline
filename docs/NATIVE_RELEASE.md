@@ -60,9 +60,11 @@ Keep the file and passwords in your password manager, not in the repo.
 
 ## Site side
 
-- DNS and hosting for hike.bbprojectfactory.com (the apps read trail data from there, falling back to
-  hike.bobolearns.com). `deploy/htaccess` sends the CORS header the apps need.
-- Privacy policy and support URL pages must be live before any store submission.
+- DNS and hosting for hike.bbprojectfactory.com: the apps read trail data only from
+  https://hike.bbprojectfactory.com/trails/ (there is no fallback host). `deploy/htaccess` sends the CORS header the apps need.
+- Store listing URLs: privacy policy https://hike.bbprojectfactory.com/privacy/ and support
+  https://hike.bbprojectfactory.com/support/. Both must be live before any store submission.
+- App icon: the final "Summit Red" icon from `brand/icon/`; `npm run icons` regenerates every icon and the splash (static).
 
 ## Versions
 

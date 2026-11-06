@@ -1,7 +1,7 @@
 // Hosted trail data: small grid-cell files built from OpenStreetMap (scripts/build_trails.py).
 import type { BBox } from './geo';
 import { parseOverpass, profileFromVertices, withElevation, type Trail } from './trails';
-import { SITE_URL, SITE_URL_FALLBACK } from './site';
+import { SITE_URL } from './site';
 import { isNative } from './native/platform';
 
 export interface CellIndex { v: number; built: string; source: string; elevation?: string; cell: number; bbox: [number, number, number, number] | null; cells: string[] }
@@ -10,27 +10,12 @@ interface CellRoute { id: number; t: Record<string, string>; n: number; m: [numb
 interface CellWay { id: number; t: Record<string, string>; g: number[]; z?: number[] }
 export interface CellFile { v: number; r: CellRoute[]; w: CellWay[] }
 
-/** Where trail data lives: this site on the web; the live site, then its old host, inside the native apps. */
-export function trailBases(native = isNative()): string[] {
-  return native ? [`${SITE_URL}/trails/`, `${SITE_URL_FALLBACK}/trails/`] : [`${import.meta.env.BASE_URL ?? '/'}trails/`];
+/** Where trail data lives: this site on the web; the live site by absolute URL inside the native apps. */
+export function trailBase(native = isNative()): string {
+  return native ? `${SITE_URL}/trails/` : `${import.meta.env.BASE_URL ?? '/'}trails/`;
 }
 
-/** Fetch one hosted file, trying each base in turn. Returns the first OK response, else the last response. */
-async function fetchHosted(name: string, signal?: AbortSignal): Promise<Response> {
-  let last: Response | undefined, err: unknown;
-  for (const b of trailBases()) {
-    try {
-      const res = await fetch(`${b}${name}`, { signal });
-      if (res.ok) return res;
-      last = res;
-    } catch (e) {
-      if (signal?.aborted) throw e;
-      err = e;
-    }
-  }
-  if (last) return last;
-  throw err;
-}
+const fetchHosted = (name: string, signal?: AbortSignal) => fetch(`${trailBase()}${name}`, { signal });
 
 let indexPromise: Promise<CellIndex | null> | null = null;
 

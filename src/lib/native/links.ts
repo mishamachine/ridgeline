@@ -1,9 +1,9 @@
 // Deep links: https://hike.bbprojectfactory.com/trail/<id> opens that trail inside the app.
 import { App } from '@capacitor/app';
-import { SITE_URL, SITE_URL_FALLBACK } from '../site';
+import { SITE_URL } from '../site';
 import { isNative } from './platform';
 
-const HOSTS = new Set([SITE_URL, SITE_URL_FALLBACK].map((u) => new URL(u).hostname));
+const HOSTS = new Set([new URL(SITE_URL).hostname]);
 
 /** Trail id from an app link, or null if it is not one of ours. */
 export function parseTrailLink(url: string): string | null {

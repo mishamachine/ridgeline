@@ -47,11 +47,14 @@ jobs:
           key: copernicus-dem-90m-v1
       - name: Build hosted trail data (elevation from Copernicus DEM GLO-90)
         run: python scripts/build_trails.py washington.osm.pbf dist/trails "OpenStreetMap via Geofabrik (Washington)"
-      - name: Build a root-domain copy for Hostinger (hike.bobolearns.com)
+      - name: Build a root-domain copy for Hostinger (hike.bbprojectfactory.com)
         run: |
           BASE_PATH=/ npx vite build --outDir dist-root --emptyOutDir
           cp -r dist/trails dist-root/trails
           cp deploy/htaccess dist-root/.htaccess
+      - name: Fail if the old domain appears in either build
+        run: |
+          if grep -rIil bobolearns dist dist-root; then echo "old domain found in build output"; exit 1; fi
       - name: Publish the Hostinger copy to the 'hostinger' branch
         if: github.ref == 'refs/heads/main'
         run: |

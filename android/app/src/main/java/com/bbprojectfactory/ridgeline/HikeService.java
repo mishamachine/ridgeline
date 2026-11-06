@@ -88,7 +88,7 @@ public class HikeService extends Service {
         Intent open = new Intent(this, MainActivity.class).setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent pi = PendingIntent.getActivity(this, 0, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         NotificationCompat.Builder b = new NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(R.drawable.ic_stat_hike)
+            .setSmallIcon(R.mipmap.ic_launcher_monochrome)
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(new NotificationCompat.BigTextStyle().bigText(text))

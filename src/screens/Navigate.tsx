@@ -10,6 +10,8 @@ import { duration, ft, mi } from '../lib/format';
 import { INK } from '../lib/mapStyle';
 import { GpsEngine, GpsState } from '../lib/gps/engine';
 import { WebLocationSource } from '../lib/gps/source';
+import { isNative } from '../lib/native/platform';
+import { createNativeLocationSource, updateNavNotification } from '../lib/native/location';
 import { QUALITY_LABEL } from '../lib/gps/quality';
 import { requestCompassPermission, startCompass } from '../lib/gps/compass';
 
@@ -44,7 +46,7 @@ export function Navigate({ tpl, trail, saved, onEnd }: Props) {
   }, [trail, reversed]);
   const total = route.cum.at(-1)!;
 
-  const [engine] = useState(() => new GpsEngine(new WebLocationSource(), {
+  const [engine] = useState(() => new GpsEngine(isNative() ? createNativeLocationSource({ title: trail.name, text: 'Finding your position…', progress: 0 }) : new WebLocationSource(), {
     route: { coords: route.coords, elevation: route.elevation },
     onAccepted: (f) => {
       if (!pausedRef.current) addPoint(actRef.current, { lon: f.lon, lat: f.lat, alt: f.altitude ?? null, acc: f.accuracy, t: f.t });
@@ -100,6 +102,15 @@ export function Navigate({ tpl, trail, saved, onEnd }: Props) {
     if (offRoute && !wasOffRef.current) navigator.vibrate?.([200, 100, 200]);
     wasOffRef.current = !!offRoute;
   }, [offRoute]);
+
+  // Lock-screen notification (native): trail name or off-trail alert, distance left, % done. At most every 5 s.
+  const noteAtRef = useRef(0);
+  useEffect(() => {
+    if (!isNative() || along == null || Date.now() - noteAtRef.current < 5000) return;
+    noteAtRef.current = Date.now();
+    const pct = Math.max(0, Math.min(100, Math.round((along / total) * 100)));
+    updateNavNotification({ title: offRoute ? 'Off the trail' : trail.name, text: `${mi(remaining)} mi left · ${pct}% done`, progress: pct }).catch(() => {});
+  }, [along, offRoute, remaining, total, trail.name]);
 
   // Climb ahead and time left, adjusted to your pace once you've walked a bit.
   const climbAhead = route.elevation

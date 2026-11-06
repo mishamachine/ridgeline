@@ -12,7 +12,7 @@
     "build:native": "vite build --mode native --outDir dist-native && npx cap sync",
     "build:ios": "vite build --mode native --outDir dist-native && npx cap sync ios",
     "build:android": "vite build --mode native --outDir dist-native && npx cap sync android",
-    "assets": "npx capacitor-assets generate --iconBackgroundColor \"#F7F7F5\" --splashBackgroundColor \"#F7F7F5\""
+    "icons": "python3 scripts/make-icons.py"
   },
   "keywords": [],
   "author": "",
