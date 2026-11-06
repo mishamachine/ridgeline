@@ -114,11 +114,9 @@
 .trail-sub { font-size: 14px; color: var(--grey); margin-top: 4px; }
 .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .tile { background: var(--card); border: 1px solid var(--hair); border-radius: 12px; padding: 10px 7px; min-width: 0; }
-.tile-dark { background: var(--ink); border-color: var(--ink); color: #fff; }
 .tile-num { font: 800 19px/1.1 var(--display); letter-spacing: -0.3px; }
 .tile-word { font: 800 14px/1.4 var(--display); }
 .tile-lab { font-size: 12px; color: var(--grey); margin-top: 2px; }
-.tile-dark .tile-lab { color: #D9D9D4; }
 .panel { background: var(--card); border: 1px solid var(--hair); border-radius: 12px; padding: 10px 12px; }
 .panel-head { font: 600 12px var(--text); color: var(--grey); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 4px; }
 .facts { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
@@ -142,3 +140,21 @@
 .find-list { z-index: 1; }
 .find-list > *, .page-list > * { flex: none; }
 .find-map { isolation: isolate; z-index: 0; }
+
+/* Review round: level chips, trail actions, Saved card */
+.level { padding: 1px 8px; border-radius: 6px; background: transparent; border: 1.5px solid var(--ink); color: var(--ink); font-weight: 600; font-size: 13px; }
+.level-hard { border-color: #8A5A00; color: #8A5A00; }
+.tiles { grid-template-columns: 1fr 1fr 1fr 1.3fr; }
+.tile-level { background: var(--card); border: 1px solid var(--hair); }
+.tile-word.hard { color: #8A5A00; }
+.tile-lab { white-space: nowrap; }
+.act-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.act-row .btn { padding: 0 10px; font-size: 15px; min-height: 48px; }
+.dock { gap: 0; }
+.card-save { width: 44px; height: 44px; top: 4px; right: 4px; }
+.card-extra { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border-top: 1px solid var(--hair); }
+.share-panel { background: var(--card); color: var(--ink); border: 1px solid var(--hair); }
+.share-body { color: #3A3A3A; }
+.saved-item { gap: 0; }
+.act-row .btn { flex-wrap: nowrap; gap: 6px; font-size: 14px; padding: 0 8px; white-space: nowrap; }
+.trail-map .map { background: var(--ground); }

@@ -10,6 +10,7 @@ length are left out. If the file would be bigger than MAX_BYTES the minimum leng
 import json
 import math
 import re
+import sys
 
 CELL = 0.25
 MIN_LENGTHS = [800, 1500, 3000, 6000]  # metres
@@ -84,6 +85,9 @@ def build_name_index(routes, geoms, paths):
 
 def write_name_index(out_path, routes, geoms, paths):
     body = build_name_index(routes, geoms, paths)
+    size = len(json.dumps(body, separators=(',', ':'), ensure_ascii=False).encode())
+    if size > MAX_BYTES:
+        sys.exit(f'names.json is {size} bytes at the largest minimum length ({body["min_m"]} m); limit is {MAX_BYTES}. Raise MIN_LENGTHS or MAX_BYTES on purpose.')
     with open(out_path, 'w', encoding='utf-8') as f:
         json.dump(body, f, separators=(',', ':'), ensure_ascii=False)
     return len(body['e'])

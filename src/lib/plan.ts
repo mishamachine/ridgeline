@@ -32,5 +32,5 @@ export function level(t: T): Difficulty | null {
 /** Computed highlights, same thresholds as the data build: 8 mi long, 2,500 ft of climb. */
 export const LONG_ROUTE_MI = 8;
 export const BIG_CLIMB_FT = 2500;
-export const isLong = (t: Pick<Trail, 'lengthM'>) => t.lengthM * M_TO_MI > LONG_ROUTE_MI;
+export const isLong = (t: Pick<Trail, 'lengthM' | 'loop'>) => roundTripM(t) * M_TO_MI > LONG_ROUTE_MI;
 export const isBigClimb = (t: Pick<Trail, 'ascentM'>) => t.ascentM != null && t.ascentM * M_TO_FT >= BIG_CLIMB_FT;

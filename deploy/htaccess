@@ -7,7 +7,7 @@ RewriteCond %{HTTPS} off
 RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 
 # Single-page app: /trail/<id>, /s and /saved all load the app (real files and folders are served as they are)
-RewriteCond %{REQUEST_URI} !^/trails/
+RewriteCond %{REQUEST_URI} !^/(trails|assets|\.well-known)/
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^ /index.html [L]

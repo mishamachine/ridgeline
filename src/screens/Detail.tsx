@@ -1,18 +1,18 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Map as MLMap } from 'maplibre-gl';
 import { MapView, setGeo } from '../components/MapView';
 import { ElevationChart } from '../components/ElevationChart';
 import { HighlightChips } from '../components/Chips';
 import { BackIcon } from '../components/Icons';
 import { CheckIcon, DownloadIcon, DriveIcon, SavedIcon, ShareIcon } from '../components/NavIcons';
-import { ConfirmSheet } from '../components/ConfirmSheet';
+import { ConfirmSheet, useDialogKeys } from '../components/ConfirmSheet';
 import type { Trail } from '../lib/trails';
 import { getSaved, SavedTrail } from '../lib/store';
 import { removeTrailOffline, tilesForTrail } from '../lib/offline';
 import { bboxOf } from '../lib/geo';
 import { ft, hrs, mb, mi } from '../lib/format';
 import { level, roundTripClimbM, roundTripM, tripMinutes } from '../lib/plan';
-import { detectPlatform, driveLabel, mapsOptions } from '../lib/maps';
+import { detectPlatform, driveLabel, mapsOptions, trailheadOf } from '../lib/maps';
 import { shareTrail } from '../lib/share';
 import { bookmark, unsave } from '../lib/saved';
 import { useDownload } from '../lib/useDownload';
@@ -50,6 +50,9 @@ export function Detail({ tpl, trail, bookmarked, onBack, onStart, onSavedChange 
 
   const b = useMemo(() => bboxOf(trail.coords), [trail]);
   const onReady = (map: MLMap) => {
+    map.setPaintProperty('bg', 'background-color', '#E9ECE4'); // map ground shows even when tiles are slow or offline
+    const th = trailheadOf(trail);
+    setGeo(map, 'me', { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { r: 0 }, geometry: { type: 'Point', coordinates: [th.lon, th.lat] } }] });
     setGeo(map, 'trails', {
       type: 'FeatureCollection',
       features: [{ type: 'Feature', properties: { active: true }, geometry: { type: 'LineString', coordinates: trail.coords } }],
@@ -109,8 +112,25 @@ export function Detail({ tpl, trail, bookmarked, onBack, onStart, onSavedChange 
             <div className="tile"><div className="tile-num">{mi(roundTripM(trail))} mi</div><div className="tile-lab">{trail.loop ? 'loop' : 'round trip'}</div></div>
             <div className="tile"><div className="tile-num">{climb != null ? ft(climb) : '—'}</div><div className="tile-lab">ft climb</div></div>
             <div className="tile"><div className="tile-num">{minutes != null ? hrs(minutes) : '—'}</div><div className="tile-lab">est. time</div></div>
-            <div className="tile tile-dark"><div className="tile-word">{lv ?? '—'}</div><div className="tile-lab">level</div></div>
+            <div className="tile tile-level"><div className={`tile-word${lv === 'Hard' ? ' hard' : ''}`}>{lv ?? '—'}</div><div className="tile-lab">level</div></div>
           </div>
+          <div className="act-row">
+            {options.length === 1 ? (
+              <a className="btn btn-outline" href={options[0].url} target="_blank" rel="noopener"><DriveIcon size={20} /> {driveLabel(trail)}</a>
+            ) : (
+              <button className="btn btn-outline" onClick={() => setChooser(true)}><DriveIcon size={20} /> {driveLabel(trail)}</button>
+            )}
+            {saved ? (
+              <button className="btn btn-outline" disabled><CheckIcon size={20} /> Ready offline</button>
+            ) : dl.progress != null ? (
+              <button className="btn btn-outline" onClick={dl.cancel}>Saving {Math.round(dl.progress * 100)}% · Cancel</button>
+            ) : (
+              <button className="btn btn-outline" onClick={dl.start}><DownloadIcon size={20} /> Save offline</button>
+            )}
+          </div>
+          {dl.progress != null && <div className="progress red" aria-hidden="true"><div style={{ width: `${dl.progress * 100}%` }} /></div>}
+          {!saved && dl.progress == null && <p className="fine" style={{ marginTop: -6 }}>Saving the map takes about {mb(estimate)}.</p>}
+
           {lv && <p className="fine">Level is computed from distance and climb, not rated by anyone. Time assumes 3 mph plus 30 min per 1,000 ft up.</p>}
 
           <div className="panel">
@@ -142,36 +162,27 @@ export function Detail({ tpl, trail, bookmarked, onBack, onStart, onSavedChange 
       </div>
 
       <div className="dock">
-        {dl.progress != null && <div className="progress red" aria-hidden="true"><div style={{ width: `${dl.progress * 100}%` }} /></div>}
-        <div className="dock-row">
-          {options.length === 1 ? (
-            <a className="btn btn-outline" href={options[0].url} target="_blank" rel="noopener"><DriveIcon size={20} /> {driveLabel(trail)}</a>
-          ) : (
-            <button className="btn btn-outline" onClick={() => setChooser(true)}><DriveIcon size={20} /> {driveLabel(trail)}</button>
-          )}
-          {saved ? (
-            <button className="btn btn-outline" disabled><CheckIcon size={20} /> Ready offline</button>
-          ) : dl.progress != null ? (
-            <button className="btn btn-outline" onClick={dl.cancel}>Saving {Math.round(dl.progress * 100)}% · Cancel</button>
-          ) : (
-            <button className="btn btn-outline" onClick={dl.start}><DownloadIcon size={20} /> Save offline<small>about {mb(estimate)}</small></button>
-          )}
-        </div>
         <button className="btn btn-primary btn-big" onClick={() => { requestCompassPermission(); onStart(trail); }}>Start hike</button>
       </div>
 
-      {chooser && (
-        <div className="sheet-wrap" onClick={() => setChooser(false)}>
-          <div className="sheet" role="dialog" aria-modal="true" aria-label="Open in maps" onClick={(e) => e.stopPropagation()}>
-            <h2 className="sheet-title">Open directions in</h2>
-            {options.map((o) => <a key={o.label} className="btn btn-outline" href={o.url} target="_blank" rel="noopener" onClick={() => setChooser(false)}>{o.label}</a>)}
-            <button className="btn btn-outline" onClick={() => setChooser(false)}>Cancel</button>
-          </div>
-        </div>
-      )}
+      {chooser && <MapsChooser options={options} onClose={() => setChooser(false)} />}
       {confirmRemove && (
         <ConfirmSheet title="Remove from Saved?" body="This also deletes the offline map for this trail." confirmLabel="Remove" cancelLabel="Keep it" danger onConfirm={removeAll} onCancel={() => setConfirmRemove(false)} />
       )}
+    </div>
+  );
+}
+
+function MapsChooser({ options, onClose }: { options: ReturnType<typeof mapsOptions>; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useDialogKeys(ref, onClose);
+  return (
+    <div className="sheet-wrap" onClick={onClose}>
+      <div ref={ref} className="sheet" role="dialog" aria-modal="true" aria-label="Open directions in" onClick={(e) => e.stopPropagation()}>
+        <h2 className="sheet-title">Open directions in</h2>
+        {options.map((o) => <a key={o.label} className="btn btn-outline" href={o.url} target="_blank" rel="noopener" onClick={onClose}>{o.label}</a>)}
+        <button className="btn btn-outline" onClick={onClose}>Cancel</button>
+      </div>
     </div>
   );
 }

@@ -13,6 +13,8 @@ interface Props {
   awayMi?: number | null;
   onOpen: (t: Trail) => void;
   onToggleSave?: (t: Trail) => void;
+  /** Extra row inside the card, e.g. download status on Saved. */
+  extra?: React.ReactNode;
 }
 
 export const awayLabel = (m: number) => (m < 1 ? 'Under 1 mi away' : `${Math.round(m)} mi away`);
@@ -24,7 +26,7 @@ export function statsLine(t: Trail): string {
   return parts.join(' · ');
 }
 
-export const TrailCard = memo(function TrailCard({ trail, saved, offline, awayMi, onOpen, onToggleSave }: Props) {
+export const TrailCard = memo(function TrailCard({ trail, saved, offline, awayMi, onOpen, onToggleSave, extra }: Props) {
   const lv = level(trail);
   return (
     <div className="card">
@@ -35,12 +37,13 @@ export const TrailCard = memo(function TrailCard({ trail, saved, offline, awayMi
           <span className="card-stats">{statsLine(trail)}</span>
           <HighlightChips trail={trail} />
           <span className="card-foot">
-            {lv && <span className="level">{lv}</span>}
+            {lv && <span className={`level level-${lv.toLowerCase()}`}>{lv}</span>}
             {offline && <span className="pill">Ready offline</span>}
             {awayMi != null && <span className="away">{awayLabel(awayMi)}</span>}
           </span>
         </span>
       </button>
+      {extra && <div className="card-extra">{extra}</div>}
       {onToggleSave && (
         <button className="card-save" aria-label={saved ? `Remove ${trail.name} from Saved` : `Save ${trail.name}`} aria-pressed={saved} onClick={() => onToggleSave(trail)}>
           <SavedIcon filled={saved} />

@@ -40,6 +40,15 @@ class NameIndex(unittest.TestCase):
         body = ni.build_name_index({}, geoms, paths)
         self.assertLessEqual(len(json.dumps(body, separators=(',', ':'))), ni.MAX_BYTES)
 
+    def test_fails_loudly_when_still_too_big(self):
+        old = ni.MAX_BYTES
+        ni.MAX_BYTES = 10
+        try:
+            with self.assertRaises(SystemExit):
+                ni.write_name_index('/dev/null', self.routes, self.geoms, self.paths)
+        finally:
+            ni.MAX_BYTES = old
+
 
 if __name__ == '__main__':
     unittest.main()

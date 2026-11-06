@@ -4,6 +4,7 @@ import { listAllSaved } from './lib/saved';
 import { bookmark, unsave } from './lib/saved';
 import { remember, resolveTrail } from './lib/lookup';
 import { appBase } from './lib/origin';
+import { startAction } from './lib/hikeStart';
 import { parseRoute, routePath, type Route, type Tab } from './lib/route';
 import type { Trail } from './lib/trails';
 import type { LngLat } from './lib/geo';
@@ -95,7 +96,10 @@ export function App() {
 
   const openTrail = useCallback((t: Trail) => { remember([t]); setTrail(t); go({ kind: 'trail', id: t.id, ll: [t.coords[0][0], t.coords[0][1]] }); }, [go]);
   const openId = useCallback((id: string, ll: LngLat) => go({ kind: 'trail', id, ll }), [go]);
-  const goTab = useCallback((tab: Tab) => go({ kind: 'tab', tab }), [go]);
+  const goTab = useCallback((t: Tab) => {
+    if (route.kind === 'tab' && route.tab === t) { window.scrollTo(0, 0); return; } // re-tap: nothing new to go back to
+    go({ kind: 'tab', tab: t });
+  }, [go, route]);
   const back = useCallback(() => { if (depth > 0) history.back(); else go({ kind: 'tab', tab: 'find' }, true); }, [depth, go]);
 
   const toggleSave = useCallback(async (t: Trail) => {
@@ -105,7 +109,13 @@ export function App() {
     } else { await bookmark(t); refreshSaved(); }
   }, [saved, refreshSaved]);
 
-  const startHike = useCallback((t: Trail) => { setHike(t); go({ kind: 'tab', tab: 'hike' }); }, [go]);
+  const [switching, setSwitching] = useState<Trail | null>(null); // a different trail was chosen while a hike runs
+  const startHike = useCallback((t: Trail) => {
+    const a = startAction(hike, t);
+    if (a === 'confirm') { setSwitching(t); return; }
+    if (a === 'start') setHike(t);
+    go({ kind: 'tab', tab: 'hike' }); // same trail: just go back to the hike in progress
+  }, [go, hike]);
 
   const tab: Tab | null = route.kind === 'tab' ? route.tab : null;
   const onTrail = route.kind === 'trail';
@@ -132,7 +142,7 @@ export function App() {
 
       {hike && (
         <div className="screen" hidden={!hiking}>
-          <Navigate tpl={tpl} trail={hike} saved={saved.offline.has(hike.id)} onEnd={() => { const t = hike; setHike(null); openTrail(t); }} />
+          <Navigate key={hike.id} tpl={tpl} trail={hike} saved={saved.offline.has(hike.id)} onEnd={() => { const t = hike; setHike(null); openTrail(t); }} />
         </div>
       )}
 
@@ -168,6 +178,10 @@ export function App() {
         </nav>
       )}
 
+      {switching && hike && (
+        <ConfirmSheet title="End current hike first?" body={`You’re hiking ${hike.name}. Finish it to start ${switching.name}; your track is saved.`}
+          confirmLabel="Back to current hike" cancelLabel="Not now" onConfirm={() => { setSwitching(null); go({ kind: 'tab', tab: 'hike' }); }} onCancel={() => setSwitching(null)} />
+      )}
       {removing && (
         <ConfirmSheet title="Remove from Saved?" body="This also deletes the offline map for this trail." confirmLabel="Remove" cancelLabel="Keep it" danger
           onConfirm={async () => { const t = removing; setRemoving(null); await unsave(t.id); refreshSaved(); }} onCancel={() => setRemoving(null)} />

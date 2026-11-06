@@ -88,7 +88,7 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
   const matches = useMemo(() => searchNames(names, deferred, 6, viewRef.current.center), [names, deferred]);
 
   const { shown, hasHighlights } = useMemo(() => {
-    const clean = rankTrails(filterTrails(trails));
+    const clean = rankTrails(filterTrails(trails), me ?? viewRef.current.center);
     let out = clean.filter((t) =>
       (!chips.has('under3') || tripMinutes(t) <= 180) &&
       (!chips.has('easy') || level(t) === 'Easy') &&
@@ -214,7 +214,7 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
   async function onSearch(e: React.FormEvent) {
     e.preventDefault();
     const q = query.trim();
-    if (q.length < 2) return;
+    if (q.length < 2 || placeBusy) return;
     if (!navigator.onLine) { setPlaceMsg('You’re offline. Place search needs a connection.'); return; }
     setPlaceBusy(true); setPlaceMsg(null);
     try {
@@ -251,13 +251,13 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
           <form className="search2" onSubmit={onSearch} role="search">
             <FindIcon />
             <label htmlFor="q" className="sr">Search trails, parks or towns</label>
-            <input id="q" type="search" enterKeyHint="search" placeholder="Trail, park or town" value={query}
+            <input id="q" type="search" role="combobox" aria-expanded={showSuggest} aria-controls="suggest" aria-autocomplete="list" enterKeyHint="search" placeholder="Trail, park or town" value={query}
               onChange={(e) => { setQuery(e.target.value); setOpen(true); setPlaces(null); setPlaceMsg(null); }}
               onFocus={focusSearch} onBlur={() => setOpen(false)} autoComplete="off" autoCorrect="off" spellCheck={false} />
             {query && <button type="button" className="clear" aria-label="Clear search" onMouseDown={(e) => e.preventDefault()} onClick={closeSearch}><CloseIcon size={18} /></button>}
           </form>
           {showSuggest && (
-            <div className="suggest" role="listbox" onPointerDown={(e) => e.preventDefault()}>
+            <div className="suggest" id="suggest" role="listbox" onPointerDown={(e) => e.preventDefault()}>
               {matches.map((m) => (
                 <button key={m[0]} role="option" aria-selected="false" className="sg" onClick={() => { closeSearch(); onOpenId(m[0], [m[2], m[3]]); }}>
                   <span className="sg-name">{m[1]}</span>

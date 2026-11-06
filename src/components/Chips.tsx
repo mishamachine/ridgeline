@@ -9,14 +9,14 @@ const LABEL: Record<string, string> = {
 export interface Hl { kind: string; maybe: boolean }
 
 /** Highlights from the data (a trailing "?" = maybe), plus Big climb and Long computed from the route. */
-export function highlightsOf(t: Pick<Trail, 'highlights' | 'lengthM' | 'ascentM'>): Hl[] {
+export function highlightsOf(t: Pick<Trail, 'highlights' | 'lengthM' | 'loop' | 'ascentM'>): Hl[] {
   const out: Hl[] = [];
   for (const h of t.highlights ?? []) {
     const kind = h.replace(/\?$/, '');
     if (LABEL[kind] && !out.some((o) => o.kind === kind)) out.push({ kind, maybe: h.endsWith('?') });
   }
-  if (isBigClimb(t)) out.push({ kind: 'climb', maybe: false });
-  if (isLong(t)) out.push({ kind: 'long', maybe: false });
+  if (isBigClimb(t) && !out.some((o) => o.kind === 'climb')) out.push({ kind: 'climb', maybe: false });
+  if (isLong(t) && !out.some((o) => o.kind === 'long')) out.push({ kind: 'long', maybe: false });
   return out.sort((a, b) => Number(a.maybe) - Number(b.maybe));
 }
 

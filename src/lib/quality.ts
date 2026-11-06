@@ -1,6 +1,6 @@
 // Turn raw OpenStreetMap ways into a list a hiker would want: drop junk, merge duplicates, best first.
 import { haversine, M_TO_MI, type LngLat } from './geo';
-import { roundTripM } from './plan';
+import { level, roundTripM } from './plan';
 import type { Trail } from './trails';
 
 const MIN_WAY_M = 805; // half a mile; routes (relations) are exempt
@@ -52,5 +52,13 @@ export function filterTrails(trails: Trail[]): Trail[] {
   return best;
 }
 
-export const rankTrails = (trails: Trail[]) =>
-  [...trails].sort((a, b) => relevance(b) - relevance(a) || b.lengthM - a.lengthM);
+/** Closeness and suitability on top of relevance: nearer to `origin` is better; Hard trails sit below easier ones of the same kind. */
+export function suitability(t: Trail, origin?: LngLat): number {
+  let s = relevance(t);
+  if (origin) s -= Math.min(40, (haversine(origin, center(t)) * M_TO_MI) * 1.5);
+  if (level(t) === 'Hard') s -= 15;
+  return s;
+}
+
+export const rankTrails = (trails: Trail[], origin?: LngLat) =>
+  [...trails].sort((a, b) => suitability(b, origin) - suitability(a, origin) || b.lengthM - a.lengthM);

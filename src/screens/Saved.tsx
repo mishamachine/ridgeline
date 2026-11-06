@@ -15,10 +15,12 @@ interface Props { visible: boolean; version: number; onOpen: (t: Trail) => void;
 
 function Download({ trail, onDone }: { trail: Trail; onDone: () => void }) {
   const dl = useDownload(trail, onDone);
-  if (dl.progress != null) return <button className="btn btn-outline btn-sm" onClick={dl.cancel}>{Math.round(dl.progress * 100)}% · Cancel</button>;
   return (
     <>
-      <button className="btn btn-outline btn-sm" onClick={dl.start}><DownloadIcon size={18} /> Download</button>
+      <span className="fine">{dl.progress != null ? `Downloading ${Math.round(dl.progress * 100)}%` : 'Not offline'}</span>
+      {dl.progress != null
+        ? <button className="btn btn-outline btn-sm" onClick={dl.cancel}>Cancel</button>
+        : <button className="btn btn-outline btn-sm" onClick={dl.start}><DownloadIcon size={18} /> Download</button>}
       {dl.error && <span className="fine" role="alert">{dl.error}</span>}
     </>
   );
@@ -68,8 +70,8 @@ export function Saved({ visible, version, onOpen, onChange, onFind }: Props) {
         )}
         {items?.map((i) => (
           <div key={i.trail.id} className="saved-item">
-            <TrailCard trail={i.trail} saved offline={i.offline} onOpen={onOpen} onToggleSave={() => setRemoving(i)} />
-            {!i.offline && <div className="saved-dl"><Download trail={i.trail} onDone={() => { refresh(); onChange(); }} /></div>}
+            <TrailCard trail={i.trail} saved offline={i.offline} onOpen={onOpen} onToggleSave={() => setRemoving(i)}
+              extra={!i.offline ? <Download trail={i.trail} onDone={() => { refresh(); onChange(); }} /> : undefined} />
           </div>
         ))}
         {items && items.length > 0 && (

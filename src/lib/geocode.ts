@@ -5,8 +5,9 @@ export interface Place { name: string; detail: string; lon: number; lat: number;
 export const WA_VIEWBOX = '-124.9,49.1,-116.9,45.5';
 const URL_BASE = 'https://nominatim.openstreetmap.org/search';
 
-export function placeQueryUrl(q: string, bounded: boolean): string {
-  const p = new URLSearchParams({ format: 'jsonv2', limit: '5', countrycodes: 'us', viewbox: WA_VIEWBOX, bounded: bounded ? '1' : '0', q });
+/** One request: US only, with Washington as a preference (viewbox, not bounded), so "Rainier" finds the mountain first. */
+export function placeQueryUrl(q: string): string {
+  const p = new URLSearchParams({ format: 'jsonv2', limit: '5', countrycodes: 'us', viewbox: WA_VIEWBOX, bounded: '0', q });
   return `${URL_BASE}?${p}`;
 }
 
@@ -20,13 +21,16 @@ export function toPlaces(hits: Hit[]): Place[] {
   });
 }
 
-/** Washington first; anywhere in the US only if nothing matches there. */
+const cache = new Map<string, Place[]>();
+
+/** One request per search, only when the user submits (never while typing); repeats come from memory. */
 export async function searchPlaces(q: string, signal?: AbortSignal): Promise<Place[]> {
-  for (const bounded of [true, false]) {
-    const res = await fetch(placeQueryUrl(q, bounded), { signal, headers: { Accept: 'application/json' } });
-    if (!res.ok) throw new Error(`Place search failed (${res.status}).`);
-    const places = toPlaces(await res.json());
-    if (places.length) return places;
-  }
-  return [];
+  const key = q.trim().toLowerCase();
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const res = await fetch(placeQueryUrl(q), { signal, headers: { Accept: 'application/json' } });
+  if (!res.ok) throw new Error(`Place search failed (${res.status}).`);
+  const places = toPlaces(await res.json());
+  cache.set(key, places);
+  return places;
 }

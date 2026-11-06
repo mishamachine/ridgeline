@@ -8,11 +8,13 @@ import { VitePWA } from 'vite-plugin-pwa';
 const base = process.env.BASE_PATH ?? '/';
 
 // GitHub Pages answers unknown paths (/ridgeline/trail/<id>) with 404.html: serve the app from it.
+let outDir = 'dist';
 const spaFallback: Plugin = {
   name: 'spa-404',
   apply: 'build',
+  configResolved(config) { outDir = join(config.root, config.build.outDir); },
   closeBundle() {
-    const dir = join(process.cwd(), 'dist');
+    const dir = outDir;
     if (existsSync(join(dir, 'index.html'))) copyFileSync(join(dir, 'index.html'), join(dir, '404.html'));
   },
 };

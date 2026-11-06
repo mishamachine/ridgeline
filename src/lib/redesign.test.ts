@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import type { Trail } from './trails';
-import { filterTrails, isJunkName, rankTrails, relevance } from './quality';
+import { filterTrails, isJunkName, rankTrails, relevance, suitability } from './quality';
 import { level, roundTripM, roundTripClimbM, tripMinutes } from './plan';
 import { driveLabel, mapsOptions, trailheadOf } from './maps';
 import { shortlistUrl, trailUrl } from './share';
 import { parseRoute, routePath } from './route';
 import { norm, searchNames, type NameEntry } from './nameIndex';
-import { placeQueryUrl, toPlaces } from './geocode';
+import { placeQueryUrl, searchPlaces, toPlaces } from './geocode';
 import { highlightsOf } from '../components/Chips';
 import { SITE_URL } from './site';
 
@@ -48,6 +48,13 @@ describe('quality filter', () => {
     expect(order[0]).toBe('Rattlesnake Ledge Trail');
     expect(order.at(-1)).toBe('Wonderland Trail');
     expect(relevance(ledge)).toBeGreaterThan(relevance(wonderland));
+  });
+
+  it('prefers near and suitable: a close easy trail beats a far hard one', () => {
+    const near = trail({ id: 'osm-r10', name: 'Near Easy', lengthM: 3000, ascentM: 50, descentM: 50, coords: line(-121.78, 47.49, 2) });
+    const far = trail({ id: 'osm-r11', name: 'Far Hard', lengthM: 3000, ascentM: 1500, descentM: 100, coords: line(-121.0, 47.0, 2) });
+    expect(rankTrails([far, near], [-121.78, 47.49]).map((t) => t.name)).toEqual(['Near Easy', 'Far Hard']);
+    expect(suitability(far, [-121.78, 47.49])).toBeLessThan(suitability(far));
   });
 });
 
@@ -149,12 +156,20 @@ describe('name search', () => {
 });
 
 describe('place search', () => {
-  it('leans on Washington, then falls back to the US', () => {
-    const bounded = new URL(placeQueryUrl('Mount Rainier', true));
-    expect(bounded.searchParams.get('countrycodes')).toBe('us');
-    expect(bounded.searchParams.get('viewbox')).toBe('-124.9,49.1,-116.9,45.5');
-    expect(bounded.searchParams.get('bounded')).toBe('1');
-    expect(new URL(placeQueryUrl('x', false)).searchParams.get('bounded')).toBe('0');
+  it('makes one US request that prefers Washington (viewbox, not bounded)', () => {
+    const u = new URL(placeQueryUrl('Mount Rainier'));
+    expect(u.searchParams.get('countrycodes')).toBe('us');
+    expect(u.searchParams.get('viewbox')).toBe('-124.9,49.1,-116.9,45.5');
+    expect(u.searchParams.get('bounded')).toBe('0');
+  });
+  it('asks once per query and answers repeats from memory', async () => {
+    let calls = 0;
+    const real = globalThis.fetch;
+    globalThis.fetch = (async () => { calls++; return new Response('[]'); }) as typeof fetch;
+    try {
+      await searchPlaces('Rainier'); await searchPlaces(' rainier ');
+      expect(calls).toBe(1);
+    } finally { globalThis.fetch = real; }
   });
   it('turns Nominatim hits into places', () => {
     const [p] = toPlaces([{ display_name: 'Mount Rainier National Park, Pierce County, Washington, United States', name: 'Mount Rainier National Park', lon: '-121.7', lat: '46.85', boundingbox: ['46.7', '47.0', '-121.9', '-121.5'] }]);
@@ -164,9 +179,12 @@ describe('place search', () => {
 
 describe('highlights', () => {
   it('shows "maybe" ones muted and never as firm; adds computed Big climb and Long', () => {
-    const hs = highlightsOf({ highlights: ['view', 'bikes?'], lengthM: 20000, ascentM: 500 });
+    const hs = highlightsOf({ highlights: ['view', 'bikes?'], lengthM: 20000, loop: false, ascentM: 500 });
     expect(hs).toEqual([{ kind: 'view', maybe: false }, { kind: 'long', maybe: false }, { kind: 'bikes', maybe: true }]);
-    expect(highlightsOf({ lengthM: 3000, ascentM: 800 })).toEqual([{ kind: 'climb', maybe: false }]);
+    expect(highlightsOf({ lengthM: 3000, loop: false, ascentM: 800 })).toEqual([{ kind: 'climb', maybe: false }]);
+    // 4.5 mi one way is 9 mi round trip: Long. The same length as a loop is 4.5 mi: not.
+    expect(highlightsOf({ lengthM: 7240, loop: false }).map((h) => h.kind)).toEqual(['long']);
+    expect(highlightsOf({ lengthM: 7240, loop: true })).toEqual([]);
   });
 });
 
