@@ -195,6 +195,20 @@ describe('engine', () => {
     expect(e.state.recalLastOffRoute).toBe(false);
   });
 
+  it('keeps the last-known off-route banner through a double Recalibrate and a rejected first fix', () => {
+    const { e } = mk();
+    for (let t = 0; t < 12; t++) e.ingest(at(100 + t, 2, t, 8));
+    for (let t = 12; t < 40; t++) e.ingest(at(112, 120, t, 8));
+    e.recalibrate();
+    e.recalibrate();
+    expect(e.state.recalLastOffRoute).toBe(true);
+    e.ingest(at(112, 120, 50, 90)); // too inaccurate: rejected by the filter
+    expect(e.state.recalLastOffRoute).toBe(true);
+    e.ingest(at(112, 120, 51, 8));
+    expect(e.state.recalLastOffRoute).toBe(false);
+    expect(e.state.offRoute).toBe(true);
+  });
+
   it('gates needsCalibration on a reported compass accuracy', () => {
     const { e } = mk();
     e.ingest(at(0, 0, 0));

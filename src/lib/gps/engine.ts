@@ -137,7 +137,7 @@ export class GpsEngine {
     this.recalMono = this.nowMono = this.mono();
     this.staleT = this.lastRaw?.t ?? this.staleT;
     this.fallback = this.state.position ?? this.fallback;
-    this.prevOffRoute = this.state.offRoute;
+    this.prevOffRoute = this.state.offRoute || this.state.recalLastOffRoute;
     this.filter.reset();
     this.anchor = null;
     this.lastRaw = null;
@@ -189,7 +189,10 @@ export class GpsEngine {
     if (isLocked(f.accuracy)) this.locked = true;
     if (this.filter.update(f).accepted) {
       this.opts.onAccepted?.(f);
-      if (this.matcher) this.lastMatch = this.matcher.match(this.filter.position()!, this.filter.radius(f.t), f.t);
+      if (this.matcher) {
+        this.lastMatch = this.matcher.match(this.filter.position()!, this.filter.radius(f.t), f.t);
+        this.prevOffRoute = false; // a real match has landed
+      }
       if (this.lastMatch?.matched) this.joined = true;
       this.goodRun = f.accuracy <= ANCHOR_GOOD_M ? this.goodRun + 1 : 0;
       if (this.anchor && f.accuracy <= ANCHOR_GOOD_M && (this.goodRun >= ANCHOR_RELEASE_FIXES || haversine([f.lon, f.lat], this.anchor.point) <= f.accuracy + 15)) this.anchor = null;
@@ -226,7 +229,7 @@ export class GpsEngine {
       warmingUp: !this.locked,
       recalibrating: recal,
       recalTimedOut: recal && this.nowMono - this.recalMono! >= RECAL_TIMEOUT_MS,
-      recalLastOffRoute: recal && this.prevOffRoute,
+      recalLastOffRoute: this.prevOffRoute && this.lastMatch == null,
       stalePosition: recal && filtered == null && this.fallback != null,
       trailBearing: m && !m.matched && m.nearestPoint ? bearing(filtered!, m.nearestPoint) : null,
       matched: !!m?.matched,
