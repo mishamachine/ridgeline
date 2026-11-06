@@ -6,6 +6,12 @@ RewriteRule ^ https://%1%{REQUEST_URI} [L,R=301]
 RewriteCond %{HTTPS} off
 RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 
+# Single-page app: /trail/<id>, /s and /saved all load the app (real files and folders are served as they are)
+RewriteCond %{REQUEST_URI} !^/(trails|assets|\.well-known)/
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ /index.html [L]
+
 # Correct types for ES-module workers and the web app manifest
 AddType application/javascript .mjs .js
 AddType application/manifest+json .webmanifest

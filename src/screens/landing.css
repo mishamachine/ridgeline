@@ -1,0 +1,15 @@
+.land { min-height: 100%; background: var(--paper); color: var(--ink); display: flex; flex-direction: column; }
+.land-body { padding: calc(var(--safe-top) + 22px) 22px 0; display: flex; flex-direction: column; gap: 14px; }
+.land-brand { display: flex; align-items: center; gap: 10px; font: 800 20px var(--display); }
+.land h1 { margin: 0; font: 800 34px/1.02 var(--display); letter-spacing: -0.03em; overflow-wrap: anywhere; }
+.land-stats { margin: 0; font-size: 16px; color: #3A3A3A; }
+.land-hero { margin: 18px 22px 0; height: 190px; border-radius: 18px; background: #E9ECE4; display: flex; align-items: center; justify-content: center; }
+.land-hero img { width: 150px; height: 150px; }
+.land-list { margin: 18px 22px 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: 15px; }
+.land-list li { display: flex; gap: 10px; }
+.land-list b { color: var(--red); }
+.land-actions { margin-top: auto; padding: 24px 22px calc(var(--safe-bottom) + 28px); display: flex; flex-direction: column; gap: 10px; }
+.land-cta { min-height: 58px; border: 0; border-radius: 16px; background: var(--red); color: #FFFFFF; font: 800 19px var(--display); }
+.land-store { min-height: 48px; border-radius: 14px; border: 2px solid var(--ink); display: flex; align-items: center; justify-content: center; color: var(--ink); text-decoration: none; font: 600 16px var(--text); }
+.land-sec { min-height: 44px; background: none; border: 0; font: 600 15px var(--text); color: var(--ink); text-decoration: underline; }
+.land-fine { margin: 0; font-size: 12px; line-height: 1.4; color: #595959; text-align: center; }
