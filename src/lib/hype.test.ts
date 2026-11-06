@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HikeSummary, FINISHED_FRACTION, boboLine, highlightChips, hype } from './hype';
+import { BOBO_LINES_FINISHED, BOBO_LINES_PARTIAL, HikeSummary, FINISHED_FRACTION, boboLine, cardHeadline, highlightChips, hype, shareText } from './hype';
 
 const base: HikeSummary = {
   trail: { id: 'osm-r1', name: 'Rattlesnake Ledge', highlights: ['Views', 'Lake'] },
@@ -57,12 +57,29 @@ describe('highlightChips', () => {
 });
 
 describe('boboLine', () => {
-  it('is short, with no exclamation mark', () => {
-    for (const s of [base, { ...base, climbFt: 10 }, { ...base, completedFraction: 0.2 }]) {
-      const l = boboLine(s);
+  it('is short, with no exclamation mark, for every line and hike', () => {
+    for (const l of [...BOBO_LINES_FINISHED, ...BOBO_LINES_PARTIAL]) {
       expect(l.split(/\s+/).length).toBeLessThanOrEqual(8);
       expect(l).not.toContain('!');
     }
-    expect(boboLine(base)).toBe('Bobo says: 1,540 ft, worth it.');
+    for (let d = 0; d < 12; d++) for (const s of [base, { ...base, climbFt: 10 }, { ...base, completedFraction: 0.2 }]) {
+      const l = boboLine({ ...s, startedAt: base.startedAt + d * 86400000 });
+      expect(l.split(/\s+/).length).toBeLessThanOrEqual(8);
+      expect(l).not.toContain('!');
+    }
+  });
+  it('rotates between hikes and is honest for partial ones', () => {
+    const lines = new Set(Array.from({ length: 8 }, (_, d) => boboLine({ ...base, climbFt: 10, startedAt: d * 86400000 })));
+    expect(lines.size).toBeGreaterThan(2);
+    for (let d = 0; d < 8; d++) expect(BOBO_LINES_PARTIAL).toContain(boboLine({ ...base, completedFraction: 0.3, startedAt: d * 86400000 }));
+  });
+});
+
+describe('cardHeadline and shareText', () => {
+  it('only crushes a finished hike', () => {
+    expect(cardHeadline(base)).toBe('I crushed Rattlesnake Ledge.');
+    expect(cardHeadline({ ...base, completedFraction: 0.5 })).toBe('I hiked 3.8 mi on Rattlesnake Ledge.');
+    expect(shareText({ ...base, completedFraction: 0.5 })).toMatch(/^I hiked 3\.8 mi on Rattlesnake Ledge\./);
+    expect(shareText(base)).toContain('I just hiked Rattlesnake Ledge: 3.8 mi, 1,540 ft climbed.');
   });
 });

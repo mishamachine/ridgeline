@@ -39,6 +39,16 @@ describe('trailUrl', () => {
   });
 });
 
+describe('partial hikes', () => {
+  it('adds f=0 only when the hike was cut short, and reads it back', () => {
+    expect(hikeShareUrl({ ...hike, finished: true })).not.toContain('f=');
+    const u = hikeShareUrl({ ...hike, finished: false });
+    expect(u).toContain('&f=0');
+    expect(parseHikeParams(new URL(u).search).partial).toBe(true);
+    expect(parseHikeParams('?f=1').partial).toBeUndefined();
+  });
+});
+
 describe('parseHikePath', () => {
   it('reads a good id, with or without a trailing slash', () => {
     expect(parseHikePath('/h/osm-r123')).toBe('osm-r123');

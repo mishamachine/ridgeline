@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { BOBO_MARK_URL } from '../lib/boboMark';
 import { BackIcon } from '../components/Icons';
-import { HikeSummary, highlightChips, hype } from '../lib/hype';
-import { CardFormat, CardOptions, DEFAULT_CARD_OPTIONS, renderCard } from '../lib/shareCard';
+import { HikeSummary, highlightChips, hype, isFinished, shareText } from '../lib/hype';
+import { CardFormat, CardOptions, CardTheme, DEFAULT_CARD_OPTIONS, renderCard } from '../lib/shareCard';
 import { ShareFiles, shareFiles } from '../lib/shareFiles';
 import { formatClimb, formatHoursMinutes, formatMiles } from '../lib/shareText';
 import { SITE_HOST, hikeShareUrl } from '../lib/shareLinks';
@@ -46,13 +46,19 @@ function Confetti() {
 
 export function Celebrate({ summary, newBadges, badgeCount, onDone, onShareApp, share = shareFiles }: CelebrateProps) {
   const [step, setStep] = useState<'hype' | 'share'>('hype');
+  const heading = useRef<HTMLHeadingElement>(null);
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) { first.current = false; return; }
+    heading.current?.focus();
+  }, [step]);
   const h = hype(summary);
   const chips = highlightChips(summary.trail, summary.highlightsHit);
   const badge = newBadges?.[0];
   const extraBadges = (newBadges?.length ?? 0) - 1;
 
   if (step === 'share') {
-    return <ShareStep summary={summary} badge={badge} badgeCount={badgeCount} share={share} onBack={() => setStep('hype')} />;
+    return <ShareStep summary={summary} badge={badge} badgeCount={badgeCount} share={share} heading={heading} onBack={() => setStep('hype')} />;
   }
   return (
     <main className="cel" aria-labelledby="cel-h">
@@ -60,7 +66,7 @@ export function Celebrate({ summary, newBadges, badgeCount, onDone, onShareApp, 
       <div className="cel-top">
         <img className="cel-bobo" src={BOBO_MARK_URL} alt="" width="110" height="110" />
         <div className="cel-eyebrow">{h.eyebrow}</div>
-        <h1 id="cel-h">{h.headline}</h1>
+        <h1 id="cel-h" ref={heading} tabIndex={-1}>{h.headline}</h1>
         <p className="cel-sub">{h.sub}</p>
       </div>
       <div className="cel-stats">
@@ -79,7 +85,7 @@ export function Celebrate({ summary, newBadges, badgeCount, onDone, onShareApp, 
               </div>
             </div>
           )}
-          {chips.length > 0 && <div className="cel-chips" aria-label="Highlights you hit">{chips.map((c) => <span key={c}>{c}</span>)}</div>}
+          {chips.length > 0 && <ul className="cel-chips" aria-label="Highlights you hit">{chips.map((c) => <li key={c}>{c}</li>)}</ul>}
         </div>
       )}
       <div className="cel-actions">
@@ -91,10 +97,11 @@ export function Celebrate({ summary, newBadges, badgeCount, onDone, onShareApp, 
   );
 }
 
-function ShareStep({ summary, badge, badgeCount, share, onBack }: { summary: HikeSummary; badge?: Badge; badgeCount?: number; share: ShareFiles; onBack: () => void }) {
+function ShareStep({ summary, badge, badgeCount, share, heading, onBack }: { summary: HikeSummary; badge?: Badge; badgeCount?: number; share: ShareFiles; heading: RefObject<HTMLHeadingElement | null>; onBack: () => void }) {
   const [options, setOptions] = useState<CardOptions>(DEFAULT_CARD_OPTIONS);
   const [preview, setPreview] = useState<{ blob: Blob; url: string; routeShown: boolean } | null>(null);
   const [error, setError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const urlRef = useRef<string | null>(null);
@@ -111,18 +118,18 @@ function ShareStep({ summary, badge, badgeCount, share, onBack }: { summary: Hik
       })
       .catch(() => live && setError(true));
     return () => { live = false; };
-  }, [summary, badge, badgeCount, options]);
+  }, [summary, badge, badgeCount, options, attempt]);
   useEffect(() => () => { if (urlRef.current) URL.revokeObjectURL(urlRef.current); }, []);
 
   const set = (patch: Partial<CardOptions>) => { setMessage(''); setOptions((o) => ({ ...o, ...patch })); };
-  const link = hikeShareUrl({ trailId: summary.trail.id, distanceM: summary.distanceM, climbFt: summary.climbFt, movingMs: summary.movingMs });
+  const link = hikeShareUrl({ trailId: summary.trail.id, distanceM: summary.distanceM, climbFt: summary.climbFt, movingMs: summary.movingMs, finished: isFinished(summary.completedFraction) });
   const slug = summary.trail.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'hike';
 
   async function onShare() {
     if (!preview || busy) return;
     setBusy(true);
     const file = new File([preview.blob], `ridgeline-${slug}-${options.format}.png`, { type: 'image/png' });
-    const text = `I just hiked ${summary.trail.name || 'a trail'}: ${formatMiles(summary.distanceM)} mi, ${formatClimb(summary.climbFt)} ft climbed. Hike it yourself, free and offline.`;
+    const text = `${shareText(summary)} ${link}`;
     const res = await share({ files: [file], title: 'My Ridgeline hike', text, url: link });
     setBusy(false);
     if (res.status === 'fallback') setMessage(res.copied ? 'Image saved and link copied.' : `Image saved. Link: ${SITE_HOST}`);
@@ -130,18 +137,22 @@ function ShareStep({ summary, badge, badgeCount, share, onBack }: { summary: Hik
   }
 
   const formats: [CardFormat, string][] = [['story', 'Story'], ['square', 'Square']];
+  const themes: [CardTheme, string][] = [['dark', 'Dark'], ['light', 'Light']];
   return (
     <main className="cel" aria-labelledby="cel-s">
       <div className="cel-head">
         <button className="cel-back" onClick={onBack} aria-label="Back"><BackIcon />Back</button>
-        <h2 id="cel-s">Share your hike</h2>
+        <h2 id="cel-s" ref={heading} tabIndex={-1}>Share your hike</h2>
       </div>
       <div className="cel-preview">
         {preview ? <img src={preview.url} alt={`Your Ridgeline card for ${summary.trail.name}: ${formatMiles(summary.distanceM)} miles, ${formatClimb(summary.climbFt)} feet climbed`} />
-          : <div className="cel-wait">{error ? 'Could not make the card. Try again.' : 'Making your card…'}</div>}
+          : <div className="cel-wait">{error ? <>Could not make the card.<button className="cel-retry" onClick={() => setAttempt((n) => n + 1)}>Retry</button></> : 'Making your card…'}</div>}
       </div>
       <div className="cel-seg" role="group" aria-label="Card shape">
         {formats.map(([f, label]) => <button key={f} aria-pressed={options.format === f} onClick={() => set({ format: f })}>{label}</button>)}
+      </div>
+      <div className="cel-seg" role="group" aria-label="Card style">
+        {themes.map(([t, label]) => <button key={t} aria-pressed={options.theme === t} onClick={() => set({ theme: t })}>{label}</button>)}
       </div>
       <div className="cel-opts">
         <label className="cel-opt">

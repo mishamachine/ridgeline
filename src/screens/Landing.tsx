@@ -27,7 +27,7 @@ export function Landing({ trail, stats, features, platform = 'other', onGetApp, 
     <main className="land" aria-labelledby="land-h">
       <div className="land-body">
         <div className="land-brand"><img src={BOBO_MARK_URL} alt="" width="40" height="40" />Ridgeline</div>
-        <h1 id="land-h">Your friend just hiked {name}.</h1>
+        <h1 id="land-h">{stats.partial ? `Your friend just hiked on ${name}.` : `Your friend just hiked ${name}.`}</h1>
         {line && <p className="land-stats">{line}. Your turn?</p>}
       </div>
       <div className="land-hero"><img src={BOBO_MARK_URL} alt="Bobo the dog, Ridgeline's mascot, in a red bandana" /></div>

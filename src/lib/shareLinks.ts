@@ -11,6 +11,8 @@ export interface HikeStats {
   climbFt?: number;
   /** "h:mm" */
   time?: string;
+  /** True when the sender turned back before finishing the trail. */
+  partial?: boolean;
 }
 
 /**
@@ -35,12 +37,12 @@ export function formatTime(minutes: number): string {
  * Link for one finished hike: trail id and three numbers. No name, no place, nothing about the person.
  * Returns the plain site address when the trail id is not usable.
  */
-export function hikeShareUrl(h: { trailId: string; distanceM: number; climbFt: number; movingMs: number }): string {
+export function hikeShareUrl(h: { trailId: string; distanceM: number; climbFt: number; movingMs: number; finished?: boolean }): string {
   if (!isTrailId(h.trailId)) return shareBase();
   const miles = clamp(Number.isFinite(h.distanceM) ? h.distanceM * 0.000621371 : 0, 0, MAX_MILES).toFixed(1);
   const climb = Math.round(clamp(Number.isFinite(h.climbFt) ? h.climbFt : 0, 0, MAX_CLIMB_FT));
   const time = formatTime(Number.isFinite(h.movingMs) ? h.movingMs / 60000 : 0);
-  return `${shareBase()}/h/${encodeURIComponent(h.trailId)}?d=${miles}&c=${climb}&t=${time}`;
+  return `${shareBase()}/h/${encodeURIComponent(h.trailId)}?d=${miles}&c=${climb}&t=${time}${h.finished === false ? '&f=0' : ''}`;
 }
 
 /** Plain marker so a counter could count shares. It carries no id and stores nothing. */
@@ -70,6 +72,7 @@ export function parseHikeParams(search: string | URLSearchParams): HikeStats {
   const t = q.get('t');
   const tm = t ? /^(\d{1,3}):([0-5]\d)$/.exec(t) : null;
   if (tm) out.time = formatTime(parseInt(tm[1], 10) * 60 + parseInt(tm[2], 10));
+  if (q.get('f') === '0') out.partial = true;
   return out;
 }
 

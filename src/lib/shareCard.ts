@@ -2,7 +2,8 @@
 import qrcode from 'qrcode-generator';
 import { LngLat, cumulative, pointAt } from './geo';
 import { BOBO_MARK_URL } from './boboMark';
-import { HikeSummary, boboLine } from './hype';
+import { ELEVATION_NOTICE } from './credits';
+import { HikeSummary, boboLine, cardHeadline } from './hype';
 import { SITE_HOST, trailUrl } from './shareLinks';
 import { formatMiles, formatClimb, formatHoursMinutes } from './shareText';
 
@@ -13,10 +14,15 @@ export const CARD_SIZES: Record<CardFormat, { w: number; h: number }> = { story:
 export const STORY_SAFE = 0.14;
 export const TRIM_M = 200;
 export const OSM_CREDIT = '© OpenStreetMap contributors';
-export const DEM_CREDIT = 'Copernicus DEM';
 export const CARD_FOOTER = 'Hike it yourself, free and offline';
 
-export const C = { ink: '#111111', paper: '#F7F7F5', ground: '#E9ECE4', ridge: '#C9CFC2', red: '#D52B26', grey: '#595959', body: '#3A3A3A', white: '#FFFFFF' };
+export type CardTheme = 'dark' | 'light';
+export interface Palette { bg: string; text: string; grey: string; body: string; ground: string; ridge: string; line: string; casing: string; pillBg: string; pillText: string; url: string }
+export const PALETTES: Record<CardTheme, Palette> = {
+  dark: { bg: '#111111', text: '#F7F7F5', grey: '#BDBDBD', body: '#D9D9D4', ground: '#1E1E1E', ridge: '#2E2E2C', line: '#F7F7F5', casing: '#111111', pillBg: '#F7F7F5', pillText: '#111111', url: '#F7F7F5' },
+  light: { bg: '#F7F7F5', text: '#111111', grey: '#595959', body: '#3A3A3A', ground: '#E9ECE4', ridge: '#C9CFC2', line: '#111111', casing: '#FFFFFF', pillBg: '#111111', pillText: '#FFFFFF', url: '#D52B26' },
+};
+export const RED = '#D52B26';
 
 export interface CardOptions {
   format: CardFormat;
@@ -24,8 +30,10 @@ export interface CardOptions {
   showRoute: boolean;
   /** On by default. Cuts the first and last 200 m of the track. */
   hideStart: boolean;
+  /** Dark is the default; light is the alternate. */
+  theme: CardTheme;
 }
-export const DEFAULT_CARD_OPTIONS: CardOptions = { format: 'story', showRoute: false, hideStart: true };
+export const DEFAULT_CARD_OPTIONS: CardOptions = { format: 'story', showRoute: false, hideStart: true, theme: 'dark' };
 
 export interface CardInput {
   summary: HikeSummary;
@@ -54,7 +62,10 @@ export interface CardLayout {
   hero: Rect;
   routeShown: boolean;
   elevationShown: boolean;
-  credits: string;
+  /** Lines printed under the hero (map and elevation credits). */
+  credits: string[];
+  footerH: number;
+  theme: CardTheme;
 }
 
 // ---------- track privacy ----------
@@ -112,12 +123,12 @@ export function cardDate(ms: number): string {
   return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
 }
 
-function wrap(text: string, maxW: number, size: number, weight: number, measure: Measure): string[] {
+function wrap(text: string, maxW: number, size: number, weight: number, measure: Measure, family: 'display' | 'text' = 'display'): string[] {
   const lines: string[] = [];
   let cur = '';
   for (const word of text.split(/\s+/).filter(Boolean)) {
     const next = cur ? `${cur} ${word}` : word;
-    if (cur && measure(next, size, weight, 'display') > maxW) { lines.push(cur); cur = word; } else cur = next;
+    if (cur && measure(next, size, weight, family) > maxW) { lines.push(cur); cur = word; } else cur = next;
   }
   if (cur) lines.push(cur);
   return lines;
@@ -140,6 +151,13 @@ function fitTitle(text: string, maxW: number, maxSize: number, minSize: number, 
   return { lines, size: minSize };
 }
 
+export function truncate(text: string, maxW: number, size: number, weight: number, measure: Measure): string {
+  if (measure(text, size, weight, 'text') <= maxW) return text;
+  let t = text;
+  while (t.length > 1 && measure(`${t}…`, size, weight, 'text') > maxW) t = t.slice(0, -1);
+  return `${t.trimEnd()}…`;
+}
+
 export function qrModules(url: string): boolean[][] {
   const qr = qrcode(0, 'M');
   qr.addData(url);
@@ -150,53 +168,70 @@ export function qrModules(url: string): boolean[][] {
 
 // ---------- layout ----------
 
+const MIN_HERO = { story: 360, square: 190 };
+
 export function layoutCard(input: CardInput, measure: Measure): CardLayout {
+  const story = input.options.format === 'story';
+  const maxTitle = story ? 96 : 80;
+  const tries: [number, boolean][] = [[maxTitle, true], [maxTitle, false], [Math.round(maxTitle * 0.84), false], [Math.round(maxTitle * 0.7), false]];
+  let last!: CardLayout;
+  for (const [size, bobo] of tries) {
+    last = build(input, measure, size, bobo);
+    if (last.hero.h >= MIN_HERO[input.options.format]) break;
+  }
+  return last;
+}
+
+function build(input: CardInput, measure: Measure, titleMax: number, wantBobo: boolean): CardLayout {
   const { summary, options } = input;
+  const P = PALETTES[options.theme ?? 'dark'];
   const { w, h } = CARD_SIZES[options.format];
   const story = options.format === 'story';
   const M = story ? 72 : 64;
   const top = story ? Math.round(h * STORY_SAFE) : M;
   const bottom = h - (story ? Math.round(h * STORY_SAFE) : M);
   const cw = w - 2 * M;
-  const ops: Op[] = [{ kind: 'rect', x: 0, y: 0, w, h, r: 0, fill: C.paper }];
+  const ops: Op[] = [{ kind: 'rect', x: 0, y: 0, w, h, r: 0, fill: P.bg }];
   const text = (o: Omit<Extract<Op, { kind: 'text' }>, 'kind' | 'align'> & { align?: 'left' | 'right' }) => ops.push({ kind: 'text', align: 'left', ...o });
 
   // header
   const hs = story ? 88 : 72;
   ops.push({ kind: 'bobo', x: M, y: top, size: hs });
-  text({ x: M + hs + 20, y: top + hs * 0.63, text: 'RIDGELINE', size: story ? 40 : 34, weight: 800, family: 'display', color: C.ink, tracking: 5 });
-  text({ x: w - M, y: top + hs * 0.62, text: cardDate(summary.startedAt), size: story ? 34 : 30, weight: 600, family: 'text', color: C.grey, align: 'right' });
-  let y = top + hs + (story ? 44 : 28);
+  text({ x: M + hs + 20, y: top + hs * 0.63, text: 'RIDGELINE', size: story ? 40 : 34, weight: 800, family: 'display', color: P.text, tracking: 5 });
+  text({ x: w - M, y: top + hs * 0.62, text: cardDate(summary.startedAt), size: story ? 34 : 30, weight: 600, family: 'text', color: P.grey, align: 'right' });
+  let y = top + hs + (story ? 40 : 24);
 
-  // title
-  const title = fitTitle(summary.trail.name || 'A Ridgeline hike', cw, story ? 132 : 96, story ? 76 : 60, measure);
-  title.lines.forEach((line, i) => text({ x: M, y: y + title.size * (0.8 + i * 0.98), text: line, size: title.size, weight: 800, family: 'display', color: C.ink }));
-  y += title.size * (0.98 * title.lines.length + 0.1) + 14;
+  // headline
+  const title = fitTitle(cardHeadline(summary), cw, titleMax, 52, measure);
+  title.lines.forEach((line, i) => text({ x: M, y: y + title.size * (0.8 + i * 0.98), text: line, size: title.size, weight: 900, family: 'display', color: P.text }));
+  y += title.size * (0.98 * title.lines.length + 0.1) + 12;
 
-  // fixed blocks measured from the bottom
-  const qrSize = story ? 220 : 168;
-  const footerH = qrSize;
-  const badge = input.newBadge?.name ? `New badge: ${input.newBadge.name}` : '';
+  // blocks measured from the bottom
+  const gap = story ? 24 : 16;
+  const qrSize = story ? 210 : 140;
+  const footerH = qrSize + 18; // rule + QR row; at most 15% of the card height
+  const badgeText = input.newBadge?.name ? `New badge: ${input.newBadge.name}` : '';
   const route = options.showRoute ? routeForCard(summary.track, options.hideStart) : [];
   const routeShown = route.length >= 2;
   const elevation = !routeShown && (summary.trail.elevation?.length ?? 0) >= 2 ? summary.trail.elevation! : null;
-  const credits = [routeShown || elevation ? OSM_CREDIT : '', elevation ? DEM_CREDIT : ''].filter(Boolean).join(' · ');
-  const creditH = credits ? (story ? 44 : 38) : 0;
-  const statSize = story ? 112 : 86;
-  const statsH = statSize + 8;
-  const pillH = badge ? (story ? 64 : 54) : 0;
-  const gap = story ? 26 : 18;
-  let showBobo = true;
-  const boboH = story ? 44 : 38;
-  const layoutBottom = () => bottom - footerH - gap - (creditH ? creditH + gap : 0) - (pillH ? pillH + gap : 0) - statsH - gap;
-  let heroTop = y + (showBobo ? boboH + gap : 0);
-  const minHero = story ? 420 : 250;
-  if (layoutBottom() - heroTop < minHero) { showBobo = false; heroTop = y; }
-  if (showBobo) text({ x: M, y: y + boboH * 0.78, text: boboLine(summary), size: story ? 38 : 32, weight: 600, family: 'text', color: C.body });
-  const hero: Rect = { x: M, y: heroTop, w: cw, h: Math.max(0, layoutBottom() - heroTop) };
 
-  // hero panel
-  ops.push({ kind: 'rect', ...hero, r: 40, fill: C.ground });
+  const creditSize = story ? 24 : 22;
+  const creditLine = Math.round(creditSize * 1.25);
+  const credits: string[] = [];
+  if (elevation) credits.push(...wrap(ELEVATION_NOTICE, cw, creditSize, 600, measure, 'text'));
+  if (routeShown) credits.push(OSM_CREDIT);
+  const creditH = credits.length ? credits.length * creditLine + 6 : 0;
+
+  const statSize = story ? 112 : 84;
+  const statsH = statSize + 8;
+  const pillH = badgeText ? (story ? 64 : 54) : 0;
+  const boboH = story ? 44 : 38;
+  const heroBottom = bottom - footerH - gap - (creditH ? creditH + gap : 0) - (pillH ? pillH + gap : 0) - statsH - gap;
+  const heroTop = y + (wantBobo ? boboH + gap : 0);
+  if (wantBobo) text({ x: M, y: y + boboH * 0.78, text: boboLine(summary), size: story ? 36 : 30, weight: 600, family: 'text', color: P.body });
+  const hero: Rect = { x: M, y: heroTop, w: cw, h: Math.max(0, heroBottom - heroTop) };
+
+  ops.push({ kind: 'rect', ...hero, r: 40, fill: P.ground });
   if (routeShown) {
     const points = projectRoute(route, hero, story ? 90 : 60);
     ops.push({ kind: 'route', points, end: points[points.length - 1] });
@@ -208,54 +243,55 @@ export function layoutCard(input: CardInput, measure: Measure): CardLayout {
     const bs = Math.min(hero.h * 0.3, 190);
     ops.push({ kind: 'bobo', x: Math.max(hero.x + 16, Math.min(peak[0] - bs / 2, hero.x + hero.w - bs - 16)), y: Math.max(hero.y + 16, peak[1] - bs - 8), size: bs });
   } else {
-    const bs = Math.min(hero.h * 0.7, hero.w * 0.5);
+    const bs = Math.min(hero.h - 48, hero.w * 0.6, 560);
     ops.push({ kind: 'bobo', x: hero.x + (hero.w - bs) / 2, y: hero.y + (hero.h - bs) / 2, size: bs });
   }
-  if (credits) text({ x: M, y: hero.y + hero.h + gap + creditH * 0.7, text: credits, size: story ? 30 : 26, weight: 600, family: 'text', color: C.grey });
+  credits.forEach((c, i) => text({ x: M, y: hero.y + hero.h + gap + creditSize + i * creditLine, text: c, size: creditSize, weight: 600, family: 'text', color: P.grey }));
   y = hero.y + hero.h + gap + (creditH ? creditH + gap : 0);
 
-  // stats: one big line
+  // stats on one line; units stay >= 36px at weight 700
   const stats: [string, string][] = [
     [formatMiles(summary.distanceM), 'mi'],
     [formatClimb(summary.climbFt), 'ft'],
     [formatHoursMinutes(summary.movingMs), 'hr'],
   ];
-  const unitSize = story ? 40 : 32;
-  const natural = stats.reduce((a, [n, u]) => a + measure(n, statSize, 800, 'display') + 10 + measure(u, unitSize, 600, 'text'), 0) + 2 * 44;
-  const k = Math.min(1, cw / natural);
+  const unitSize = story ? 40 : 36;
+  const sep = story ? 40 : 28;
+  const width = (ns: number) => stats.reduce((a, [n, u]) => a + measure(n, ns, 800, 'display') + 10 + measure(u, unitSize, 700, 'text'), 0) + 2 * sep;
+  let ns = statSize;
+  while (ns > 40 && width(ns) > cw) ns -= 2;
   let sx = M;
   for (const [n, u] of stats) {
-    const ns = Math.floor(statSize * k), us = Math.floor(unitSize * k);
-    text({ x: sx, y: y + ns * 0.82, text: n, size: ns, weight: 800, family: 'display', color: C.ink });
+    text({ x: sx, y: y + ns * 0.82, text: n, size: ns, weight: 800, family: 'display', color: P.text });
     sx += measure(n, ns, 800, 'display') + 10;
-    text({ x: sx, y: y + ns * 0.82, text: u, size: us, weight: 600, family: 'text', color: C.grey });
-    sx += measure(u, us, 600, 'text') + 44 * k;
+    text({ x: sx, y: y + ns * 0.82, text: u, size: unitSize, weight: 700, family: 'text', color: P.grey });
+    sx += measure(u, unitSize, 700, 'text') + sep;
   }
   y += statsH + gap;
 
-  // badge pill
-  if (badge) {
+  // badge pill, clamped to the card width
+  if (badgeText) {
     const ps = story ? 34 : 29;
-    const pw = measure(badge, ps, 600, 'text') + 52;
-    ops.push({ kind: 'rect', x: M, y, w: pw, h: pillH, r: pillH / 2, fill: C.ink });
-    text({ x: M + 26, y: y + pillH * 0.68, text: badge, size: ps, weight: 600, family: 'text', color: C.white });
-    if (input.badgeCount && input.badgeCount > 1) {
-      text({ x: M + pw + 20, y: y + pillH * 0.68, text: `${input.badgeCount} badges so far`, size: ps, weight: 600, family: 'text', color: C.grey });
-    }
+    const label = truncate(badgeText, cw - 52, ps, 600, measure);
+    const pw = measure(label, ps, 600, 'text') + 52;
+    ops.push({ kind: 'rect', x: M, y, w: pw, h: pillH, r: pillH / 2, fill: P.pillBg });
+    text({ x: M + 26, y: y + pillH * 0.68, text: label, size: ps, weight: 600, family: 'text', color: P.pillText });
+    const count = input.badgeCount && input.badgeCount > 1 ? `${input.badgeCount} badges so far` : '';
+    if (count && M + pw + 20 + measure(count, ps, 600, 'text') <= w - M) text({ x: M + pw + 20, y: y + pillH * 0.68, text: count, size: ps, weight: 600, family: 'text', color: P.grey });
     y += pillH + gap;
   }
 
-  // footer: line, call to action, URL, QR
-  const fy = bottom - footerH;
-  ops.push({ kind: 'line', x1: M, y1: fy - 14, x2: w - M, y2: fy - 14, width: 4, color: C.ink });
+  // footer: rule, call to action, URL, QR
+  const fy = bottom - qrSize;
+  ops.push({ kind: 'line', x1: M, y1: fy - 14, x2: w - M, y2: fy - 14, width: 4, color: P.text });
   const textW = cw - qrSize - 32;
-  let fs = story ? 42 : 34;
+  let fs = story ? 42 : 32;
   while (fs > 22 && measure(CARD_FOOTER, fs, 600, 'text') > textW) fs -= 2;
-  text({ x: M, y: fy + qrSize * 0.4, text: CARD_FOOTER, size: fs, weight: 600, family: 'text', color: C.ink });
-  text({ x: M, y: fy + qrSize * 0.4 + fs * 1.35, text: SITE_HOST, size: Math.round(fs * 0.85), weight: 600, family: 'text', color: C.red });
+  text({ x: M, y: fy + qrSize * 0.4, text: CARD_FOOTER, size: fs, weight: 600, family: 'text', color: P.text });
+  text({ x: M, y: fy + qrSize * 0.4 + fs * 1.35, text: SITE_HOST, size: Math.round(fs * 0.85), weight: 600, family: 'text', color: P.url });
   ops.push({ kind: 'qr', x: w - M - qrSize, y: fy, size: qrSize, modules: qrModules(trailUrl(summary.trail.id)) });
 
-  return { w, h, ops, hero, routeShown, elevationShown: !!elevation, credits };
+  return { w, h, ops, hero, routeShown, elevationShown: !!elevation, credits, footerH, theme: options.theme ?? 'dark' };
 }
 
 // ---------- drawing ----------
@@ -275,6 +311,7 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
 }
 
 export function drawCard(ctx: CanvasRenderingContext2D, layout: CardLayout, bobo: CanvasImageSource) {
+  const P = PALETTES[layout.theme];
   for (const op of layout.ops) {
     if (op.kind === 'rect') {
       ctx.fillStyle = op.fill;
@@ -292,29 +329,28 @@ export function drawCard(ctx: CanvasRenderingContext2D, layout: CardLayout, bobo
     } else if (op.kind === 'route') {
       ctx.lineJoin = 'round'; ctx.lineCap = 'round';
       const path = () => { ctx.beginPath(); op.points.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); };
-      ctx.strokeStyle = C.white; ctx.lineWidth = 30; path(); ctx.stroke();
-      ctx.strokeStyle = C.red; ctx.lineWidth = 18; path(); ctx.stroke();
-      ctx.fillStyle = C.white; ctx.beginPath(); ctx.arc(op.end[0], op.end[1], 24, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = C.ink; ctx.beginPath(); ctx.arc(op.end[0], op.end[1], 16, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = P.casing; ctx.lineWidth = 30; path(); ctx.stroke();
+      ctx.strokeStyle = RED; ctx.lineWidth = 18; path(); ctx.stroke();
+      ctx.fillStyle = P.casing; ctx.beginPath(); ctx.arc(op.end[0], op.end[1], 24, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = P.line; ctx.beginPath(); ctx.arc(op.end[0], op.end[1], 16, 0, Math.PI * 2); ctx.fill();
     } else if (op.kind === 'elevation') {
       ctx.beginPath();
       op.points.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
       ctx.lineTo(op.points[op.points.length - 1][0], op.base);
       ctx.lineTo(op.points[0][0], op.base);
       ctx.closePath();
-      ctx.fillStyle = C.ridge; ctx.fill();
+      ctx.fillStyle = P.ridge; ctx.fill();
       ctx.beginPath();
       op.points.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-      ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.strokeStyle = C.ink; ctx.lineWidth = 8; ctx.stroke();
+      ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.strokeStyle = P.line; ctx.lineWidth = 8; ctx.stroke();
     } else if (op.kind === 'line') {
       ctx.strokeStyle = op.color; ctx.lineWidth = op.width; ctx.beginPath(); ctx.moveTo(op.x1, op.y1); ctx.lineTo(op.x2, op.y2); ctx.stroke();
     } else if (op.kind === 'qr') {
       const quiet = 2;
       const n = op.modules.length;
       const cell = op.size / (n + 2 * quiet);
-      ctx.fillStyle = C.white; roundRect(ctx, op.x, op.y, op.size, op.size, 14); ctx.fill();
-      ctx.strokeStyle = C.ink; ctx.lineWidth = 3; roundRect(ctx, op.x, op.y, op.size, op.size, 14); ctx.stroke();
-      ctx.fillStyle = C.ink;
+      ctx.fillStyle = '#FFFFFF'; roundRect(ctx, op.x, op.y, op.size, op.size, 14); ctx.fill();
+      ctx.fillStyle = '#111111';
       for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (op.modules[r][c]) ctx.fillRect(op.x + (c + quiet) * cell, op.y + (r + quiet) * cell, Math.ceil(cell), Math.ceil(cell));
     }
   }
@@ -330,7 +366,7 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 }
 
 async function loadFonts() {
-  const faces = ['800 48px "Inter Tight"', '600 48px "Inter"'];
+  const faces = ['900 48px "Inter Tight"', '800 48px "Inter Tight"', '600 48px "Inter"', '700 48px "Inter"'];
   await Promise.all(faces.map((f) => document.fonts.load(f).catch(() => [])));
   await document.fonts.ready;
 }

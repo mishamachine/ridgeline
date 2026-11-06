@@ -80,11 +80,39 @@ export function highlightChips(trail: HikeSummary['trail'], hit: string[]): stri
   return out;
 }
 
-/** The one human line on the share card. 8 words at most, no exclamation marks. */
+/** Short lines for the card. 8 words at most, no exclamation marks, true for finished and partial hikes. */
+export const BOBO_LINES_FINISHED = [
+  'Bobo carried the snacks. You carried the day.',
+  'Bobo says: worth every step.',
+  'Bobo is already planning the next one.',
+  'Bobo napped. You did the work.',
+];
+export const BOBO_LINES_PARTIAL = [
+  'Bobo says the trail will wait.',
+  'Bobo approves of fresh air.',
+  'Every mile counts. Bobo agrees.',
+  'Bobo is proud of you.',
+];
+
+/** The one human line on the share card. Picked from the hike's start time, so it rotates between hikes. */
 export function boboLine(s: HikeSummary): string {
   const climb = Math.round(Math.max(0, num(s.climbFt)));
-  if (isFinished(s.completedFraction) && climb >= BIG_CLIMB_FT) return `Bobo says: ${fmtFt(climb)} ft, worth it.`;
-  if (isFinished(s.completedFraction)) return 'Bobo says: good day outside.';
-  return 'Bobo says: every mile counts.';
+  const finished = isFinished(s.completedFraction);
+  if (finished && climb >= BIG_CLIMB_FT && Math.floor(num(s.startedAt) / 86400000) % 2 === 0) return `Bobo says: ${fmtFt(climb)} ft, worth it.`;
+  const pool = finished ? BOBO_LINES_FINISHED : BOBO_LINES_PARTIAL;
+  return pool[Math.abs(Math.floor(num(s.startedAt) / 86400000)) % pool.length];
 }
 
+/** Card headline: only claims "crushed" for a finished hike. */
+export function cardHeadline(s: HikeSummary): string {
+  const name = s.trail.name || 'a Ridgeline trail';
+  return isFinished(s.completedFraction) ? `I crushed ${name}.` : `I hiked ${hikeMiles(s).toFixed(1)} mi on ${name}.`;
+}
+
+/** Text that travels with the shared image. The link goes inside it. */
+export function shareText(s: HikeSummary): string {
+  const name = s.trail.name || 'a Ridgeline trail';
+  const miles = hikeMiles(s).toFixed(1);
+  if (!isFinished(s.completedFraction)) return `I hiked ${miles} mi on ${name}. Hike it yourself, free and offline.`;
+  return `I just hiked ${name}: ${miles} mi, ${fmtFt(Math.max(0, num(s.climbFt)))} ft climbed. Hike it yourself, free and offline.`;
+}

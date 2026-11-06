@@ -2,7 +2,9 @@
 export interface ShareArgs {
   files: File[];
   title: string;
+  /** Must already contain the link. */
   text: string;
+  /** Copied to the clipboard on the fallback path. */
   url: string;
 }
 export interface ShareOutcome {
@@ -27,11 +29,11 @@ export const copyLink = async (url: string): Promise<boolean> => {
   try { await navigator.clipboard.writeText(url); return true; } catch { return false; }
 };
 
-/** Web Share Level 2 with files; falls back to saving the image and copying the link. */
+/** Web Share Level 2 with files and text only (iOS Safari drops files when a url is sent too, so `text` carries the link). Falls back to saving the image and copying the link. */
 export const shareFiles: ShareFiles = async ({ files, title, text, url }) => {
   try {
     if (typeof navigator.canShare === 'function' && typeof navigator.share === 'function' && navigator.canShare({ files })) {
-      await navigator.share({ files, title, text, url });
+      await navigator.share({ files, title, text });
       return { status: 'shared', copied: false };
     }
   } catch (e) {

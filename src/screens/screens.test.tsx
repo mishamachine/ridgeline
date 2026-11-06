@@ -47,6 +47,10 @@ describe('Landing', () => {
     expect(h).toContain('Get Ridgeline, free');
     expect(h).toContain('See this trail first');
   });
+  it('does not claim the whole trail for a partial hike', () => {
+    const h = renderToStaticMarkup(<Landing trail={{ name: 'Rattlesnake Ledge' }} stats={{ ...stats, partial: true }} onGetApp={noop} />);
+    expect(h).toContain('Your friend just hiked on Rattlesnake Ledge.');
+  });
   it('falls back for an unknown trail and hides the trail button', () => {
     const h = renderToStaticMarkup(<Landing stats={{}} onGetApp={noop} onSeeTrail={noop} />);
     expect(h).toContain('Your friend just hiked a Ridgeline trail.');
