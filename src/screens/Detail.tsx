@@ -17,6 +17,7 @@ import { shareTrail } from '../lib/share';
 import { bookmark, unsave } from '../lib/saved';
 import { useDownload } from '../lib/useDownload';
 import { A2HS_TIP, isIOS, isStandalone } from '../lib/pwa';
+import { requestCompassPermission } from '../lib/gps/compass';
 import { ELEVATION_NOTICE, ELEVATION_LIABILITY, SAFETY_LINE } from '../lib/credits';
 
 interface Props {
@@ -155,7 +156,7 @@ export function Detail({ tpl, trail, bookmarked, onBack, onStart, onSavedChange 
             <button className="btn btn-outline" onClick={dl.start}><DownloadIcon size={20} /> Save offline<small>about {mb(estimate)}</small></button>
           )}
         </div>
-        <button className="btn btn-primary btn-big" onClick={() => onStart(trail)}>Start hike</button>
+        <button className="btn btn-primary btn-big" onClick={() => { requestCompassPermission(); onStart(trail); }}>Start hike</button>
       </div>
 
       {chooser && (
