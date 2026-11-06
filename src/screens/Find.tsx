@@ -1,7 +1,8 @@
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import type { Map as MLMap } from 'maplibre-gl';
 import { MapView, setGeo } from '../components/MapView';
-import { Lockup, Placeholder } from '../components/Bobo';
+import { Placeholder } from '../components/Bobo';
+import { PageHead } from '../components/PageHead';
 import { TrailCard } from '../components/TrailCard';
 import { hasHighlight } from '../components/Chips';
 import { FindIcon, ListIcon, MapIcon, ShareIcon, CloseIcon } from '../components/NavIcons';
@@ -243,10 +244,7 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
   return (
     <>
       <div className="find-head">
-        <div className="row-between">
-          <Lockup />
-          <button className="round" aria-label="Share Ridgeline" onClick={shareApp}><ShareIcon /></button>
-        </div>
+        <PageHead title="Find" byline><button className="round" aria-label="Share Ridgeline" onClick={shareApp}><ShareIcon /></button></PageHead>
         <div className="searchbox">
           <form className="search2" onSubmit={onSearch} role="search">
             <FindIcon />

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Placeholder } from '../components/Bobo';
+import { PageHead } from '../components/PageHead';
 import { statsLine } from '../components/TrailCard';
 import { forHike, listAllSaved, type SavedItem } from '../lib/saved';
 import type { Trail } from '../lib/trails';
@@ -15,9 +16,7 @@ export function Hike({ visible, version, onStart, onFind }: Props) {
 
   return (
     <div className="page">
-      <div className="page-head">
-        <h1 className="page-title">{seg === 'trail' ? 'Start a hike' : 'Record'}</h1>
-      </div>
+      <PageHead title={seg === 'trail' ? 'Start a hike' : 'Record'} />
       <div className="pad-x">
         <div className="seg seg-wide" role="group" aria-label="Hike type">
           <button aria-pressed={seg === 'trail'} onClick={() => setSeg('trail')}>On a trail</button>

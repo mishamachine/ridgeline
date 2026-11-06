@@ -50,7 +50,7 @@ export function Badges({ onBack, preset }: { onBack?: () => void; preset?: { act
   return (
     <div className="screen pf">
       <div className="bd-top">
-        {onBack && <button className="bd-back" onClick={onBack}><BackIcon size={18} />Profile</button>}
+        {onBack && <button className="round" onClick={onBack} aria-label="Back to Profile"><BackIcon /></button>}
         <h1>Badges · {done} of {badges.length}</h1>
       </div>
 

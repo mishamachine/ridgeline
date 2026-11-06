@@ -66,6 +66,8 @@ export const putSetting = (k: string, v: unknown) => set('set:' + k, v);
 export interface Shortlisted { trail: Trail; addedAt: number }
 export const getShortlisted = (id: string) => get<Shortlisted>(S + id);
 export const putShortlisted = (trail: Trail) => set(S + trail.id, { trail, addedAt: Date.now() } satisfies Shortlisted);
+/** Used by restore, to keep the original date. */
+export const restoreShortlisted = (s: Shortlisted) => set(S + s.trail.id, s);
 export const deleteShortlisted = (id: string) => del(S + id);
 
 export async function listShortlisted(): Promise<Shortlisted[]> {

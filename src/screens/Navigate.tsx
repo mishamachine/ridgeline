@@ -8,7 +8,7 @@ import { buildView } from '../components/nav/view';
 import { buildSummary, type HikeSummary } from '../components/nav/summary';
 import { cumulative, haversine, pointAt, totalAscent, LngLat } from '../lib/geo';
 import { estimateMinutes, Trail } from '../lib/trails';
-import { addPoint, newActivity, keepAwake } from '../lib/tracker';
+import { addPoint, keepAwake } from '../lib/tracker';
 import { putActivity, Activity } from '../lib/store';
 import { duration } from '../lib/format';
 import { INK } from '../lib/mapStyle';
@@ -20,7 +20,8 @@ import { findReversals } from '../lib/gps/reversals';
 import { Announcer } from '../lib/voice/announcer';
 import { forksFor, nextStep } from '../lib/voice/forkpoints';
 import { offRouteSide } from '../lib/voice/offroute';
-import { getUnits, getVoiceOn, setVoiceOn } from '../lib/voice/prefs';
+import { useSettings } from '../lib/settings';
+import { endActivity, startActivity } from '../lib/finish';
 import { cancelSpeech, primeSpeech, speak } from '../lib/voice/speak';
 import { climbText, shortDistance } from '../lib/voice/units';
 import { offRouteText } from '../lib/voice/announcer';
@@ -34,14 +35,15 @@ interface Props {
   saved: boolean;
   onEnd: () => void;
   /** Called with the hike's numbers when the hiker finishes. Without it, Finish just calls onEnd. */
-  onFinish?: (summary: HikeSummary) => void;
+  onFinish?: (summary: HikeSummary, activity: Activity) => void;
 }
 
 const MIN_PROGRESS_M = 400;   // walked this far before adjusting time to your own pace
 
 export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
   const mapRef = useRef<MLMap | null>(null);
-  const actRef = useRef<Activity>(newActivity(trail.name, trail.id));
+  const actRef = useRef<Activity>(null as unknown as Activity);
+  if (!actRef.current) actRef.current = startActivity(trail);
   const startAlongRef = useRef<number | null>(null);
   const maxAlongRef = useRef(0);
   const walkedRef = useRef(0);
@@ -67,8 +69,9 @@ export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
   const [confirming, setConfirming] = useState(false);
   const [more, setMore] = useState(false);
   const [headingBack, setHeadingBack] = useState(false);
-  const [units] = useState(getUnits);
-  const [voiceOn, setVoice] = useState(getVoiceOn);
+  const [settings, updateSettings] = useSettings();
+  const units = settings.units;
+  const voiceOn = settings.voice;
   const voiceRef = useRef(voiceOn);
   voiceRef.current = voiceOn;
 
@@ -221,8 +224,7 @@ export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
 
   function toggleVoice() {
     const on = !voiceOn;
-    setVoice(on);
-    setVoiceOn(on);
+    updateSettings({ voice: on });
     if (on) speak('Voice on.', true); else cancelSpeech();
   }
 
@@ -327,15 +329,14 @@ export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
   async function finish() {
     const a = actRef.current;
     const endedAt = Date.now();
-    a.endedAt = endedAt;
     if (pauseStartRef.current) { pausedMsRef.current += endedAt - pauseStartRef.current; pauseStartRef.current = null; }
-    if (a.points.length > 1) await putActivity(a);
+    if (endActivity(a, trail, endedAt)) await putActivity(a);
     cancelSpeech();
     if (!onFinish) return onEnd();
     onFinish(buildSummary({
       trail, activity: a, endedAt, pausedMs: pausedMsRef.current, elevation: route.elevation, total,
       startAlong: startAlongRef.current, maxAlong: Math.max(maxAlongRef.current, priorFractionRef.current * total), priorClimbM: priorClimbRef.current,
-    }));
+    }), a);
   }
 
   const start = trail.coords[0];
