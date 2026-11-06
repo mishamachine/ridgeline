@@ -1,14 +1,46 @@
-import { defineConfig } from 'vite';
+import { copyFileSync, existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
 // BASE_PATH is set at deploy time for GitHub Pages (e.g. "/ridgeline/").
 const base = process.env.BASE_PATH ?? '/';
 
+// GitHub Pages answers unknown paths (/ridgeline/trail/<id>) with 404.html: serve the app from it.
+let outDir = 'dist';
+const spaFallback: Plugin = {
+  name: 'spa-404',
+  apply: 'build',
+  configResolved(config) { outDir = join(config.root, config.build.outDir); },
+  closeBundle() {
+    const dir = outDir;
+    if (existsSync(join(dir, 'index.html'))) copyFileSync(join(dir, 'index.html'), join(dir, '404.html'));
+  },
+};
+
+// Dev only: a local .dev-data/names.json (git-ignored) stands in for the name index until it is deployed.
+const devNames: Plugin = {
+  name: 'dev-names',
+  apply: 'serve',
+  configureServer(server) {
+    server.middlewares.use('/trails/names.json', (_req, res, next) => {
+      const f = join(process.cwd(), '.dev-data', 'names.json');
+      if (!existsSync(f)) return next();
+      res.setHeader('Content-Type', 'application/json');
+      res.end(readFileSync(f));
+    });
+  },
+};
+
 export default defineConfig({
   base,
+  // Dev only: set TRAILS_PROXY=https://<host> to read hosted trail cells from a live site.
+  server: process.env.TRAILS_PROXY ? { proxy: { '/trails': { target: process.env.TRAILS_PROXY, changeOrigin: true } } } : {},
   plugins: [
     react(),
+    spaFallback,
+    devNames,
     VitePWA({
       strategies: 'injectManifest',
       srcDir: 'src',

@@ -14,7 +14,7 @@ const PAD_M = 1500;
 /** Current versioned tile URL template, remembered for offline starts. */
 export async function getTileTemplate(): Promise<string> {
   try {
-    const res = await fetch(TILEJSON_URL, { cache: 'no-cache' });
+    const res = await fetch(TILEJSON_URL, { cache: 'no-cache', signal: AbortSignal.timeout(2500) }); // slow server: start from the remembered template
     const tj = await res.json();
     const tpl = tj.tiles[0] as string;
     await putSetting('tileTemplate', tpl);

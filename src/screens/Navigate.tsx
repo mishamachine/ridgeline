@@ -7,6 +7,7 @@ import { estimateMinutes, Trail } from '../lib/trails';
 import { addPoint, newActivity, keepAwake, trackDistance } from '../lib/tracker';
 import { putActivity, Activity } from '../lib/store';
 import { duration, ft, mi } from '../lib/format';
+import { ConfirmSheet } from '../components/ConfirmSheet';
 import { INK } from '../lib/mapStyle';
 import { GpsEngine, GpsState } from '../lib/gps/engine';
 import { WebLocationSource } from '../lib/gps/source';
@@ -35,6 +36,7 @@ export function Navigate({ tpl, trail, saved, onEnd }: Props) {
   const [online, setOnline] = useState(navigator.onLine);
   const [now, setNow] = useState(Date.now());
   const [following, setFollowing] = useState(true);
+  const [confirmEnd, setConfirmEnd] = useState(false);
 
   // Route in walking direction.
   const route = useMemo(() => {
@@ -194,7 +196,7 @@ export function Navigate({ tpl, trail, saved, onEnd }: Props) {
         <MapView tileTemplate={tpl} center={start} zoom={15} onReady={onReady} label={`Navigation map for ${trail.name}`} />
         <div className="map-badge" style={{ left: 16, top: 'calc(var(--safe-top) + 16px)' }} role="status">{status}{net}</div>
         <div style={{ position: 'absolute', right: 16, bottom: 28, zIndex: 2, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {!trail.loop && <button className="icon-btn" aria-label="Reverse direction" onClick={() => setReversed((r) => !r)}><SwapIcon /></button>}
+          {!trail.loop && <button className="text-btn reverse-btn" onClick={() => setReversed((r) => !r)}><SwapIcon size={18} /> Reverse direction</button>}
           {!following && <button className="icon-btn" aria-label="Center on me" onClick={recenter}><LocateIcon /></button>}
         </div>
       </div>
@@ -231,8 +233,9 @@ export function Navigate({ tpl, trail, saved, onEnd }: Props) {
 
       <div className="actions">
         <button className="action light" onClick={togglePause}>{paused ? 'Resume' : 'Pause'}</button>
-        <button className="action dark" onClick={end}>End</button>
+        <button className="action dark" onClick={() => setConfirmEnd(true)}>End</button>
       </div>
+      {confirmEnd && <ConfirmSheet title="Finish this hike?" body="Your track is saved on this phone." confirmLabel="Finish hike" onConfirm={end} onCancel={() => setConfirmEnd(false)} />}
     </>
   );
 }
