@@ -5,3 +5,6 @@ dist
 
 .dem-cache/
 __pycache__/
+
+.dev-data/
+*.tsbuildinfo

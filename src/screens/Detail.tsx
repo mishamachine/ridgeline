@@ -1,150 +1,195 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Map as MLMap } from 'maplibre-gl';
 import { MapView, setGeo } from '../components/MapView';
 import { ElevationChart } from '../components/ElevationChart';
+import { HighlightChips } from '../components/Chips';
 import { BackIcon } from '../components/Icons';
-import { BLAZE } from '../components/TrailRow';
-import { difficulty, estimateMinutes, Trail } from '../lib/trails';
+import { CheckIcon, DownloadIcon, DriveIcon, SavedIcon, ShareIcon } from '../components/NavIcons';
+import { ConfirmSheet, useDialogKeys } from '../components/ConfirmSheet';
+import type { Trail } from '../lib/trails';
 import { getSaved, SavedTrail } from '../lib/store';
-import { saveTrailOffline, removeTrailOffline } from '../lib/offline';
+import { removeTrailOffline, tilesForTrail } from '../lib/offline';
 import { bboxOf } from '../lib/geo';
-import { ft, hm, mb, mi } from '../lib/format';
-import { ELEVATION_NOTICE, ELEVATION_LIABILITY } from '../lib/credits';
-
+import { ft, hrs, mb, mi } from '../lib/format';
+import { level, roundTripClimbM, roundTripM, tripMinutes } from '../lib/plan';
+import { detectPlatform, driveLabel, mapsOptions, trailheadOf } from '../lib/maps';
+import { shareTrail } from '../lib/share';
+import { bookmark, unsave } from '../lib/saved';
+import { useDownload } from '../lib/useDownload';
+import { A2HS_TIP, isIOS, isStandalone } from '../lib/pwa';
 import { requestCompassPermission } from '../lib/gps/compass';
 import { primeSpeech } from '../lib/voice/speak';
+import { ELEVATION_NOTICE, ELEVATION_LIABILITY, SAFETY_LINE } from '../lib/credits';
 
 interface Props {
   tpl: string;
   trail: Trail;
+  bookmarked: boolean;
   onBack: () => void;
   onStart: (t: Trail) => void;
   onSavedChange: () => void;
 }
+
+// Measured once in dev: the Rattlesnake Ledge download was 933 KB for 16 tiles plus label fonts, about 58 KB each.
+// Other areas vary, so the button says "about".
+const AVG_TILE_BYTES = 58 * 1024;
 
 const SAC: Record<string, string> = {
   hiking: 'Easy footing', mountain_hiking: 'Uneven, steep in places', demanding_mountain_hiking: 'Scrambling possible',
   alpine_hiking: 'Alpine terrain', demanding_alpine_hiking: 'Technical alpine', difficult_alpine_hiking: 'Technical alpine',
 };
 
-export function Detail({ tpl, trail: initial, onBack, onStart, onSavedChange }: Props) {
-  const [trail, setTrail] = useState(initial);
+export function Detail({ tpl, trail, bookmarked, onBack, onStart, onSavedChange }: Props) {
   const [saved, setSaved] = useState<SavedTrail | undefined>();
-  const [progress, setProgress] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  const [chooser, setChooser] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+  const dl = useDownload(trail, () => { setJustSaved(true); refresh(); onSavedChange(); });
 
-  useEffect(() => {
-    getSaved(trail.id).then((s) => {
-      setSaved(s);
-      if (s?.trail.elevation) setTrail(s.trail);
-    });
-    return () => abortRef.current?.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const refresh = () => getSaved(trail.id).then(setSaved);
+  useEffect(() => { refresh(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [trail.id]);
 
-  const b = bboxOf(trail.coords);
+  const b = useMemo(() => bboxOf(trail.coords), [trail]);
   const onReady = (map: MLMap) => {
+    map.setPaintProperty('bg', 'background-color', '#E9ECE4'); // map ground shows even when tiles are slow or offline
+    // The trailhead is its own marker (never the "you are here" dot): a P on a white disc for a mapped lot, else a black start dot.
+    const th = trailheadOf(trail);
+    const parking = !!trail.trailhead && !!trail.trailheadIsParking;
+    map.addSource('trailhead', { type: 'geojson', data: { type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [th.lon, th.lat] } } });
+    map.addLayer({ id: 'trailhead-dot', type: 'circle', source: 'trailhead', paint: parking
+      ? { 'circle-radius': 12, 'circle-color': '#FFFFFF', 'circle-stroke-color': '#111111', 'circle-stroke-width': 2.5 }
+      : { 'circle-radius': 7, 'circle-color': '#111111', 'circle-stroke-color': '#FFFFFF', 'circle-stroke-width': 3 } });
+    if (parking) map.addLayer({ id: 'trailhead-p', type: 'symbol', source: 'trailhead', layout: { 'text-field': 'P', 'text-font': ['Noto Sans Bold'], 'text-size': 14, 'text-allow-overlap': true }, paint: { 'text-color': '#111111' } });
     setGeo(map, 'trails', {
       type: 'FeatureCollection',
       features: [{ type: 'Feature', properties: { active: true }, geometry: { type: 'LineString', coordinates: trail.coords } }],
     });
   };
 
-  async function save() {
-    setError(null);
-    const ac = new AbortController();
-    abortRef.current = ac;
-    setProgress(0);
-    try {
-      const s = await saveTrailOffline(trail, (d, n) => setProgress(d / n), ac.signal);
-      setSaved(s);
-      onSavedChange();
-    } catch (e) {
-      if ((e as Error).name !== 'AbortError') setError((e as Error).message);
-    } finally {
-      setProgress(null);
-    }
+  const lv = level(trail);
+  const climb = roundTripClimbM(trail);
+  const minutes = climb != null ? tripMinutes(trail) : null;
+  const estimate = useMemo(() => tilesForTrail(trail).length * AVG_TILE_BYTES, [trail]);
+  const options = mapsOptions(trail, detectPlatform());
+
+  async function toggleBookmark() {
+    if (bookmarked) {
+      if (saved) setConfirmRemove(true);
+      else { await unsave(trail.id); onSavedChange(); }
+    } else { await bookmark(trail); onSavedChange(); }
   }
 
-  async function remove() {
-    await removeTrailOffline(trail.id);
+  async function removeAll() {
+    setConfirmRemove(false);
+    await unsave(trail.id);
     setSaved(undefined);
+    setJustSaved(false);
     onSavedChange();
   }
 
-  const d = difficulty(trail);
-  const minutes = trail.ascentM != null ? estimateMinutes(trail.lengthM, trail.ascentM) : null;
+  async function removeOffline() {
+    await removeTrailOffline(trail.id);
+    setSaved(undefined);
+    setJustSaved(false);
+    onSavedChange();
+  }
 
   return (
-    <>
-      <div style={{ padding: 'calc(var(--safe-top) + 16px) 20px 0' }}>
-        <button className="icon-btn" aria-label="Back" onClick={onBack}><BackIcon /></button>
-      </div>
-      <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--ink)' }}>
-        <div className="eyebrow">{trail.loop ? 'Loop' : 'One way'} · OpenStreetMap</div>
-        <h1 style={{ fontSize: 40, marginTop: 8, lineHeight: 0.98 }}>{trail.name}</h1>
-      </div>
-
-      <div className="map-box" style={{ height: 200, flex: 'none', borderTop: 0 }}>
-        <MapView tileTemplate={tpl} bounds={[[b.west, b.south], [b.east, b.north]]} onReady={onReady} label={`Map of ${trail.name}`} />
-      </div>
-
-      {trail.partial && <p className="notice">This route continues past the area you searched. Only the section shown is included.</p>}
-
-      <div className="pad stat-grid">
-        <div className="stat"><div className="num">{mi(trail.lengthM)}</div><div className="label">miles{trail.loop ? '' : ' one way'}</div></div>
-        <div className="stat"><div className="num">{trail.ascentM != null ? ft(trail.ascentM) : '—'}</div><div className="label">feet of climb</div></div>
-        <div className="stat"><div className="num">{minutes != null ? hm(minutes) : '—'}</div><div className="label">hours, estimated</div></div>
-        <div className="stat">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14 }}>
-            <span aria-hidden="true" style={{ fontSize: 18 }}>{d ? BLAZE[d] : ''}</span>
-            <span style={{ font: '700 22px var(--display)' }}>{d ?? '—'}</span>
+    <div className="trail-page">
+      <div className="trail-scroll">
+        <div className="trail-map">
+          <MapView tileTemplate={tpl} bounds={[[b.west, b.south], [b.east, b.north]]} interactive={false} onReady={onReady} label={`Map of ${trail.name}`} />
+          <button className="round trail-back" aria-label="Back" onClick={onBack}><BackIcon /></button>
+          <div className="trail-actions">
+            <button className="round" aria-label={`Share ${trail.name}`} onClick={() => shareTrail(trail)}><ShareIcon /></button>
+            <button className="round" aria-label={bookmarked ? 'Remove from Saved' : 'Save to Saved'} aria-pressed={bookmarked} onClick={toggleBookmark}><SavedIcon filled={bookmarked} /></button>
           </div>
-          <div className="label" style={{ marginTop: 6 }}>difficulty</div>
+        </div>
+
+        <div className="trail-info">
+          <div>
+            <h1 className="trail-title">{trail.name}</h1>
+            <div className="trail-sub">{trail.loop ? 'Loop' : 'Out and back'} · from OpenStreetMap</div>
+            <HighlightChips trail={trail} max={5} />
+          </div>
+
+          {trail.partial && <p className="note">This route continues past the area loaded. Only the section shown is included.</p>}
+
+          <div className="tiles">
+            <div className="tile"><div className="tile-num">{mi(roundTripM(trail))} mi</div><div className="tile-lab">{trail.loop ? 'loop' : 'round trip'}</div></div>
+            <div className="tile"><div className="tile-num">{climb != null ? ft(climb) : '—'}</div><div className="tile-lab">ft climb</div></div>
+            <div className="tile"><div className="tile-num">{minutes != null ? hrs(minutes) : '—'}</div><div className="tile-lab">est. time</div></div>
+            <div className="tile tile-level"><div className={`tile-word${lv === 'Hard' ? ' hard' : ''}`}>{lv ?? '—'}</div><div className="tile-lab">level</div></div>
+          </div>
+          <div className="act-row">
+            {options.length === 1 ? (
+              <a className="btn btn-outline" href={options[0].url} target="_blank" rel="noopener"><DriveIcon size={20} /> {driveLabel(trail)}</a>
+            ) : (
+              <button className="btn btn-outline" onClick={() => setChooser(true)}><DriveIcon size={20} /> {driveLabel(trail)}</button>
+            )}
+            {saved ? (
+              <button className="btn btn-outline" disabled><CheckIcon size={20} /> Ready offline</button>
+            ) : dl.progress != null ? (
+              <button className="btn btn-outline" onClick={dl.cancel}>Saving {Math.round(dl.progress * 100)}% · Cancel</button>
+            ) : (
+              <button className="btn btn-outline" onClick={dl.start}><DownloadIcon size={20} /> Save offline</button>
+            )}
+          </div>
+          {dl.progress != null && <div className="progress red" aria-hidden="true"><div style={{ width: `${dl.progress * 100}%` }} /></div>}
+          {!saved && dl.progress == null && <p className="fine" style={{ marginTop: -6 }}>Saving the map takes about {mb(estimate)}.</p>}
+
+          {lv && <p className="fine">Level is computed from distance and climb, not rated by anyone. Time assumes 3 mph plus 30 min per 1,000 ft up.</p>}
+
+          <div className="panel">
+            <div className="panel-head">Elevation{trail.loop ? '' : ', one way'}</div>
+            {trail.elevation
+              ? <ElevationChart elevation={trail.elevation} lengthM={trail.lengthM} />
+              : <p className="fine" style={{ margin: 0 }}>Elevation isn’t available for this trail.</p>}
+          </div>
+
+          <ul className="facts">
+            {trail.trailhead && <li><b>Parking:</b> {trail.trailheadIsParking ? 'a mapped parking lot is next to the trail start' : 'no parking lot mapped; the pin is where the trail starts'}</li>}
+            {trail.tags.sac_scale && <li><b>Terrain:</b> {SAC[trail.tags.sac_scale] ?? trail.tags.sac_scale}</li>}
+            {trail.tags.surface && <li><b>Surface:</b> {trail.tags.surface.replace(/_/g, ' ')}</li>}
+            {trail.tags.dog && <li><b>Dogs:</b> {trail.tags.dog}</li>}
+          </ul>
+
+          {saved && (
+            <p className="fine">Ready offline · {mb(saved.bytes)} · <button className="link-btn" onClick={removeOffline}>Remove download</button></p>
+          )}
+          {(justSaved || saved) && !isStandalone() && isIOS() && <p className="note">{A2HS_TIP}</p>}
+          {dl.error && <p className="note note-alert" role="alert">{dl.error}</p>}
+
+          <div className="fine credits">
+            <p>{SAFETY_LINE}</p>
+            <p>Map and trails © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>. <a href={trail.osmUrl} target="_blank" rel="noopener">View or fix this trail</a>.</p>
+            {trail.elevation && <p>Elevation: {ELEVATION_NOTICE}. {ELEVATION_LIABILITY}.</p>}
+          </div>
         </div>
       </div>
 
-      <div className="pad" style={{ paddingTop: 12, paddingBottom: 12 }}>
-        {trail.elevation
-          ? <ElevationChart elevation={trail.elevation} lengthM={trail.lengthM} />
-          : <p className="meta">Elevation isn’t available for this trail.</p>}
+      <div className="dock">
+        <button className="btn btn-primary btn-big" onClick={() => { requestCompassPermission(); primeSpeech(); onStart(trail); }}>Start hike</button>
       </div>
 
-      <div className="pad" style={{ paddingBottom: 16 }}>
-        {trail.tags.sac_scale && <p className="meta" style={{ margin: '0 0 4px' }}>Terrain: {SAC[trail.tags.sac_scale] ?? trail.tags.sac_scale}</p>}
-        {trail.tags.surface && <p className="meta" style={{ margin: '0 0 4px' }}>Surface: {trail.tags.surface.replace(/_/g, ' ')}</p>}
-        {trail.tags.dog && <p className="meta" style={{ margin: '0 0 4px' }}>Dogs: {trail.tags.dog}</p>}
-        <a href={trail.osmUrl} target="_blank" rel="noopener" className="meta" style={{ color: 'var(--ink)' }}>View or fix this trail on OpenStreetMap</a>
-        <p className="meta" style={{ margin: '8px 0 0', fontSize: 12 }}>
-          Trail data: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener" style={{ color: 'var(--ink)' }}>© OpenStreetMap contributors</a>
-        </p>
-        {trail.elevation && (
-          <p className="meta" style={{ margin: '12px 0 0', fontSize: 12 }}>
-            Elevation: {ELEVATION_NOTICE}. {ELEVATION_LIABILITY}.
-          </p>
-        )}
-        {saved && (
-          <p className="meta" style={{ marginTop: 12 }}>
-            Saved offline · {mb(saved.bytes)} · <button className="link-btn" onClick={remove}>Remove</button>
-          </p>
-        )}
-        {error && <p className="notice alert" style={{ margin: '12px 0 0' }}>{error}</p>}
-      </div>
+      {chooser && <MapsChooser options={options} onClose={() => setChooser(false)} />}
+      {confirmRemove && (
+        <ConfirmSheet title="Remove from Saved?" body="This also deletes the offline map for this trail." confirmLabel="Remove" cancelLabel="Keep it" danger onConfirm={removeAll} onCancel={() => setConfirmRemove(false)} />
+      )}
+    </div>
+  );
+}
 
-      <div style={{ marginTop: 'auto', position: 'sticky', bottom: 0, zIndex: 3, background: 'var(--paper)' }}>
-      {progress != null && <div className="progress red" aria-hidden="true"><div style={{ width: `${progress * 100}%` }} /></div>}
-      <div className="actions">
-        {saved ? (
-          <button className="action light" disabled><span>Ready offline ✓</span><small>Map, route and profile</small></button>
-        ) : progress != null ? (
-          <button className="action primary" onClick={() => abortRef.current?.abort()}><span>Saving {Math.round(progress * 100)}%</span><small>Tap to cancel</small></button>
-        ) : (
-          <button className="action primary" onClick={save}><span>Save offline</span><small>Map, route and profile</small></button>
-        )}
-        <button className="action dark" onClick={() => { requestCompassPermission(); primeSpeech(); onStart(trail); }}><span>Start hike</span><small>Live GPS</small></button>
+function MapsChooser({ options, onClose }: { options: ReturnType<typeof mapsOptions>; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useDialogKeys(ref, onClose);
+  return (
+    <div className="sheet-wrap" onClick={onClose}>
+      <div ref={ref} className="sheet" role="dialog" aria-modal="true" aria-label="Open directions in" onClick={(e) => e.stopPropagation()}>
+        <h2 className="sheet-title">Open directions in</h2>
+        {options.map((o) => <a key={o.label} className="btn btn-outline" href={o.url} target="_blank" rel="noopener" onClick={onClose}>{o.label}</a>)}
+        <button className="btn btn-outline" onClick={onClose}>Cancel</button>
       </div>
-      </div>
-    </>
+    </div>
   );
 }

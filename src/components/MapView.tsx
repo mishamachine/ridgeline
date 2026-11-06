@@ -15,13 +15,17 @@ interface Props {
   interactive?: boolean;
   onReady?: (map: MLMap) => void;
   label?: string;
+  /** Called when map data (tiles, style) fails to load, e.g. the tile server answers 429. */
+  onProblem?: () => void;
 }
 
 /** A MapLibre map with the Swiss style and empty trail layers ready to fill. */
-export function MapView({ tileTemplate, center, zoom = 12, bounds, interactive = true, onReady, label = 'Map' }: Props) {
+export function MapView({ tileTemplate, center, zoom = 12, bounds, interactive = true, onReady, label = 'Map', onProblem }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const ready = useRef(onReady);
   ready.current = onReady;
+  const problem = useRef(onProblem);
+  problem.current = onProblem;
 
   useEffect(() => {
     const map = new MLMap({
@@ -37,7 +41,7 @@ export function MapView({ tileTemplate, center, zoom = 12, bounds, interactive =
       pitchWithRotate: false,
     });
     map.touchZoomRotate.disableRotation();
-    map.on('error', (e) => console.warn('[map]', e.error?.message ?? e));
+    map.on('error', (e) => { console.warn('[map]', e.error?.message ?? e); problem.current?.(); });
     (window as unknown as { __ridgelineMap?: MLMap }).__ridgelineMap = map;
     map.once('style.load', () => {
       const empty = { type: 'FeatureCollection', features: [] } as GeoJSON.FeatureCollection;
