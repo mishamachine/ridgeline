@@ -13,7 +13,8 @@ const compassWord = (deg: number) => POINTS[Math.round(deg / 45) % 8];
 
 export function buildView(opts: { g: GpsState; step: Step | null; trailName: string; units: Units; offSide: { side: OffSide; distM: number } | null; paused: boolean }): NavView {
   const { g, step, trailName, units, offSide } = opts;
-  if (!g.hasFix && !g.stalePosition) return { glyph: 'wait', big: '—', line: 'Finding your position', sub: g.warmingUp ? 'Stay in the open for a moment' : undefined, off: false };
+  if (!g.recalLastOffRoute && !g.hasFix && !g.stalePosition) return { glyph: 'wait', big: '—', line: 'Finding your position', sub: g.warmingUp ? 'Stay in the open for a moment' : undefined, off: false };
+  if (g.recalLastOffRoute) return { glyph: 'off', big: '—', line: 'Off route (last known)', sub: 'Waiting for GPS', off: true };
   if (g.offRoute) {
     const d = offSide?.distM ?? g.offsetM ?? 0;
     const side = offSide?.side;

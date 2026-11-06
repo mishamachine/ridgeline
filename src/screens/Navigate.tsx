@@ -137,7 +137,7 @@ export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
 
   // Talk, only when there is something to say. Vibrate with it.
   useEffect(() => {
-    if (paused) return;
+    if (paused || g.recalLastOffRoute) return; // Recalibrating: say nothing new, and do not call "back on the trail"
     for (const u of announcer.update({ t: Date.now(), along, offRoute, off: offSide ?? undefined })) {
       navigator.vibrate?.(u.vibrate);
       if (voiceRef.current) speak(u.text, u.interrupt);
