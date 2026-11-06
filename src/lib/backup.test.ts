@@ -1,22 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const db = { saved: new Map<string, unknown>(), acts: new Map<string, unknown>() };
+const db = { saved: new Map<string, unknown>(), acts: new Map<string, unknown>(), sl: new Map<string, unknown>() };
 vi.mock('./store', () => ({
   getSaved: async (id: string) => db.saved.get(id),
   putSaved: async (s: { trail: { id: string } }) => { db.saved.set(s.trail.id, s); },
   putActivity: async (a: { id: string }) => { db.acts.set(a.id, a); },
+  getShortlisted: async (id: string) => db.sl.get(id),
+  restoreShortlisted: async (m: { trail: { id: string } }) => { db.sl.set(m.trail.id, m); },
+  listShortlisted: async () => [...db.sl.values()],
   listSaved: async () => [...db.saved.values()],
   listActivities: async () => [...db.acts.values()],
 }));
 
 import { makeBackup, parseBackup, restoreBackup, BACKUP_VERSION, MAX_BACKUP_BYTES, MAX_HIKES, MAX_SAVED, MAX_POINTS } from './backup';
 import { DEFAULT_SETTINGS, getSettings } from './settings';
+import type { Trail } from './trails';
 
 const trail = { id: 'way/1', name: 'Rattlesnake Ledge', coords: [[-121.8, 47.4], [-121.79, 47.41]], lengthM: 1500, loop: false, partial: false, osmUrl: 'https://www.openstreetmap.org/way/1', tags: { name: 'Rattlesnake Ledge' } };
 const saved = { trail, savedAt: 1, tileKeys: ['k1', 'k2'], bytes: 1000 };
 const act = { id: '1', name: 'Hike', startedAt: 1000, endedAt: 2000, points: [{ lon: -121.8, lat: 47.4, alt: 300, acc: 5, t: 1000 }, { lon: -121.79, lat: 47.41, alt: null, acc: 5, t: 2000 }] };
 
-beforeEach(() => { db.saved.clear(); db.acts.clear(); });
+beforeEach(() => { db.saved.clear(); db.acts.clear(); db.sl.clear(); });
 
 describe('backup file', () => {
   const text = (o: unknown) => JSON.stringify(o);
@@ -118,5 +122,56 @@ describe('restore', () => {
     if (!r.ok) throw new Error('parse');
     await restoreBackup(r.backup);
     expect(db.saved.get('way/1')).toBe(saved);
+  });
+});
+
+describe('shortlist and richer trail fields', () => {
+  const rich = { ...trail, id: 'osm-w9', highlights: ['view', 'lake?'], trailhead: [-121.81, 47.39], trailheadIsParking: true, junctions: [{ along: 400, branches: [{ name: 'Ledge spur', point: [-121.8, 47.405] }, { point: [-121.79, 47.4] }] }] } as unknown as Trail;
+  const mark = { trail: rich, addedAt: 77 };
+  const parse = (o: unknown) => parseBackup(JSON.stringify(o));
+
+  it('round-trips highlights, trailhead, trailheadIsParking and junctions, on saved trails and bookmarks', () => {
+    const r = parse(makeBackup([{ ...saved, trail: rich } as never], [], DEFAULT_SETTINGS, 5, [mark]));
+    if (!r.ok) throw new Error(r.error);
+    for (const t of [r.backup.saved[0].trail, r.backup.shortlist[0].trail]) {
+      expect(t.highlights).toEqual(['view', 'lake?']);
+      expect(t.trailhead).toEqual([-121.81, 47.39]);
+      expect(t.trailheadIsParking).toBe(true);
+      expect(t.junctions).toEqual(rich.junctions);
+    }
+    expect(r.backup.shortlist[0].addedAt).toBe(77);
+  });
+  it('an older backup with no shortlist still opens', () => {
+    const { shortlist: _drop, ...old } = makeBackup([saved as never], [], DEFAULT_SETTINGS, 5);
+    const r = parse(old);
+    expect(r).toMatchObject({ ok: true });
+    if (r.ok) expect(r.backup.shortlist).toEqual([]);
+  });
+  it('rejects damaged bookmark and trail fields', () => {
+    const bad = (t: object) => parse(makeBackup([saved as never], [], DEFAULT_SETTINGS, 5, [{ trail: { ...rich, ...t }, addedAt: 1 }])).ok;
+    expect(bad({})).toBe(true);
+    expect(bad({ highlights: 'view' })).toBe(false);
+    expect(bad({ highlights: [1] })).toBe(false);
+    expect(bad({ trailhead: [500, 0] })).toBe(false);
+    expect(bad({ trailheadIsParking: 'yes' })).toBe(false);
+    expect(bad({ junctions: [{ along: 'x', branches: [] }] })).toBe(false);
+    expect(bad({ junctions: [{ along: 1, branches: [{ point: [0] }] }] })).toBe(false);
+    expect(parse({ ...makeBackup([], [], DEFAULT_SETTINGS, 5), shortlist: 'x' }).ok).toBe(false);
+    expect(parse({ ...makeBackup([], [], DEFAULT_SETTINGS, 5), shortlist: [{ trail: rich }] }).ok).toBe(false);
+  });
+  it('drops unknown keys on trails', () => {
+    const r = parse(makeBackup([saved as never], [], DEFAULT_SETTINGS, 5, [{ trail: { ...rich, evil: 1 } as unknown as Trail, addedAt: 1 }]));
+    if (!r.ok) throw new Error('parse');
+    expect('evil' in r.backup.shortlist[0].trail).toBe(false);
+  });
+  it('restore writes bookmarks with their date and leaves one already on the phone alone', async () => {
+    const r = parse(makeBackup([], [], DEFAULT_SETTINGS, 5, [mark]));
+    if (!r.ok) throw new Error('parse');
+    await restoreBackup(r.backup);
+    expect(db.sl.get('osm-w9')).toMatchObject({ addedAt: 77 });
+    const kept = { trail: rich, addedAt: 5 };
+    db.sl.set('osm-w9', kept);
+    await restoreBackup(r.backup);
+    expect(db.sl.get('osm-w9')).toBe(kept);
   });
 });

@@ -14,6 +14,7 @@ describe('onboarding copy is true for this build', () => {
   it('voice without screen-off still does not promise screen-off', () => {
     const t = text({ voice: true, screenOff: false, badges: true });
     expect(t).toMatch(/spoken/);
+    expect(t).toContain('Keep your phone in your pocket; Ridgeline keeps the screen on while you hike.');
     expect(t).not.toMatch(/screen off/i);
   });
   it('screen-off claim only when both ship', () => expect(text({ voice: true, screenOff: true, badges: true })).toMatch(/screen off/));

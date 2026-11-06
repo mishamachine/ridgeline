@@ -42,16 +42,20 @@ export function handleWaiting(w: ServiceWorker) {
   else readyListener(true);
 }
 
+/** A new worker took over: whatever was waiting is now in use, so forget it. */
+export function onControllerChange(hadController: boolean) {
+  waiting = null;
+  if (!hadController) return; // first install
+  if (!applying) { readyListener(true); return; } // another tab applied an update: offer this one a reload
+  try { sessionStorage.setItem(RELOAD_KEY, String(Date.now())); } catch { /* ignore */ }
+  location.reload();
+}
+
 export function initSwUpdate() {
   if (!('serviceWorker' in navigator) || import.meta.env.DEV) return;
   const sw = navigator.serviceWorker;
   const hadController = !!sw.controller;
-  sw.addEventListener('controllerchange', () => {
-    if (!hadController) return; // first install
-    if (!applying) { readyListener(true); return; } // another tab applied an update: offer this one a reload
-    try { sessionStorage.setItem(RELOAD_KEY, String(Date.now())); } catch { /* ignore */ }
-    location.reload();
-  });
+  sw.addEventListener('controllerchange', () => onControllerChange(hadController));
   const base = import.meta.env.BASE_URL;
   sw.register(`${base}sw.js`, { scope: base, updateViaCache: 'none' }).then((reg) => {
     const check = () => { reg.update().catch(() => {}); };

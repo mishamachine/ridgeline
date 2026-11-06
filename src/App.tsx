@@ -9,6 +9,17 @@ import { parseRoute, routePath, type Route, type Tab } from './lib/route';
 import type { Trail } from './lib/trails';
 import type { LngLat } from './lib/geo';
 import { Bobo, Placeholder } from './components/Bobo';
+import type { Badge } from './lib/badges';
+import { computeBadges, newBadgesFor } from './lib/badges';
+import { listActivities, listSaved, type Activity } from './lib/store';
+import { features } from './lib/features';
+import { closeAbandoned } from './lib/abandoned';
+import { getSettings, shouldShowOnboarding } from './lib/settings';
+import { shareApp } from './lib/share';
+import { toast } from './lib/toast';
+import { detectPlatform } from './lib/maps';
+import { toCelebrateSummary } from './components/nav/summary';
+import type { HikeSummary } from './lib/hype';
 import { ConfirmSheet } from './components/ConfirmSheet';
 import { FindIcon, HikeIcon, ProfileIcon, SavedIcon } from './components/NavIcons';
 import { count } from './lib/counter';
@@ -20,6 +31,11 @@ import { Hike } from './screens/Hike';
 import { Navigate } from './screens/Navigate';
 import { Saved } from './screens/Saved';
 import { SharedList } from './screens/SharedList';
+import { Profile } from './screens/Profile';
+import { Badges } from './screens/Badges';
+import { Onboarding } from './screens/Onboarding';
+import { Celebrate } from './screens/Celebrate';
+import { Landing } from './screens/Landing';
 
 export type { Tab };
 
@@ -30,16 +46,6 @@ const TABS: { tab: Tab; label: string; icon: () => React.ReactElement }[] = [
   { tab: 'profile', label: 'Profile', icon: () => <ProfileIcon /> },
 ];
 
-/** Stand-in until the real Profile screen lands. */
-function ProfilePlaceholder() {
-  return (
-    <div className="page">
-      <div className="page-head"><h1 className="page-title">Profile</h1></div>
-      <Placeholder title="Coming soon">Your hikes, badges and settings will live here.</Placeholder>
-    </div>
-  );
-}
-
 const base = appBase();
 const readRoute = (): Route => parseRoute(location.pathname, location.search, base);
 
@@ -49,10 +55,15 @@ export function App() {
   const [trail, setTrail] = useState<Trail | null>(null);       // trail shown on a /trail/<id> page
   const [trailState, setTrailState] = useState<'idle' | 'loading' | 'missing'>('idle');
   const [hike, setHike] = useState<Trail | null>(null);
-  useEffect(() => { setHikeActive(!!hike); }, [hike]);
+  const [resume, setResume] = useState<Activity | null>(null);
   useEffect(() => { count('session'); }, []);
   const [saved, setSaved] = useState<{ marked: Set<string>; offline: Set<string>; version: number }>({ marked: new Set(), offline: new Set(), version: 0 });
   const [removing, setRemoving] = useState<Trail | null>(null);
+  const [onboarding, setOnboarding] = useState<null | 'first' | 'replay'>(() => (shouldShowOnboarding() ? (getSettings().onboardingSeen ? 'replay' : 'first') : null));
+  const [done, setDone] = useState<{ summary: HikeSummary; newBadges: Badge[]; badgeCount: number } | null>(null); // the celebration, once features.celebrate is on
+  const [landing, setLanding] = useState<{ id: string; name: string | null } | null>(null);
+  const [profileVersion, setProfileVersion] = useState(0);
+  useEffect(() => { setHikeActive(!!hike || !!done); }, [hike, done]); // an update never reloads under a hike or its celebration
   const [depth, setDepth] = useState(0); // pages the app itself pushed, so Back knows whether it can go back
 
   const refreshSaved = useCallback(async () => {
@@ -65,6 +76,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    closeAbandoned().catch(() => {}); // hikes left open for over 6 hours are closed as Unfinished
     getTileTemplate().then(setTpl);
     refreshSaved();
   }, [refreshSaved]);
@@ -91,6 +103,15 @@ export function App() {
     return () => { live = false; };
   }, [routeId, routeLL]);
 
+  // A shared hike link: look up the trail's name for the landing page.
+  const hikeId = route.kind === 'hike' ? route.id : null;
+  useEffect(() => {
+    if (!hikeId) return;
+    let live = true;
+    resolveTrail(hikeId).then((t) => live && setLanding({ id: hikeId, name: t?.name ?? null })).catch(() => live && setLanding({ id: hikeId, name: null }));
+    return () => { live = false; };
+  }, [hikeId]);
+
   const go = useCallback((r: Route, replace = false) => {
     const url = routePath(r, base);
     if (replace) history.replaceState(null, '', url); else { history.pushState(null, '', url); setDepth((d) => d + 1); }
@@ -104,6 +125,7 @@ export function App() {
     if (route.kind === 'tab' && route.tab === t) { window.scrollTo(0, 0); return; } // re-tap: nothing new to go back to
     go({ kind: 'tab', tab: t });
   }, [go, route]);
+  const backToProfile = useCallback(() => { if (depth > 0) history.back(); else go({ kind: 'tab', tab: 'profile' }, true); }, [depth, go]);
   const back = useCallback(() => { if (depth > 0) history.back(); else go({ kind: 'tab', tab: 'find' }, true); }, [depth, go]);
 
   const toggleSave = useCallback(async (t: Trail) => {
@@ -113,17 +135,50 @@ export function App() {
     } else { await bookmark(t); refreshSaved(); }
   }, [saved, refreshSaved]);
 
+  const resumeHike = useCallback(async (a: Activity) => {
+    const t = a.trailId ? await resolveTrail(a.trailId, a.points[0] ? [a.points[0].lon, a.points[0].lat] : null).catch(() => null) : null;
+    if (!t) { toast('Could not load that trail. Try again with a signal.'); return; }
+    setResume(a);
+    setHike(t);
+  }, []);
   const [switching, setSwitching] = useState<Trail | null>(null); // a different trail was chosen while a hike runs
   const startHike = useCallback((t: Trail) => {
     const a = startAction(hike, t);
     if (a === 'confirm') { setSwitching(t); return; }
-    if (a === 'start') { setHike(t); count('hike_start'); }
+    if (a === 'start') { setResume(null); setHike(t); count('hike_start'); }
     go({ kind: 'tab', tab: 'hike' }); // same trail: just go back to the hike in progress
   }, [go, hike]);
 
-  const tab: Tab | null = route.kind === 'tab' ? route.tab : null;
+  const finishHike = useCallback(async (t: Trail, summary: Parameters<typeof toCelebrateSummary>[0], activity: Activity) => {
+    let newBadges: Badge[] = [], badgeCount = 0;
+    try {
+      const [others, savedTrails] = await Promise.all([listActivities(), listSaved()]);
+      const trails = [t, ...savedTrails.map((x) => x.trail).filter((x) => x.id !== t.id)];
+      newBadges = newBadgesFor(activity, others, trails);
+      badgeCount = computeBadges([...others.filter((o) => o.id !== activity.id), activity], trails).filter((b) => b.earned).length;
+    } catch { /* storage unavailable: no badge line */ }
+    setHike(null);
+    setProfileVersion((v) => v + 1);
+    if (features.celebrate) setDone({ summary: toCelebrateSummary(summary), newBadges, badgeCount });
+    else { if (newBadges.length) toast(`New badge: ${newBadges[0].name}`); openTrail(t); }
+  }, [openTrail]);
+
+  useEffect(() => { if (route.kind === 'tab' && route.tab === 'profile') setProfileVersion((v) => v + 1); }, [route]);
+
+  const closeOnboarding = useCallback(() => {
+    setOnboarding(null);
+    if (new URLSearchParams(location.search).has('onboarding')) history.replaceState(null, '', routePath(route, base));
+  }, [route]);
+
+  const openActivity = useCallback((a: Activity) => {
+    if (a.trailId) go({ kind: 'trail', id: a.trailId, ll: a.points[0] ? [a.points[0].lon, a.points[0].lat] : undefined });
+  }, [go]);
+
+  const tab: Tab | null = route.kind === 'tab' && !done ? route.tab : null; // the celebration covers the tabs
   const onTrail = route.kind === 'trail';
   const onShared = route.kind === 'shared';
+  const onBadges = route.kind === 'badges';
+  const onHike = route.kind === 'hike';
   const bookmarkedNow = useMemo(() => (trail ? saved.marked.has(trail.id) : false), [trail, saved]);
 
   if (!tpl) return <div className="app"><Placeholder title="Loading Ridgeline…" /></div>;
@@ -140,13 +195,39 @@ export function App() {
         <Saved visible={tab === 'saved'} version={saved.version} onOpen={openTrail} onChange={refreshSaved} onFind={() => goTab('find')} />
       </div>
       <div className="screen" hidden={tab !== 'hike' || !!hike}>
-        <Hike visible={tab === 'hike' && !hike} version={saved.version} onStart={startHike} onFind={() => goTab('find')} />
+        <Hike visible={tab === 'hike' && !hike} version={saved.version} onStart={startHike} onFind={() => goTab('find')} onResume={resumeHike} />
       </div>
-      <div className="screen" hidden={tab !== 'profile'}><ProfilePlaceholder /></div>
+      <div className="screen" hidden={tab !== 'profile'}>
+        <Profile version={profileVersion} onOpenBadges={() => go({ kind: 'badges' })} onReplayTour={() => setOnboarding('replay')} onOpenActivity={openActivity} />
+      </div>
 
       {hike && (
         <div className="screen" hidden={!hiking}>
-          <Navigate key={hike.id} tpl={tpl} trail={hike} saved={saved.offline.has(hike.id)} onEnd={() => { const t = hike; setHike(null); openTrail(t); }} />
+          <Navigate key={hike.id} tpl={tpl} trail={hike} resume={resume ?? undefined} saved={saved.offline.has(hike.id)} onEnd={() => { const t = hike; setHike(null); openTrail(t); }} onFinish={(sm, a) => finishHike(hike, sm, a)} />
+        </div>
+      )}
+
+      {onBadges && (
+        <div className="screen overlay"><Badges onBack={backToProfile} /></div>
+      )}
+
+      {onHike && landing && landing.id === route.id && (
+        <div className="screen overlay">
+          <Landing
+            trail={landing.name ? { name: landing.name } : null}
+            stats={route.stats}
+            features={features}
+            platform={/Android/i.test(navigator.userAgent) ? 'android' : detectPlatform() === 'ios' ? 'ios' : 'other'}
+            onGetApp={() => { setOnboarding(getSettings().onboardingSeen ? 'replay' : 'first'); go({ kind: 'tab', tab: 'find' }, true); }}
+            onSeeTrail={landing.name ? () => go({ kind: 'trail', id: route.id }) : undefined}
+          />
+        </div>
+      )}
+
+      {done && (
+        <div className="screen overlay">
+          <Celebrate summary={done.summary} newBadges={done.newBadges} badgeCount={done.badgeCount}
+            onDone={() => { setDone(null); go({ kind: 'tab', tab: 'profile' }); }} onShareApp={shareApp} />
         </div>
       )}
 
@@ -172,7 +253,7 @@ export function App() {
         </div>
       )}
 
-      {!hiking && !(onTrail && trail) && (
+      {!hiking && !(onTrail && trail) && !onBadges && !onHike && !done && (
         <nav className="tabbar2" aria-label="Main">
           {TABS.map(({ tab: t, label, icon }) => (
             <button key={t} className="tab2" aria-current={tab === t ? 'page' : undefined} onClick={() => goTab(t)}>
@@ -190,6 +271,7 @@ export function App() {
         <ConfirmSheet title="Remove from Saved?" body="This also deletes the offline map for this trail." confirmLabel="Remove" cancelLabel="Keep it" danger
           onConfirm={async () => { const t = removing; setRemoving(null); await unsave(t.id); refreshSaved(); }} onCancel={() => setRemoving(null)} />
       )}
+      {onboarding && <Onboarding replay={onboarding === 'replay'} onDone={closeOnboarding} />}
       <Toaster />
     </div>
   );
