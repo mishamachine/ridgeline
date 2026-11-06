@@ -4,5 +4,5 @@
 
 Trail data comes from OpenStreetMap contributors (via Geofabrik extracts for Washington State and the Overpass API elsewhere). Map tiles come from OpenFreeMap. Elevation comes from Copernicus WorldDEM-90, computed when the app is built.
 
-- App: https://hike.bobolearns.com/
+- App: https://hike.bbprojectfactory.com/
 - Source code: https://github.com/mishamachine/ridgeline

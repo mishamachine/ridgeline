@@ -9,6 +9,13 @@ export default defineConfig({
   base,
   plugins: [
     react(),
+    {
+      // The GitHub Pages copy (BASE_PATH other than "/") must not compete with the canonical host.
+      name: 'noindex-pages-copy',
+      transformIndexHtml(html) {
+        return base === '/' ? html : html.replace('</head>', '  <meta name="robots" content="noindex">\n  </head>');
+      },
+    },
     VitePWA({
       strategies: 'injectManifest',
       srcDir: 'src',
