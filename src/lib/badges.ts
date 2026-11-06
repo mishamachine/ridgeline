@@ -1,7 +1,7 @@
 // Badges are computed on the phone from recorded hikes. Nothing is stored or sent: the same hikes always give the same badges.
 import { LngLat, cumulative, lineLength, projectOnLine, resample, totalAscent } from './geo';
 import { trackDistance } from './tracker';
-import type { Activity } from './store';
+import type { Activity, TrailSnapshot } from './store';
 
 /** The part of a Trail that badges need. `highlights` arrives with the trail-highlights data; absent means "unknown". */
 export interface BadgeTrail {
@@ -29,7 +29,7 @@ export const TOLERANCE_M = 40;
 export const CLIMB_TARGET_FT = 10_000;
 const FT_PER_M = 3.28084;
 /** Phone altitude is noisy, so tiny wiggles are not counted as climbing. */
-const GPS_ALT_NOISE_M = 5;
+const GPS_ALT_NOISE_M = 10;
 
 /** Well-known Washington hikes for the Ledge Sitter badge. Matched on the trail's name. */
 export const WA_CLASSICS = ['Rattlesnake Ledge', 'Mount Si', 'Little Si', 'Poo Poo Point', 'Lake 22', 'Snow Lake', 'Wallace Falls'];
@@ -53,12 +53,27 @@ export function trailCoverage(a: Activity, trail: Pick<BadgeTrail, 'coords'>): n
   return hit / samples.length;
 }
 
+/** Call when a hike finishes and store the result on the Activity (`activity.snapshot`), so badges do not depend on the saved trail. */
+export function snapshotForActivity(trail: BadgeTrail, activity: Activity): TrailSnapshot {
+  const snap: TrailSnapshot = { name: trail.name, coverage: trailCoverage(activity, trail) };
+  if (trail.ascentM != null) snap.ascentM = trail.ascentM;
+  if (trail.highlights?.length) snap.highlights = [...trail.highlights];
+  return snap;
+}
+
+/** The hike's own snapshot, else one made from the saved trail (older hikes), else none. */
+export function snapshotOf(a: Activity, trails: BadgeTrail[]): TrailSnapshot | undefined {
+  if (a.snapshot) return a.snapshot;
+  const trail = a.trailId ? trails.find((t) => t.id === a.trailId) : undefined;
+  return trail ? snapshotForActivity(trail, a) : undefined;
+}
+
 /**
  * Climb for one hike, in metres, and where the number came from:
- * the trail's elevation data when the hike matched a trail and covered it, otherwise the phone's GPS altitude, otherwise none.
+ * the trail's elevation data when the hike covered a matched trail, otherwise the phone's GPS altitude, otherwise none.
  */
-export function activityClimb(a: Activity, trail?: BadgeTrail): { m: number; source: 'trail' | 'gps' | 'none' } {
-  if (trail && trail.ascentM != null && trailCoverage(a, trail) >= COMPLETE_SHARE) return { m: trail.ascentM, source: 'trail' };
+export function activityClimb(a: Activity, snap?: Pick<TrailSnapshot, 'ascentM' | 'coverage'>): { m: number; source: 'trail' | 'gps' | 'none' } {
+  if (snap && snap.ascentM != null && snap.coverage >= COMPLETE_SHARE) return { m: snap.ascentM, source: 'trail' };
   const alts = a.points.filter((p) => p.alt != null).map((p) => p.alt as number);
   if (alts.length >= 2 && alts.length >= a.points.length * 0.8) return { m: totalAscent(alts, GPS_ALT_NOISE_M), source: 'gps' };
   return { m: 0, source: 'none' };
@@ -81,22 +96,22 @@ export interface HikeFacts {
 }
 
 export function hikeFacts(a: Activity, trails: BadgeTrail[]): HikeFacts {
-  const trail = a.trailId ? trails.find((t) => t.id === a.trailId) : undefined;
-  const completed = !!trail && trailCoverage(a, trail) >= COMPLETE_SHARE;
-  const hl = (trail?.highlights ?? []).map((h) => h.toLowerCase());
-  const climb = activityClimb(a, trail);
+  const snap = snapshotOf(a, trails);
+  const completed = !!snap && snap.coverage >= COMPLETE_SHARE;
+  const hl = (snap?.highlights ?? []).map((h) => h.toLowerCase());
+  const climb = activityClimb(a, snap);
   return {
     id: a.id,
     t: a.endedAt ?? a.startedAt,
-    trailKey: trail?.id ?? a.trailId ?? norm(a.name),
+    trailKey: a.trailId ?? snap?.name ?? norm(a.name),
     completed,
-    classic: completed ? findIn(WA_CLASSICS, trail!.name) : undefined,
-    i90: completed ? findIn(I90_CLASSICS, trail!.name) : undefined,
+    classic: completed ? findIn(WA_CLASSICS, snap!.name) : undefined,
+    i90: completed ? findIn(I90_CLASSICS, snap!.name) : undefined,
     lake: completed && hl.includes('lake'),
     falls: completed && hl.includes('falls'),
     climbM: climb.m,
     climbSource: climb.source,
-    early: new Date(a.startedAt).getHours() < 7,
+    early: new Date(a.startedAt).getHours() >= 4 && new Date(a.startedAt).getHours() < 7,
     dog: !!a.withDog,
     rain: !!a.rain,
   };
@@ -118,14 +133,16 @@ export function evaluate(f: HikeFacts[]): Omit<Badge, 'earnedAt'>[] {
   const classics = f.filter((h) => h.classic);
   const climbFt = Math.round(f.reduce((s, h) => s + h.climbM, 0) * FT_PER_M);
   const first = f.length > 0;
+  const sources = [f.some((h) => h.climbSource === 'trail') && 'trail data', f.some((h) => h.climbSource === 'gps') && 'GPS altitude'].filter(Boolean).join(' and ');
+  const climbSub = climbFt >= CLIMB_TARGET_FT ? '10,000 ft climbed' : `${climbFt.toLocaleString('en-US')} of 10,000 ft`;
   const rows: Omit<Badge, 'earnedAt'>[] = [
     { id: 'first-trail', name: 'First Trail', earned: first, progress: { have: Math.min(f.length, 1), need: 1 }, sub: first ? 'Recorded a hike' : 'Record your first hike' },
     { id: 'ledge-sitter', name: 'Ledge Sitter', earned: classics.length > 0, progress: { have: Math.min(classics.length, 1), need: 1 }, sub: classics.length ? classics[0].classic! : 'Finish a Washington classic' },
     { id: 'trail-buddy', name: 'Trail Buddy', earned: f.some((h) => h.dog), progress: { have: f.some((h) => h.dog) ? 1 : 0, need: 1 }, sub: f.some((h) => h.dog) ? 'Hiked with a dog' : 'Mark a hike with your dog' },
-    { id: 'early-bird', name: 'Early Bird', earned: f.some((h) => h.early), progress: { have: f.some((h) => h.early) ? 1 : 0, need: 1 }, sub: 'Start before 7am' },
+    { id: 'early-bird', name: 'Early Bird', earned: f.some((h) => h.early), progress: { have: f.some((h) => h.early) ? 1 : 0, need: 1 }, sub: 'Start between 4 and 7am' },
     { id: 'lake-hopper', name: 'Lake Hopper', earned: lakes >= 3, ...count(lakes, 3, 'lakes', '3 lakes') },
     { id: 'falls-chaser', name: 'Falls Chaser', earned: falls >= 3, ...count(falls, 3, 'waterfalls', '3 waterfalls') },
-    { id: '10k-club', name: '10K Club', earned: climbFt >= CLIMB_TARGET_FT, progress: { have: Math.min(climbFt, CLIMB_TARGET_FT), need: CLIMB_TARGET_FT }, sub: climbFt >= CLIMB_TARGET_FT ? '10,000 ft climbed' : `${climbFt.toLocaleString('en-US')} of 10,000 ft` },
+    { id: '10k-club', name: '10K Club', earned: climbFt >= CLIMB_TARGET_FT, progress: { have: Math.min(climbFt, CLIMB_TARGET_FT), need: CLIMB_TARGET_FT }, sub: sources ? `${climbSub} (${sources})` : climbSub },
     { id: 'rain-or-shine', name: 'Rain or Shine', earned: f.some((h) => h.rain), progress: { have: f.some((h) => h.rain) ? 1 : 0, need: 1 }, sub: 'Hike in the rain' },
     { id: 'i90-trio', name: 'I-90 Trio', earned: i90 >= 3, ...count(i90, 3, 'classics', '3 classics') },
   ];
@@ -172,6 +189,6 @@ export function hikeTotals(activities: Activity[], trails: BadgeTrail[] = []) {
   return {
     hikes: recorded.length,
     distanceM: recorded.reduce((s, a) => s + trackDistance(a.points), 0),
-    climbM: recorded.reduce((s, a) => s + activityClimb(a, a.trailId ? trails.find((t) => t.id === a.trailId) : undefined).m, 0),
+    climbM: recorded.reduce((s, a) => s + activityClimb(a, snapshotOf(a, trails)).m, 0),
   };
 }

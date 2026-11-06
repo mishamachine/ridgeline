@@ -31,7 +31,7 @@
 .pf-switch[data-on='true']::after { left: 23px; background: var(--white); }
 .pf-switchbox { min-width: 44px; min-height: 44px; display: flex; align-items: center; justify-content: center; background: none; border: 0; padding: 0; }
 .pf-seg { display: flex; border: 2px solid var(--ink); border-radius: 10px; overflow: hidden; }
-.pf-seg button { min-height: 40px; min-width: 64px; padding: 0 12px; border: 0; background: var(--white); font-weight: 600; font-size: 14px; }
+.pf-seg button { min-height: 44px; min-width: 64px; padding: 0 12px; border: 0; background: var(--white); font-weight: 600; font-size: 14px; }
 .pf-seg button[aria-pressed='true'] { background: var(--ink); color: var(--white); }
 .pf-btn { min-height: 44px; padding: 0 14px; border: 1px solid var(--ink); border-radius: 10px; background: var(--white); font-weight: 600; font-size: 14px; color: var(--ink); }
 .pf-btn.danger { border-color: var(--red); color: #B3201C; }

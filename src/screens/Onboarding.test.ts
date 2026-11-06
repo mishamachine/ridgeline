@@ -7,7 +7,8 @@ describe('onboarding copy is true for this build', () => {
   const web = { voice: false, screenOff: false, badges: true };
   it('web today: no voice or screen-off claims; says Ridgeline keeps the screen on', () => {
     const t = text(web);
-    expect(t).toContain('Keep your phone in your pocket; Ridgeline keeps the screen on');
+    expect(t).toContain('Keep your eyes on the trail');
+    expect(t).toContain('Ridgeline buzzes if you go off route and keeps the screen on while you hike.');
     expect(t).not.toMatch(/spoken|voice|talks you|screen off/i);
   });
   it('voice without screen-off still does not promise screen-off', () => {
@@ -29,5 +30,6 @@ describe('onboarding copy is true for this build', () => {
   it('location card states the privacy promises', () => {
     const loc = onboardingCards(web, true).at(-1)!;
     expect(loc.body).toContain('location');
+    expect(onboardingCards(web, true).at(-1)!.id).toBe('location');
   });
 });

@@ -7,9 +7,9 @@ import { climbUnit, climbValue, distanceUnit, distanceValue } from '../lib/units
 import { duration, mb } from '../lib/format';
 import { downloadGPX, trackDistance } from '../lib/tracker';
 import { removeTrailOffline, storageEstimate } from '../lib/offline';
-import { Backup, downloadBackup, exportBackup, parseBackup, restoreBackup } from '../lib/backup';
+import { Backup, MAX_BACKUP_BYTES, downloadBackup, exportBackup, parseBackup, restoreBackup } from '../lib/backup';
 import { ELEVATION_NOTICE } from '../lib/credits';
-import { SITE_URL } from '../lib/site';
+import { shareUrl } from '../lib/shareUrl';
 import { features } from '../lib/features';
 import { ChevronIcon } from '../components/Icons';
 import boboUrl from '../assets/trail-bobo.svg';
@@ -82,6 +82,12 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, preset }: 
 
   async function pickFile(f: File | undefined) {
     if (!f) return;
+    if (f.size > MAX_BACKUP_BYTES) {
+      if (fileRef.current) fileRef.current.value = '';
+      setPending(null);
+      setStatus('This file is too large to be a Ridgeline backup (over 20 MB).');
+      return;
+    }
     const r = parseBackup(await f.text());
     if (fileRef.current) fileRef.current.value = '';
     if (!r.ok) { setPending(null); setStatus(r.error); return; }
@@ -91,23 +97,25 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, preset }: 
 
   async function doRestore() {
     if (!pending) return;
+    const progress = { done: 0, total: 0 };
     try {
-      await restoreBackup(pending);
+      await restoreBackup(pending, progress);
       setStatus(`Restored ${pending.activities.length} hikes and ${pending.saved.length} saved trails.${pending.saved.length ? ' Open a trail and tap Save offline to download its map again.' : ''}`);
-    } catch { setStatus('Restore failed. Nothing was lost; try again.'); }
+    } catch { setStatus(`Restore stopped partway: ${progress.done} of ${progress.total} items were written. Nothing on your phone was deleted. Try again; items already restored are simply replaced.`); }
     setPending(null);
     reload();
     refreshStorage();
   }
 
   async function share() {
-    const data = { title: 'Ridgeline', text: 'Trail maps that work offline, from Ridgeline.', url: SITE_URL };
+    const url = shareUrl();
+    const data = { title: 'Ridgeline', text: 'Trail maps that work offline, from Ridgeline.', url };
     try {
       if (navigator.share) { await navigator.share(data); return; }
-      await navigator.clipboard.writeText(SITE_URL);
+      await navigator.clipboard.writeText(url);
       setShareMsg('Link copied');
     } catch (e) {
-      if ((e as Error).name !== 'AbortError') setShareMsg(`Copy this link: ${SITE_URL}`);
+      if ((e as Error).name !== 'AbortError') setShareMsg(`Copy this link: ${url}`);
     }
   }
 
@@ -191,10 +199,7 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, preset }: 
             </div>
           </div>
 
-          <div className="pf-row">
-            <span>New hikes are with my dog</span>
-            <Switch on={settings.withDogDefault} onChange={(v) => setSettings({ withDogDefault: v })} label="New hikes are with my dog" />
-          </div>
+          {/* Setting `withDogDefault` is kept; its switch stays hidden until new hikes read it. */}
 
           <div className="pf-row" style={{ alignItems: 'flex-start', flexDirection: 'column', gap: 4 }}>
             <span>Offline maps</span>
@@ -214,9 +219,9 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, preset }: 
           )}
 
           <details className="pf-row" style={{ display: 'block', padding: 0 }}>
-            <summary className="pf-row" style={{ borderBottom: 0, cursor: 'pointer', listStyle: 'none' }}><span>Location &amp; privacy</span><span className="val">Only during hikes</span></summary>
+            <summary className="pf-row" style={{ borderBottom: 0, cursor: 'pointer', listStyle: 'none' }}><span>Location &amp; privacy</span><span className="val">Stays on your phone</span></summary>
             <div className="pf-credits">
-              <p>Ridgeline uses your location only during a hike you start, plus a one-time look when you ask for hikes near you. It stays on your phone and is never sent to us.</p>
+              <p>Ridgeline uses your location to centre the map when you open it or tap Locate, and your precise location while you navigate or record a hike. It stops when you finish. In the web version, location stops when your screen locks, so Ridgeline keeps the screen on. Your location is never sent to our servers.</p>
               <a className="pf-link" href={`${base}privacy/`}>Read the privacy policy</a>
             </div>
           </details>

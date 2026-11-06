@@ -16,18 +16,18 @@ export function onboardingCards(f: { voice: boolean; screenOff: boolean; badges:
     ? 'Short spoken directions at the forks, even with your phone in your pocket and the screen off.'
     : f.voice
       ? 'Short spoken directions at the forks. Ridgeline keeps the screen on while you hike.'
-      : 'Keep your phone in your pocket; Ridgeline keeps the screen on.';
+      : 'Ridgeline buzzes if you go off route and keeps the screen on while you hike.';
   const cards: Card[] = [
     { id: 'find', tag: 'Find', title: 'Great hikes, minutes away', body: 'Find trails near you. See the length, the climb and the time before you go.', art: findArt, alt: 'A map with trail pins' },
     { id: 'offline', tag: 'Offline', title: 'Works with no signal', body: 'Tap Save offline the night before. The map and route live on your phone.', art: offlineArt, alt: 'A phone with a saved map' },
-    { id: 'forks', tag: f.voice ? 'Voice' : 'Directions', title: f.voice ? 'Bobo talks you through the forks' : 'Directions at the forks', body: forks, art: voiceArt, alt: 'Bobo at a fork in the trail' },
+    { id: 'forks', tag: f.voice ? 'Voice' : 'Directions', title: f.voice ? 'Bobo talks you through the forks' : 'Keep your eyes on the trail', body: forks, art: voiceArt, alt: 'Bobo at a fork in the trail' },
   ];
   if (f.badges) cards.push({ id: 'badges', tag: 'Badges', title: 'Collect badges, share Ridgeline', body: 'Earn badges for classics, early starts and more. They stay on your phone. Share Ridgeline with a friend any time from Profile.', art: badgesArt, alt: 'Badges on a trail' });
-  if (withLocation) cards.push({ id: 'location', tag: 'Location', title: 'Let Ridgeline find you?', body: 'Your location makes Ridgeline work on the trail.', art: boboUrl, alt: 'Bobo with a bandana' });
+  if (withLocation) cards.push({ id: 'location', tag: 'Location', title: 'Let Ridgeline find you?', body: 'Your location makes Ridgeline work on the trail. It stops when you finish.', art: boboUrl, alt: 'Bobo with a bandana' });
   return cards;
 }
 
-const PERKS = ['Find hikes near you', 'Your dot on the map during a hike you start, and only then', 'Stays on your phone. Never sent to us.'];
+const PERKS = ['Centre the map on you when you open it or tap Locate', 'Your precise location while you navigate or record a hike', 'Stays on your phone. Never sent to our servers.'];
 
 /**
  * First-run tour. `replay` hides the location card (replayed from Profile).
@@ -39,6 +39,7 @@ export function Onboarding({ onDone, replay = false }: { onDone: () => void; rep
   const [asking, setAsking] = useState(false);
   const head = useRef<HTMLHeadingElement>(null);
   const touchX = useRef<number | null>(null);
+  const box = useRef<HTMLDivElement>(null);
   const card = cards[i];
   const last = i === cards.length - 1;
 
@@ -52,6 +53,15 @@ export function Onboarding({ onDone, replay = false }: { onDone: () => void; rep
     const key = (e: KeyboardEvent) => {
       if (e.key === 'ArrowRight') step(1);
       else if (e.key === 'ArrowLeft') step(-1);
+      else if (e.key === 'Tab' && box.current) {
+        // Keep focus inside the tour while it is open.
+        const items = [...box.current.querySelectorAll<HTMLElement>('button:not(:disabled), [tabindex="-1"]')];
+        const first = items[0], lastEl = items[items.length - 1];
+        const active = document.activeElement;
+        if (!box.current.contains(active)) { e.preventDefault(); first?.focus(); }
+        else if (e.shiftKey && active === first) { e.preventDefault(); lastEl?.focus(); }
+        else if (!e.shiftKey && active === lastEl) { e.preventDefault(); first?.focus(); }
+      }
     };
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
@@ -71,6 +81,7 @@ export function Onboarding({ onDone, replay = false }: { onDone: () => void; rep
 
   return (
     <div
+      ref={box}
       className="ob"
       role="dialog"
       aria-modal="true"

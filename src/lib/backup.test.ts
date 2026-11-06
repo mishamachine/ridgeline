@@ -9,7 +9,7 @@ vi.mock('./store', () => ({
   listActivities: async () => [...db.acts.values()],
 }));
 
-import { makeBackup, parseBackup, restoreBackup, BACKUP_VERSION } from './backup';
+import { makeBackup, parseBackup, restoreBackup, BACKUP_VERSION, MAX_BACKUP_BYTES, MAX_HIKES, MAX_SAVED, MAX_POINTS } from './backup';
 import { DEFAULT_SETTINGS, getSettings } from './settings';
 
 const trail = { id: 'way/1', name: 'Rattlesnake Ledge', coords: [[-121.8, 47.4], [-121.79, 47.41]], lengthM: 1500, loop: false, partial: false, osmUrl: 'https://www.openstreetmap.org/way/1', tags: { name: 'Rattlesnake Ledge' } };
@@ -45,6 +45,61 @@ describe('backup file', () => {
   it('cleans bad settings values back to defaults', () => {
     const r = parseBackup(text({ ...good(), settings: { units: 'furlongs', voice: 'yes', onboardingSeen: true } }));
     expect(r.ok && r.backup.settings).toEqual({ ...DEFAULT_SETTINGS, onboardingSeen: true });
+  });
+});
+
+describe('crafted files', () => {
+  const good = () => makeBackup([saved as never], [act as never], DEFAULT_SETTINGS, 5);
+  const bad = (o: unknown) => parseBackup(JSON.stringify(o));
+  it('drops unknown keys from trails and hikes', () => {
+    const r = bad({ ...good(), saved: [{ ...saved, evil: 1, trail: { ...trail, evil: { x: 1 }, __proto__: { polluted: true } } }], activities: [{ ...act, extra: 'x', points: [{ ...act.points[0], extra: 1 }, act.points[1]] }] });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(Object.keys(r.backup.saved[0].trail).sort()).toEqual(['coords', 'id', 'lengthM', 'loop', 'name', 'osmUrl', 'partial', 'tags']);
+    expect(Object.keys(r.backup.saved[0]).sort()).toEqual(['bytes', 'savedAt', 'tileKeys', 'trail']);
+    expect(Object.keys(r.backup.activities[0]).sort()).toEqual(['endedAt', 'id', 'name', 'points', 'startedAt']);
+    expect(Object.keys(r.backup.activities[0].points[0]).sort()).toEqual(['acc', 'alt', 'lat', 'lon', 't']);
+  });
+  it('rejects tags that are not strings, __proto__ tags are not kept', () => {
+    expect(bad({ ...good(), saved: [{ ...saved, trail: { ...trail, tags: { a: 1 } } }] }).ok).toBe(false);
+    expect(bad({ ...good(), saved: [{ ...saved, trail: { ...trail, tags: [] } }] }).ok).toBe(false);
+    const r = JSON.parse(JSON.stringify(good()));
+    r.saved[0].trail.tags = JSON.parse('{"__proto__":"x","name":"y"}');
+    const p = bad(r);
+    expect(p.ok && Object.keys(p.backup.saved[0].trail.tags)).toEqual(['name']);
+  });
+  it('osmUrl must be an openstreetmap.org link', () => {
+    for (const u of ['javascript:alert(1)', 'https://evil.example/way/1', 'http://www.openstreetmap.org/way/1', 5])
+      expect(bad({ ...good(), saved: [{ ...saved, trail: { ...trail, osmUrl: u } }] }).ok).toBe(false);
+  });
+  it('elevation and ascent must be numbers; flags must be booleans', () => {
+    expect(bad({ ...good(), saved: [{ ...saved, trail: { ...trail, elevation: [1, 'x'] } }] }).ok).toBe(false);
+    expect(bad({ ...good(), saved: [{ ...saved, trail: { ...trail, ascentM: '3' } }] }).ok).toBe(false);
+    expect(bad({ ...good(), saved: [{ ...saved, trail: { ...trail, loop: 'yes' } }] }).ok).toBe(false);
+    expect(bad({ ...good(), activities: [{ ...act, withDog: 'true' }] }).ok).toBe(false);
+    expect(bad({ ...good(), activities: [{ ...act, rain: 1 }] }).ok).toBe(false);
+    const ok = bad({ ...good(), saved: [{ ...saved, trail: { ...trail, elevation: [1, 2], ascentM: 5, descentM: 4 } }], activities: [{ ...act, withDog: true, rain: false }] });
+    expect(ok.ok && ok.backup.saved[0].trail.ascentM).toBe(5);
+  });
+  it('keeps and cleans a hike snapshot, rejects a malformed one', () => {
+    const snap = { name: 'X', coverage: 3, ascentM: 10, highlights: ['lake'], junk: 1 };
+    const r = bad({ ...good(), activities: [{ ...act, snapshot: snap }] });
+    expect(r.ok && r.backup.activities[0].snapshot).toEqual({ name: 'X', coverage: 1, ascentM: 10, highlights: ['lake'] });
+    expect(bad({ ...good(), activities: [{ ...act, snapshot: { name: 1, coverage: 1 } }] }).ok).toBe(false);
+    expect(bad({ ...good(), activities: [{ ...act, snapshot: { name: 'x', coverage: 1, highlights: [1] } }] }).ok).toBe(false);
+  });
+  it('enforces size and count caps', () => {
+    expect(parseBackup(' '.repeat(MAX_BACKUP_BYTES + 1)).ok).toBe(false);
+    expect(bad({ ...good(), activities: Array(MAX_HIKES + 1).fill(act) }).ok).toBe(false);
+    expect(bad({ ...good(), saved: Array(MAX_SAVED + 1).fill(saved) }).ok).toBe(false);
+    expect(bad({ ...good(), activities: [{ ...act, points: Array(MAX_POINTS + 1).fill(act.points[0]) }] }).ok).toBe(false);
+    expect(bad({ ...good(), activities: Array(MAX_HIKES).fill(act) }).ok).toBe(true);
+  });
+  it('rejects arrays or null where objects belong', () => {
+    expect(bad([]).ok).toBe(false);
+    expect(bad(null).ok).toBe(false);
+    expect(bad({ ...good(), activities: [null] }).ok).toBe(false);
+    expect(bad({ ...good(), saved: [{ ...saved, trail: null }] }).ok).toBe(false);
   });
 });
 

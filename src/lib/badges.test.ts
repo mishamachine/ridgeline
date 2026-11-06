@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeBadges, newBadgesFor, nextBadge, hikeTotals, trailCoverage, activityClimb, BadgeTrail, WA_CLASSICS } from './badges';
+import { computeBadges, newBadgesFor, nextBadge, hikeTotals, trailCoverage, activityClimb, snapshotForActivity, BadgeTrail, WA_CLASSICS } from './badges';
 import type { Activity } from './store';
 import type { LngLat } from './geo';
 
@@ -10,7 +10,9 @@ const trail = (id: string, name: string, extra: Partial<BadgeTrail> = {}, lon = 
 
 let seq = 0;
 function hike(t: BadgeTrail | null, opts: { start?: Date; share?: number; alt?: (k: number) => number | null; withDog?: boolean; rain?: boolean; name?: string } = {}): Activity {
-  const start = (opts.start ?? new Date(2026, 9, 10, 9, 0)).getTime() + seq++ * 86_400_000;
+  const day = new Date(opts.start ?? new Date(2026, 9, 10, 9, 0));
+  day.setDate(day.getDate() + seq++); // calendar days, so clock hours stay put across DST
+  const start = day.getTime();
   const coords = t ? t.coords : line(-122.1, 47.6);
   const n = Math.round(coords.length * (opts.share ?? 1));
   return {
@@ -103,6 +105,10 @@ describe('Trail Buddy, Early Bird, Rain or Shine', () => {
     expect(get([hike(null)], [], 'rain-or-shine').earned).toBe(false);
     expect(get([hike(null, { rain: true })], [], 'rain-or-shine').earned).toBe(true);
   });
+  it('Early Bird is 4:00 to 6:59 local; a 3am start does not count', () => {
+    expect(get([hike(null, { start: new Date(2026, 9, 10, 3, 59) })], [], 'early-bird').earned).toBe(false);
+    expect(get([hike(null, { start: new Date(2026, 9, 10, 4, 0) })], [], 'early-bird').earned).toBe(true);
+  });
   it('Early Bird: 6:59 local counts, 7:00 does not', () => {
     expect(get([hike(null, { start: new Date(2026, 9, 10, 6, 59) })], [], 'early-bird').earned).toBe(true);
     expect(get([hike(null, { start: new Date(2026, 9, 10, 7, 0) })], [], 'early-bird').earned).toBe(false);
@@ -152,7 +158,7 @@ describe('I-90 Trio', () => {
 describe('10K Club and climb source', () => {
   it('uses the trail elevation data when the hike covered a matched trail', () => {
     const t = trail('t1', 'Big Climb', { ascentM: 1000 });
-    expect(activityClimb(hike(t), t)).toEqual({ m: 1000, source: 'trail' });
+    expect(activityClimb(hike(t), snapshotForActivity(t, hike(t)))).toEqual({ m: 1000, source: 'trail' });
   });
   it('uses GPS altitude otherwise, ignoring small wiggles', () => {
     const noisy = hike(null, { alt: (k) => 500 + (k % 2) * 3 });
@@ -172,7 +178,7 @@ describe('10K Club and climb source', () => {
   });
   it('shows progress in feet', () => {
     const t = trail('t1', 'Big Climb', { ascentM: 1000 });
-    expect(get([hike(t)], [t], '10k-club').sub).toBe('3,281 of 10,000 ft');
+    expect(get([hike(t)], [t], '10k-club').sub).toBe('3,281 of 10,000 ft (trail data)');
   });
 });
 
@@ -195,4 +201,27 @@ describe('newBadgesFor and nextBadge', () => {
     expect(next?.id).toBe('lake-hopper');
   });
   it('returns undefined when everything is earned', () => expect(nextBadge(computeBadges([], []).map((b) => ({ ...b, earned: true })))).toBeUndefined());
+});
+
+describe('snapshots keep badges after "Clear offline maps"', () => {
+  const l = trail('r1', 'Rattlesnake Ledge', { highlights: ['lake'], ascentM: 1000 });
+  it('snapshotForActivity records name, climb, highlights and coverage', () => {
+    const snap = snapshotForActivity(l, hike(l));
+    expect(snap).toEqual({ name: 'Rattlesnake Ledge', ascentM: 1000, highlights: ['lake'], coverage: 1 });
+  });
+  it('badges come from the hike snapshot even when the trail is no longer saved', () => {
+    const a = hike(l);
+    a.snapshot = snapshotForActivity(l, a);
+    const b = computeBadges([a], []);
+    expect(b.find((x) => x.id === 'ledge-sitter')!.earned).toBe(true);
+    expect(b.find((x) => x.id === 'lake-hopper')!.progress.have).toBe(1);
+    expect(b.find((x) => x.id === '10k-club')!.progress.have).toBe(3281);
+    expect(hikeTotals([a], []).climbM).toBe(1000);
+  });
+  it('a partial hike snapshot earns nothing and uses GPS climb', () => {
+    const a = hike(l, { share: 0.4, alt: (k) => 100 + k * 20 });
+    a.snapshot = snapshotForActivity(l, a);
+    expect(computeBadges([a], []).find((x) => x.id === 'ledge-sitter')!.earned).toBe(false);
+    expect(activityClimb(a, a.snapshot).source).toBe('gps');
+  });
 });
