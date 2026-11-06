@@ -30,7 +30,11 @@ export function forksFor(coords: LngLat[], junctions: Junction[] | undefined, re
   const cum = cumulative(coords);
   const total = cum.at(-1)!;
   const out: ForkPoint[] = [];
-  for (const j of junctions) {
+  const same = (n?: string) => n != null && n.trim().toLowerCase() === trailName.trim().toLowerCase();
+  for (const full of junctions) {
+    // A path with the trail's own name is the trail (or its twin), not a choice.
+    const j: Junction = { ...full, branches: full.branches.filter((b) => !same(b.name)) };
+    if (!j.branches.length) continue;
     const a = reversed ? total - j.along : j.along;
     if (a < 30 || a > total - 30) continue; // at the very ends there is nothing to choose
     const dir = reversed ? 'reverse' : 'forward';

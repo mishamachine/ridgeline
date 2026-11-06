@@ -33,6 +33,12 @@ describe('forks from junctions', () => {
     const rev = forksFor(COORDS, JUNCTIONS, true, 'Mount Test Trail');
     expect(rev).toEqual([expect.objectContaining({ along: TOTAL - 400, side: 'left', kind: 'fork' })]);
   });
+  it('ignores side paths that carry the trail\'s own name', () => {
+    const same: Junction[] = [{ along: 400, branches: [{ name: 'mount test trail', point: P(417, 10) }] }];
+    expect(forksFor(COORDS, same, false, 'Mount Test Trail')).toEqual([]);
+    const mixed: Junction[] = [{ along: 400, branches: [{ name: 'Mount Test Trail', point: P(383, 10) }, { name: 'Side Path', point: P(417, 10) }] }];
+    expect(forksFor(COORDS, mixed, false, 'Mount Test Trail')).toEqual([expect.objectContaining({ side: 'right', otherName: 'Side Path' })]);
+  });
   it('has nothing to say when the trail has no junctions or they sit at the ends', () => {
     expect(forksFor(COORDS, undefined, false, 'T')).toEqual([]);
     expect(forksFor(COORDS, [{ along: 10, branches: [{ point: P(10, 20) }] }], false, 'T')).toEqual([]);
