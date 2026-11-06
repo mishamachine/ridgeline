@@ -53,13 +53,13 @@ export function App() {
   const [trail, setTrail] = useState<Trail | null>(null);       // trail shown on a /trail/<id> page
   const [trailState, setTrailState] = useState<'idle' | 'loading' | 'missing'>('idle');
   const [hike, setHike] = useState<Trail | null>(null);
-  useEffect(() => { setHikeActive(!!hike); }, [hike]);
   const [saved, setSaved] = useState<{ marked: Set<string>; offline: Set<string>; version: number }>({ marked: new Set(), offline: new Set(), version: 0 });
   const [removing, setRemoving] = useState<Trail | null>(null);
   const [onboarding, setOnboarding] = useState<null | 'first' | 'replay'>(() => (shouldShowOnboarding() ? (getSettings().onboardingSeen ? 'replay' : 'first') : null));
   const [done, setDone] = useState<{ summary: HikeSummary; newBadges: Badge[]; badgeCount: number } | null>(null); // the celebration, once features.celebrate is on
   const [landing, setLanding] = useState<{ id: string; name: string | null } | null>(null);
   const [profileVersion, setProfileVersion] = useState(0);
+  useEffect(() => { setHikeActive(!!hike || !!done); }, [hike, done]); // an update never reloads under a hike or its celebration
   const [depth, setDepth] = useState(0); // pages the app itself pushed, so Back knows whether it can go back
 
   const refreshSaved = useCallback(async () => {

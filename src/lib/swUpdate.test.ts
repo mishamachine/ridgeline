@@ -29,3 +29,17 @@ describe('hike ends with an update waiting', () => {
     expect(posted).toEqual(['SKIP_WAITING']);
   });
 });
+
+describe('controllerchange', () => {
+  it('forgets the waiting worker, so a later hike end cannot re-apply it', async () => {
+    vi.stubGlobal('sessionStorage', { getItem: () => null, setItem: () => {} });
+    const { setHikeActive, handleWaiting, onControllerChange, onUpdateReady } = await import('./swUpdate');
+    const posted: string[] = [];
+    onUpdateReady(() => {});
+    setHikeActive(true);
+    handleWaiting({ postMessage: (m: string) => posted.push(m) } as unknown as ServiceWorker);
+    onControllerChange(false); // first-install path: returns early, but still clears waiting
+    setHikeActive(false);
+    expect(posted).toEqual([]);
+  });
+});
