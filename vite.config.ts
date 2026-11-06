@@ -33,7 +33,7 @@ const devNames: Plugin = {
   },
 };
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   base,
   // Dev only: set TRAILS_PROXY=https://<host> to read hosted trail cells from a live site.
   server: process.env.TRAILS_PROXY ? { proxy: { '/trails': { target: process.env.TRAILS_PROXY, changeOrigin: true } } } : {},
@@ -42,6 +42,8 @@ export default defineConfig({
     spaFallback,
     devNames,
     VitePWA({
+      // The native apps bundle everything and have no service worker (vite build --mode native).
+      disable: mode === 'native',
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.ts',
@@ -69,4 +71,4 @@ export default defineConfig({
       },
     }),
   ],
-});
+}));

@@ -1,0 +1,72 @@
+# Android release: a signed App Bundle (.aab) for the Play internal testing track.
+# Run by hand: Actions -> "Android release", then upload the artifact in Play Console -> Testing -> Internal
+# (docs/NATIVE_RELEASE.md). Without the secrets the run ends with a warning and does nothing.
+name: Android release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_code:
+        description: versionCode for this build (Play refuses one it has seen)
+        default: '1'
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      HAS_SECRETS: ${{ secrets.RIDGELINE_KEYSTORE_B64 != '' && secrets.RIDGELINE_KEYSTORE_PASSWORD != '' && secrets.RIDGELINE_KEY_ALIAS != '' && secrets.RIDGELINE_KEY_PASSWORD != '' }}
+    steps:
+      - name: Check secrets
+        run: '[ "$HAS_SECRETS" = true ] || echo "::warning::Android release skipped: set RIDGELINE_KEYSTORE_B64, RIDGELINE_KEYSTORE_PASSWORD, RIDGELINE_KEY_ALIAS and RIDGELINE_KEY_PASSWORD (docs/NATIVE_RELEASE.md)"'
+      - uses: actions/checkout@v4
+        if: env.HAS_SECRETS == 'true'
+      - uses: actions/setup-java@v4
+        if: env.HAS_SECRETS == 'true'
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: actions/setup-node@v4
+        if: env.HAS_SECRETS == 'true'
+        with:
+          node-version: 22
+          cache: npm
+      - name: Web build (native) + cap sync android
+        if: env.HAS_SECRETS == 'true'
+        run: npm ci && npm run build:android
+      - name: Upload key
+        if: env.HAS_SECRETS == 'true'
+        env:
+          RIDGELINE_KEYSTORE_B64: ${{ secrets.RIDGELINE_KEYSTORE_B64 }}
+        run: |
+          echo "$RIDGELINE_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/upload-keystore.jks"
+          echo "RIDGELINE_KEYSTORE_PATH=$RUNNER_TEMP/upload-keystore.jks" >> "$GITHUB_ENV"
+      - name: Build signed App Bundle
+        if: env.HAS_SECRETS == 'true'
+        env:
+          RIDGELINE_KEYSTORE_PASSWORD: ${{ secrets.RIDGELINE_KEYSTORE_PASSWORD }}
+          RIDGELINE_KEY_ALIAS: ${{ secrets.RIDGELINE_KEY_ALIAS }}
+          RIDGELINE_KEY_PASSWORD: ${{ secrets.RIDGELINE_KEY_PASSWORD }}
+          RIDGELINE_VERSION_CODE: ${{ inputs.version_code }}
+        run: |
+          export RIDGELINE_VERSION_NAME=$(node -p 'require("./package.json").version')
+          cd android && ./gradlew bundleRelease --no-daemon
+      - name: Check the signature
+        if: env.HAS_SECRETS == 'true'
+        run: |
+          AAB=android/app/build/outputs/bundle/release/app-release.aab
+          jarsigner -verify "$AAB" | grep -q "jar verified" || { echo "::error::The bundle is not signed"; exit 1; }
+          ls -la "$AAB"
+      - uses: actions/upload-artifact@v4
+        if: env.HAS_SECRETS == 'true'
+        with:
+          name: android-release-aab
+          path: android/app/build/outputs/bundle/release/app-release.aab
+          retention-days: 14
+      - name: Remove the key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/upload-keystore.jks"

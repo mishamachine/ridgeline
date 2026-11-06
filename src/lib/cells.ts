@@ -1,5 +1,6 @@
 // Hosted trail data: small grid-cell files built from OpenStreetMap (scripts/build_trails.py).
 import type { BBox } from './geo';
+import { trailBase } from './native/trailBase';
 import { cumulative, M_TO_FT, M_TO_MI, haversine, type LngLat } from './geo';
 import { HIGHLIGHT_CLIMB_FT, HIGHLIGHT_LONG_MI, parseOverpass, profileFromVertices, withElevation, type Junction, type Trail } from './trails';
 
@@ -15,13 +16,12 @@ interface CellRoute { id: number; t: Record<string, string>; n: number; m: [numb
 interface CellWay { id: number; t: Record<string, string>; g: number[]; z?: number[]; h?: string[]; th?: number[]; j?: CellJunctions }
 export interface CellFile { v: number; r: CellRoute[]; w: CellWay[] }
 
-const base = () => `${import.meta.env.BASE_URL ?? '/'}trails/`;
 
 let indexPromise: Promise<CellIndex | null> | null = null;
 
 /** Coverage index. Null when no hosted data is deployed (e.g. local dev). */
 export function getIndex(): Promise<CellIndex | null> {
-  indexPromise ??= fetch(`${base()}index.json`)
+  indexPromise ??= fetch(`${trailBase()}index.json`)
     .then((r) => (r.ok ? (r.json() as Promise<CellIndex>) : null))
     .catch(() => null)
     .then((idx) => { if (!idx) indexPromise = null; return idx; }); // retry next time if it failed
@@ -193,7 +193,7 @@ export async function fetchCellTrails(b: BBox, signal?: AbortSignal): Promise<Tr
   const available = new Set(index.cells);
   const wanted = cellsFor(b, index.cell).filter((c) => available.has(c));
   const files = await Promise.all(wanted.map(async (c) => {
-    const res = await fetch(`${base()}${c}.json`, { signal });
+    const res = await fetch(`${trailBase()}${c}.json`, { signal });
     if (!res.ok) throw new Error(`Couldn't load trails (${res.status}).`);
     return (await res.json()) as CellFile;
   }));

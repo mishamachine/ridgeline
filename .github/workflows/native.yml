@@ -1,0 +1,121 @@
+# Native apps (Capacitor): Android debug build + emulator smoke run, iOS Simulator build + screenshot.
+# Runs on pull requests and by hand. Reads no secrets, signs nothing, uploads nothing outside this run.
+# Android runs only here in CI; never on a local emulator.
+name: Native apps
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths: [src/**, android/**, ios/**, capacitor.config.json, package.json, package-lock.json, vite.config.ts, scripts/android-emu-geo.sh, .github/workflows/native.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:android
+      - run: cd android && ./gradlew assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ridgeline-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
+
+  android-emulator:
+    needs: android-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true # best effort: hosted emulators are flaky; the build job is the gate
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ridgeline-debug-apk
+          path: android/app/build/outputs/apk/debug
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis # has Google Play services, which the hike location service uses
+          arch: x86_64
+          profile: pixel_7
+          disable-animations: true
+          emulator-boot-timeout: 600
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash scripts/android-emu-geo.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-emulator-shots
+          path: shots
+          if-no-files-found: ignore
+          retention-days: 7
+
+  ios-simulator:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:ios
+      - name: Build for the iOS Simulator (no signing)
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build | tail -40
+      - name: Launch and screenshot
+        run: |
+          mkdir -p shots
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devs = [d for rt, ds in json.load(sys.stdin)["devices"].items() if "iOS" in rt for d in ds]
+          phones = [d for d in devs if d["name"].startswith("iPhone") and "Pro" in d["name"] and "Max" not in d["name"]] or devs
+          print(phones[-1]["udid"])')
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl install "$UDID" build/Build/Products/Debug-iphonesimulator/App.app
+          xcrun simctl privacy "$UDID" grant location com.bbprojectfactory.ridgeline || true
+          xcrun simctl location "$UDID" set 47.4881,-121.7236 || true
+          xcrun simctl launch "$UDID" com.bbprojectfactory.ridgeline
+          sleep 15
+          xcrun simctl io "$UDID" screenshot shots/launch.png
+          xcrun simctl spawn "$UDID" launchctl list | grep -q com.bbprojectfactory.ridgeline || { echo "::error::The app is not running"; exit 1; }
+          xcrun simctl spawn "$UDID" log show --last 3m --style compact --predicate 'process == "App"' 2>/dev/null | grep -E "cache-probe|\[error\]" | tail -5 | tee shots/app-log.txt || true
+          ls ~/Library/Logs/DiagnosticReports 2>/dev/null | grep -i "App" && { echo "::error::Crash report found"; exit 1; } || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-simulator-shots
+          path: shots
+          if-no-files-found: ignore
+          retention-days: 7

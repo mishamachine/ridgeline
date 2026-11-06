@@ -14,6 +14,8 @@ import { duration } from '../lib/format';
 import { INK } from '../lib/mapStyle';
 import { GpsEngine, GpsState } from '../lib/gps/engine';
 import { WebLocationSource } from '../lib/gps/source';
+import { isNative } from '../lib/native/platform';
+import { createNativeLocationSource, updateNavNotification } from '../lib/native/location';
 import { QUALITY_LABEL } from '../lib/gps/quality';
 import { requestCompassPermission, startCompass } from '../lib/gps/compass';
 import { findReversals } from '../lib/gps/reversals';
@@ -92,7 +94,7 @@ export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
     return a;
   }, [forks, tips, total, units]);
 
-  const [engine] = useState(() => new GpsEngine(new WebLocationSource(), {
+  const [engine] = useState(() => new GpsEngine(isNative() ? createNativeLocationSource({ title: trail.name, text: 'Finding your position…', progress: 0 }) : new WebLocationSource(), {
     route: { coords: route.coords, elevation: route.elevation },
     onAccepted: (f) => {
       if (pausedRef.current) return;
@@ -345,6 +347,19 @@ export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
   const toGo = shortDistance(remaining, units);
   const pace = `${duration(minutesLeft)}`;
   const climb = climbAhead != null ? climbText(climbAhead, units) : '—';
+
+  // Lock-screen notification (apps only): the next instruction, distance left, % done. Refreshed at most every 5 s,
+  // at once when the instruction changes.
+  const noteRef = useRef({ at: 0, title: '' });
+  useEffect(() => {
+    if (!isNative() || paused || g !== engine.state) return;
+    const title = view.big === '—' || view.big === 'Now' ? view.line : `In ${view.big}, ${view.line.charAt(0).toLowerCase()}${view.line.slice(1)}`;
+    const t = Date.now();
+    if (title === noteRef.current.title && t - noteRef.current.at < 5000) return;
+    noteRef.current = { at: t, title };
+    const p = pct != null ? Math.round(pct * 100) : 0;
+    updateNavNotification({ title, text: `${toGo} left${pct != null ? ` · ${p}% done` : ''}`, progress: p }).catch(() => {});
+  }, [g, engine, paused, view.big, view.line, toGo, pct]);
 
   const status = g.error?.code === 'denied' || g.error?.code === 'unsupported' ? g.error.message
     : g.recalTimedOut ? 'No fresh GPS yet. Move to open sky and wait.'
