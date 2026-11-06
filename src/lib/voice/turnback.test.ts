@@ -4,7 +4,7 @@ import { Frame } from '../gps/frame';
 import type { Junction } from '../trails';
 import { Announcer, type Utterance } from './announcer';
 import { forksFor } from './forkpoints';
-import { TurnBack } from './turnback';
+import { FlipBack, TurnBack } from './turnback';
 
 const fr = new Frame([-121.7, 47.5]);
 const P = (x: number, y: number) => fr.toLngLat(x, y);
@@ -14,53 +14,80 @@ const TOTAL = cumulative(COORDS).at(-1)!;
 const J: Junction[] = [{ along: 400, branches: [{ name: 'Side Path', point: P(417, 10) }, { point: P(383, 10) }] }];
 const T0 = 1_700_000_000_000;
 
-describe('turn back', () => {
-  it('fires once when the end is reached, after two samples', () => {
-    const t = new TurnBack(TOTAL, false);
-    const hits: number[] = [];
-    for (let d = 0; d <= TOTAL; d += 5) if (t.update(d, false)) hits.push(d);
-    expect(hits).toHaveLength(1);
-    expect(hits[0]).toBeGreaterThanOrEqual(TOTAL - 30);
-    expect(t.update(TOTAL, false)).toBe(false);
+const texts = (u: Utterance[]) => u.map((x) => x.text);
+// Feed alongs to an announcer (and the detector) one second apart; returns what was said and whether the detector fired.
+function run(alongs: number[], a: Announcer, tb?: TurnBack) {
+  const said: Utterance[] = [];
+  let fired = -1;
+  alongs.forEach((d, k) => {
+    said.push(...a.update({ t: T0 + k * 1000, along: d, offRoute: false }));
+    if (tb && fired < 0 && tb.update(d, false)) fired = k;
   });
-  it('fires when the hiker turns round near the end and walks back 60 m', () => {
-    const t = new TurnBack(TOTAL, false);
-    for (let d = 0; d <= TOTAL * 0.85; d += 5) expect(t.update(d, false)).toBe(false);
-    let fired = -1;
-    for (let d = TOTAL * 0.85; d >= TOTAL * 0.85 - 90 && fired < 0; d -= 5) if (t.update(d, false)) fired = d;
+  return { said, fired };
+}
+const range = (from: number, to: number, step = 1.2) => { const out: number[] = []; for (let d = from; step > 0 ? d <= to : d >= to; d += step) out.push(d); return out; };
+
+describe('turn back after the end', () => {
+  it('a point-to-point hiker who reaches the end and stops hears "You made it." and nothing else', () => {
+    const a = new Announcer({ forks: [], turnarounds: [], total: TOTAL });
+    const tb = new TurnBack(TOTAL, false);
+    const { said, fired } = run([...range(0, TOTAL), ...Array(120).fill(TOTAL - 3)], a, tb);
+    expect(texts(said)).toEqual(['You made it.']);
+    expect(fired).toBe(-1);
+  });
+  it('an out-and-back hiker who reaches the end and walks 60 m back switches once, and the way down has the opposite sides', () => {
+    const fwd = new Announcer({ forks: forksFor(COORDS, J, false, 'Mount Test Trail'), turnarounds: [], total: TOTAL });
+    const tb = new TurnBack(TOTAL, false);
+    const { said, fired } = run([...range(0, TOTAL), ...range(TOTAL, TOTAL - 100, -1.2)], fwd, tb);
     expect(fired).toBeGreaterThan(0);
-    expect(TOTAL * 0.85 - fired).toBeGreaterThanOrEqual(60);
+    expect(texts(said)).toEqual(['In 500 feet, stay right for Mount Test Trail.', 'Stay right.', 'You made it.']);
+    // Navigate now switches to the reversed route with a fresh announcer: the hiker is at its start.
+    const back = new Announcer({ forks: forksFor(COORDS, J, true, 'Mount Test Trail'), turnarounds: [], total: TOTAL });
+    expect(texts(run(range(0, TOTAL), back).said)).toEqual(['In 500 feet, stay left for Mount Test Trail.', 'Stay left.', 'You made it.']);
   });
-  it('never fires on a loop', () => {
-    const t = new TurnBack(TOTAL, true);
-    for (let d = 0; d <= TOTAL; d += 5) expect(t.update(d, false)).toBe(false);
-    for (let d = TOTAL; d >= 0; d -= 5) expect(t.update(d, false)).toBe(false);
+  it('wobbling back 70 m after 80% and then carrying on forward never switches, and the forks keep their sides', () => {
+    const far: Junction[] = [{ along: 900, branches: [{ name: 'Side Path', point: P(917, 10) }, { point: P(883, 10) }] }];
+    const a = new Announcer({ forks: forksFor(COORDS, far, false, 'Mount Test Trail'), turnarounds: [], total: TOTAL });
+    const tb = new TurnBack(TOTAL, false);
+    const walk = [...range(0, 850), ...range(850, 770, -1.2), ...range(770, TOTAL)];
+    const { said, fired } = run(walk, a, tb);
+    expect(fired).toBe(-1);
+    expect(texts(said)).toEqual(['In 500 feet, stay right for Mount Test Trail.', 'Stay right.', 'You made it.']);
   });
-  it('is not fooled by GPS jitter near the end, or by one stray sample', () => {
-    const t = new TurnBack(TOTAL, false);
-    for (let d = 0; d <= TOTAL - 70; d += 5) t.update(d, false);
-    for (let k = 0; k < 60; k++) expect(t.update(TOTAL - 70 + Math.sin(k) * 15, false)).toBe(false); // wobbling 55-85 m from the end
-    expect(t.update(TOTAL - 5, false)).toBe(false);  // one jumpy fix at the end
-    expect(t.update(TOTAL - 60, false)).toBe(false);
+  it('never on a loop', () => {
+    const tb = new TurnBack(TOTAL, true);
+    for (const d of [...range(0, TOTAL), ...range(TOTAL, 0, -1.2)]) expect(tb.update(d, false)).toBe(false);
   });
-  it('ignores samples while off the trail and a start-of-trail jump to the end', () => {
-    const t = new TurnBack(TOTAL, false);
-    expect(t.update(TOTAL - 2, false)).toBe(false);
-    expect(t.update(TOTAL - 2, false)).toBe(false); // never seen half way: not the end of a hike
+  it('not on jitter or one stray fix at the end, and not while off the trail', () => {
+    const tb = new TurnBack(TOTAL, false);
+    for (const d of range(0, TOTAL - 70)) tb.update(d, false);
+    for (let k = 0; k < 60; k++) expect(tb.update(TOTAL - 70 + Math.sin(k) * 15, false)).toBe(false);
+    expect(tb.update(TOTAL - 5, false)).toBe(false);   // one jumpy fix at the end is not an arrival
+    for (let k = 0; k < 6; k++) expect(tb.update(TOTAL - 70, false)).toBe(false);
     const u = new TurnBack(TOTAL, false);
-    for (let d = 0; d <= TOTAL - 10; d += 5) u.update(d, false);
-    expect(u.update(TOTAL, true)).toBe(false);
+    for (const d of range(0, TOTAL)) u.update(d, true); // off the trail the whole time
+    for (const d of range(TOTAL, TOTAL - 100, -1.2)) expect(u.update(d, true)).toBe(false);
+  });
+  it('a jump to the end at the start of the trail (never seen part-way) is not an arrival', () => {
+    const tb = new TurnBack(TOTAL, false);
+    for (let k = 0; k < 4; k++) tb.update(TOTAL - 2, false);
+    for (let k = 0; k < 6; k++) expect(tb.update(TOTAL - 100, false)).toBe(false);
   });
 });
 
-describe('out-and-back relation trail: the way back', () => {
-  it('prompts at the same fork on the way back with the opposite side', () => {
-    const texts = (u: Utterance[]) => u.map((x) => x.text);
-    const walk = (a: Announcer) => { const out: Utterance[] = []; for (let d = 0, k = 0; d <= TOTAL; d += 1.2, k++) out.push(...a.update({ t: T0 + k * 1000, along: d, offRoute: false })); return out; };
-    const outbound = walk(new Announcer({ forks: forksFor(COORDS, J, false, 'Mount Test Trail'), turnarounds: [], total: TOTAL }));
-    // Navigate switches to the reversed route (same as Reverse) when TurnBack fires, with a fresh announcer.
-    const back = walk(new Announcer({ forks: forksFor(COORDS, J, true, 'Mount Test Trail'), turnarounds: [], total: TOTAL }));
-    expect(texts(outbound)).toContain('Stay right.');
-    expect(texts(back)).toEqual(['In 500 feet, stay left for Mount Test Trail.', 'Stay left.', 'You made it.']);
+describe('flip back safety net', () => {
+  it('flips back when the hiker keeps going the original way for 60 m, not before', () => {
+    const f = new FlipBack();
+    for (const o of [500, 490, 480, 470]) expect(f.update(o, false)).toBe(false); // walking back the new way
+    for (const o of [480, 500, 520]) expect(f.update(o, false)).toBe(false);       // 50 m forward again: not yet
+    let fired = false;
+    for (const o of [532, 540, 548]) fired = f.update(o, false) || fired;
+    expect(fired).toBe(true);
+  });
+  it('does not flip on jitter or a single stray sample', () => {
+    const f = new FlipBack();
+    for (let k = 0; k < 50; k++) expect(f.update(500 + Math.sin(k) * 15, false)).toBe(false);
+    expect(f.update(580, false)).toBe(false);
+    expect(f.update(500, false)).toBe(false);
   });
 });

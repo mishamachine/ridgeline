@@ -24,7 +24,7 @@ import { getUnits, getVoiceOn, setVoiceOn } from '../lib/voice/prefs';
 import { cancelSpeech, primeSpeech, speak } from '../lib/voice/speak';
 import { climbText, shortDistance } from '../lib/voice/units';
 import { offRouteText } from '../lib/voice/announcer';
-import { TurnBack } from '../lib/voice/turnback';
+import { FlipBack, TurnBack } from '../lib/voice/turnback';
 
 export type { HikeSummary };
 
@@ -139,21 +139,33 @@ export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
   // Direction changed: measure pace from here.
   useEffect(() => { startAlongRef.current = null; maxAlongRef.current = 0; }, [reversed]);
 
-  // Out-and-back: at the end (or turned round near it) switch to the way back, same as Reverse, once.
-  const turnBack = useMemo(() => new TurnBack(total, !!trail.loop), [total, trail.loop, reversed]);
-  useEffect(() => {
-    if (paused || autoTurnedRef.current || g !== engine.state) return;
-    if (!turnBack.update(along, offRoute)) return;
-    autoTurnedRef.current = true;
-    priorFractionRef.current = maxAlongRef.current / total;
+  // Switching direction (tapped, or after the end of an out-and-back). The outbound leg stays part of this hike.
+  const flipRef = useRef<{ det: FlipBack; before: boolean } | null>(null);
+  function switchDirection(auto: boolean) {
+    priorFractionRef.current = Math.max(priorFractionRef.current, maxAlongRef.current / total);
     if (route.elevation && startAlongRef.current != null && total > 0) {
       const k = (d: number) => Math.round((d / total) * (route.elevation!.length - 1));
-      priorClimbRef.current = totalAscent(route.elevation.slice(k(startAlongRef.current), k(maxAlongRef.current) + 1));
+      priorClimbRef.current += totalAscent(route.elevation.slice(k(startAlongRef.current), k(maxAlongRef.current) + 1));
     }
-    navigator.vibrate?.([200, 100, 200]);
-    if (voiceRef.current) speak('Turnaround point. Head back the way you came.', true);
-    setHeadingBack(true);
+    flipRef.current = flipRef.current ? null : { det: new FlipBack(), before: reversed }; // tapping again undoes it by hand, so the net stands down
+    if (auto) {
+      navigator.vibrate?.([120]);
+      if (voiceRef.current) speak("Heading back. I'll call the forks on the way down.", false);
+    }
+    setHeadingBack(auto ? true : !headingBack);
     setReversed((r) => !r);
+  }
+  const turnBack = useMemo(() => new TurnBack(total, !!trail.loop), [total, trail.loop, reversed]);
+  useEffect(() => {
+    if (paused || g !== engine.state) return;
+    // After the end of an out-and-back, a real walk back switches to the way down.
+    if (!autoTurnedRef.current && !flipRef.current && turnBack.update(along, offRoute)) { autoTurnedRef.current = true; switchDirection(true); return; }
+    // Safety net: still walking the original way after a switch: undo it, quietly.
+    const fl = flipRef.current;
+    if (fl && along != null) {
+      const original = reversed === fl.before ? along : total - along;
+      if (fl.det.update(original, offRoute)) { flipRef.current = null; autoTurnedRef.current = true; setHeadingBack(false); setReversed(fl.before); }
+    }
   }, [g, turnBack, paused, along, offRoute]);
 
   // Which way the trail lies when you are off it.
@@ -173,11 +185,12 @@ export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
     }
   }, [g, announcer, paused, along, offRoute, offSide]);
 
-  // iOS only starts speech from a tap: unlock it on the first touch on this screen.
+  // iOS only starts speech from a completed tap (click or touchend, not pointerdown): unlock it on the first one on this screen.
   useEffect(() => {
     const once = () => primeSpeech();
-    window.addEventListener('pointerdown', once, { once: true });
-    return () => window.removeEventListener('pointerdown', once);
+    window.addEventListener('click', once, { once: true });
+    window.addEventListener('touchend', once, { once: true });
+    return () => { window.removeEventListener('click', once); window.removeEventListener('touchend', once); };
   }, []);
 
   // "Take me back to the trail": show the straight line to the nearest trail point and say it again.
@@ -334,7 +347,7 @@ export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
 
   return (
     <div className="nv">
-      <Banner view={view} voiceOn={voiceOn} onVoice={toggleVoice} onBack={offRoute && offSide ? takeMeBack : undefined} />
+      <Banner view={view} voiceOn={voiceOn} onVoice={toggleVoice} onBack={offRoute && offSide ? takeMeBack : undefined} onSwitch={!trail.loop && !offRoute && (headingBack || (pct ?? 0) >= 0.25) ? () => switchDirection(false) : undefined} />
 
       <div className="nv-map">
         <MapView tileTemplate={tpl} center={start} zoom={15} onReady={onReady} label={`Navigation map for ${trail.name}`} />
@@ -387,7 +400,7 @@ export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
             <button className="nv-item" onClick={() => { setMore(false); recalibrate(); }}>Recalibrate GPS</button>
             <button className="nv-item" aria-pressed={here} onClick={() => { setMore(false); toggleHere(); }}>I'm here on the trail</button>
             <button className="nv-item" onClick={() => { setMore(false); primeSpeech(); setPocket(true); }}>Pocket mode</button>
-            {!trail.loop && <button className="nv-item" onClick={() => { setMore(false); setReversed((r) => !r); }}><SwapIcon size={20} />Reverse direction</button>}
+            {!trail.loop && <button className="nv-item" onClick={() => { setMore(false); switchDirection(false); }}><SwapIcon size={20} />Reverse direction</button>}
             <button className="nv-btn" onClick={() => setMore(false)}>Close</button>
           </div>
         </div>

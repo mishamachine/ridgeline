@@ -61,3 +61,4 @@
 .nv-confirm .nv-btn { flex: none; width: 100%; }
 
 .nv-tag { position: absolute; z-index: 2; right: 12px; top: 8px; font: 700 12px var(--text); background: #111111; color: #FFFFFF; border-radius: 8px; padding: 6px 10px; }
+.nv-switch { margin: 8px 12px 0; min-height: 48px; width: calc(100% - 24px); border: 2px solid #111111; border-radius: 14px; background: #FFFFFF; color: #111111; font: 700 15px var(--text); }
