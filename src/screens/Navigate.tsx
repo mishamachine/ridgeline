@@ -200,7 +200,9 @@ export function Navigate({ tpl, trail, saved, onEnd }: Props) {
       </div>
 
       <div className="pad" style={{ flex: 'none' }}>
-        {offRoute ? (
+        {g.recalLastOffRoute && !g.hasFix ? (
+          <div className="notice alert" style={{ margin: '12px 0 0' }} role="alert">Recalibrating… (last: off route)</div>
+        ) : offRoute ? (
           <div className="notice alert" style={{ margin: '12px 0 0' }} role="alert">Off route · {ft(g.offsetM ?? 0)} ft from the trail</div>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 0', borderBottom: '1px solid var(--hair)', fontWeight: 600 }}>
