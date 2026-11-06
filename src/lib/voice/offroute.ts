@@ -6,7 +6,7 @@ export type OffSide = 'left' | 'right' | 'behind' | 'ahead';
 const deg = (r: number) => ((r * 180) / Math.PI + 360) % 360;
 
 /** Which way the trail lies from where you stand, relative to the way you are facing. */
-export function offRouteSide(coords: LngLat[], pos: LngLat, headingDeg: number | null): { side: OffSide; distM: number } {
+export function offRouteSide(coords: LngLat[], pos: LngLat, headingDeg: number | null): { side: OffSide; distM: number; target: LngLat } {
   const cum = cumulative(coords);
   const p = projectOnLine(coords, cum, pos);
   const target = pointAt(coords, cum, p.along);
@@ -21,5 +21,5 @@ export function offRouteSide(coords: LngLat[], pos: LngLat, headingDeg: number |
   }
   const rel = (deg(Math.atan2(tx, ty)) - facing + 540) % 360 - 180; // -180..180, positive = to your right
   const side: OffSide = Math.abs(rel) <= 45 ? 'ahead' : Math.abs(rel) >= 135 ? 'behind' : rel > 0 ? 'right' : 'left';
-  return { side, distM: p.offset };
+  return { side, distM: p.offset, target };
 }

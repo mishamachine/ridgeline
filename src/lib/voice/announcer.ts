@@ -66,8 +66,7 @@ export class Announcer {
     if (i.offRoute) {
       if (this.offAt == null || i.t - this.offAt >= OFF_REPEAT_MS) {
         this.offAt = i.t;
-        const w = i.off ? where(i.off.distM, i.off.side, this.units) : '';
-        say('off-route', `You're off the trail.${w}`, true, [300, 100, 300]);
+        say('off-route', i.off ? offRouteText(i.off.distM, i.off.side, this.units) : "You're off the trail.", true, [300, 100, 300]);
       }
       return out;
     }
@@ -110,6 +109,10 @@ export class Announcer {
     }
     return out;
   }
+}
+
+export function offRouteText(distM: number, side: OffSide, units: Units): string {
+  return `You're off the trail.${where(distM, side, units)}`;
 }
 
 function where(distM: number, side: OffSide, units: Units): string {

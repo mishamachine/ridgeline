@@ -176,6 +176,7 @@ describe('off-route side', () => {
     expect(offRouteSide(COORDS, north, 180)).toMatchObject({ side: 'ahead' });
     expect(offRouteSide(COORDS, north, null)).toMatchObject({ side: 'right' }); // no heading: facing along the route
     expect(offRouteSide(COORDS, north, 90).distM).toBeCloseTo(40, 0);
+    expect(offRouteSide(COORDS, north, 90).target[1]).toBeCloseTo(P(500, 0)[1], 5); // the nearest trail point, for the way-back line
   });
 });
 

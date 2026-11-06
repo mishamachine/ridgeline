@@ -23,6 +23,7 @@ import { offRouteSide } from '../lib/voice/offroute';
 import { getUnits, getVoiceOn, setVoiceOn } from '../lib/voice/prefs';
 import { cancelSpeech, primeSpeech, speak } from '../lib/voice/speak';
 import { climbText, shortDistance } from '../lib/voice/units';
+import { offRouteText } from '../lib/voice/announcer';
 
 export type { HikeSummary };
 
@@ -60,6 +61,7 @@ export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
   const [mapOn, setMapOn] = useState(false);
   const [pocket, setPocket] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [more, setMore] = useState(false);
   const [units] = useState(getUnits);
   const [voiceOn, setVoice] = useState(getVoiceOn);
   const voiceRef = useRef(voiceOn);
@@ -156,6 +158,22 @@ export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
     return () => window.removeEventListener('pointerdown', once);
   }, []);
 
+  // "Take me back to the trail": show the straight line to the nearest trail point and say it again.
+  function takeMeBack() {
+    const map = mapRef.current;
+    if (!map || !g.filtered || !offSide) return;
+    setGeo(map, 'back', { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [g.filtered, offSide.target] } }] });
+    followRef.current = false;
+    setFollowing(false);
+    const [a, b] = [g.filtered, offSide.target];
+    map.fitBounds([[Math.min(a[0], b[0]), Math.min(a[1], b[1])], [Math.max(a[0], b[0]), Math.max(a[1], b[1])]], { padding: 70, maxZoom: 17, duration: 500 });
+    if (voiceRef.current) speak(offRouteText(offSide.distM, offSide.side, units), true);
+  }
+  useEffect(() => {
+    // The line goes once you are back.
+    if (!offRoute && mapRef.current) setGeo(mapRef.current, 'back', { type: 'FeatureCollection', features: [] });
+  }, [offRoute]);
+
   function toggleVoice() {
     const on = !voiceOn;
     setVoice(on);
@@ -228,6 +246,8 @@ export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
       setHere(false);
       setHereMsg(r.ok ? 'Position set to the trail. It clears when GPS agrees again.' : r.reason);
     });
+    map.addSource('back', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({ id: 'back-line', type: 'line', source: 'back', layout: { 'line-cap': 'round' }, paint: { 'line-color': '#B01C1C', 'line-width': 4, 'line-dasharray': [1, 1.5] } });
     setGeo(map, 'trails', { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { active: true }, geometry: { type: 'LineString', coordinates: route.coords } }] });
     setMapOn(true);
   }
@@ -287,18 +307,19 @@ export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
     : g.accuracyFt == null ? 'Looking for GPS…'
     : g.warmingUp ? `GPS warming up ±${g.accuracyFt} ft`
     : `GPS ${QUALITY_LABEL[g.quality!]} ±${g.accuracyFt} ft`;
+  const caution = g.quality === 'weak' || g.recalTimedOut || !online || g.error != null;
   const net = online ? '' : saved ? ' · No signal, map saved' : ' · No signal';
 
   return (
     <div className="nv">
-      <Banner view={view} voiceOn={voiceOn} onVoice={toggleVoice} />
+      <Banner view={view} voiceOn={voiceOn} onVoice={toggleVoice} onBack={offRoute && offSide ? takeMeBack : undefined} />
 
       <div className="nv-map">
         <MapView tileTemplate={tpl} center={start} zoom={15} onReady={onReady} label={`Navigation map for ${trail.name}`} />
-        <div className="nv-chip" style={{ top: 8 }} role="status">{paused ? 'Paused · ' : ''}{status}{net}</div>
+        <div className={`nv-chip${caution ? ' caution' : ''}`} style={{ top: 8 }} role="status">{paused ? 'Paused · ' : ''}{status}{net}</div>
         <div className="nv-map-btns">
           {!following && <button className="nv-pill" aria-label="Center on me" onClick={recenter}><LocateIcon size={18} />Center</button>}
-          {!trail.loop && <button className="nv-pill" onClick={() => setReversed((r) => !r)}><SwapIcon size={18} />Reverse direction</button>}
+          <button className="nv-pill" onClick={() => setMore(true)}>More</button>
         </div>
       </div>
 
@@ -316,16 +337,11 @@ export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
         </div>
         {(here || hereMsg) && <div className="nv-msg" role="status">{here ? 'Tap the map where you are on the trail.' : hereMsg}</div>}
         {g.needsCalibration && <div className="nv-msg">Compass needs calibrating. Move your phone in a figure 8.</div>}
-        <div className="nv-row">
-          <button className="chip" onClick={recalibrate}>Recalibrate</button>
-          <button className="chip" aria-pressed={here} onClick={toggleHere}>I'm here</button>
-          <button className="chip" onClick={() => { primeSpeech(); setPocket(true); }}>Pocket mode</button>
-        </div>
         <div className="nv-acts">
           <button className="nv-btn" onClick={togglePause}>{paused ? 'Resume' : 'Pause'}</button>
-          <button className="nv-btn dark" onClick={() => setConfirming(true)}>Finish hike</button>
+          <button className="nv-btn primary" onClick={() => setConfirming(true)}>Finish hike</button>
         </div>
-        <div className="nv-note"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><circle cx="5" cy="5" r="5" fill="#D52B26" /></svg>Location on for this hike only · {saved ? 'Offline map ready' : 'Map not saved offline'}</div>
+        <div className="nv-note"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><circle cx="5" cy="5" r="5" fill="#111111" /></svg>Location on for this hike only · {saved ? 'Offline map ready' : 'Map not saved offline'}</div>
         <div className="nv-safety">Directions are a guide; check conditions; not for emergency use.</div>
       </div>
 
@@ -336,8 +352,20 @@ export function Navigate({ tpl, trail, saved, onEnd, onFinish }: Props) {
             <div className="muted">{pct != null ? `You are ${Math.round(pct * 100)}% of the way along ${trail.name}.` : trail.name}</div>
             <div className="nv-acts">
               <button className="nv-btn" onClick={() => setConfirming(false)}>Keep hiking</button>
-              <button className="nv-btn dark" onClick={finish}>Finish hike</button>
+              <button className="nv-btn primary" onClick={finish}>Finish hike</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {more && (
+        <div className="nv-confirm" role="dialog" aria-modal="true" aria-label="More" onClick={() => setMore(false)}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <button className="nv-item" onClick={() => { setMore(false); recalibrate(); }}>Recalibrate GPS</button>
+            <button className="nv-item" aria-pressed={here} onClick={() => { setMore(false); toggleHere(); }}>I'm here on the trail</button>
+            <button className="nv-item" onClick={() => { setMore(false); primeSpeech(); setPocket(true); }}>Pocket mode</button>
+            {!trail.loop && <button className="nv-item" onClick={() => { setMore(false); setReversed((r) => !r); }}><SwapIcon size={20} />Reverse direction</button>}
+            <button className="nv-btn" onClick={() => setMore(false)}>Close</button>
           </div>
         </div>
       )}
