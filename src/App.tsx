@@ -22,6 +22,7 @@ import { toCelebrateSummary } from './components/nav/summary';
 import type { HikeSummary } from './lib/hype';
 import { ConfirmSheet } from './components/ConfirmSheet';
 import { FindIcon, HikeIcon, ProfileIcon, SavedIcon } from './components/NavIcons';
+import { count } from './lib/counter';
 import { setHikeActive } from './lib/swUpdate';
 import { Toaster } from './components/Toaster';
 import { Find } from './screens/Find';
@@ -55,6 +56,7 @@ export function App() {
   const [trailState, setTrailState] = useState<'idle' | 'loading' | 'missing'>('idle');
   const [hike, setHike] = useState<Trail | null>(null);
   const [resume, setResume] = useState<Activity | null>(null);
+  useEffect(() => { count('session'); }, []);
   const [saved, setSaved] = useState<{ marked: Set<string>; offline: Set<string>; version: number }>({ marked: new Set(), offline: new Set(), version: 0 });
   const [removing, setRemoving] = useState<Trail | null>(null);
   const [onboarding, setOnboarding] = useState<null | 'first' | 'replay'>(() => (shouldShowOnboarding() ? (getSettings().onboardingSeen ? 'replay' : 'first') : null));
@@ -143,7 +145,7 @@ export function App() {
   const startHike = useCallback((t: Trail) => {
     const a = startAction(hike, t);
     if (a === 'confirm') { setSwitching(t); return; }
-    if (a === 'start') { setResume(null); setHike(t); }
+    if (a === 'start') { setResume(null); setHike(t); count('hike_start'); }
     go({ kind: 'tab', tab: 'hike' }); // same trail: just go back to the hike in progress
   }, [go, hike]);
 
