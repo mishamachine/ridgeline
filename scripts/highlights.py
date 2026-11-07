@@ -160,19 +160,47 @@ def chain_ends(node_lists):
     return ends or [(0, 0)]
 
 
-def pick_trailhead(end_points, parkings, parking_xy):
+UNUSABLE_ACCESS = {'private', 'no', 'customers', 'delivery'}
+
+
+def usable_parking(tags):
+    """A lot hikers can use: not tagged private / no / customers-only / delivery."""
+    return tags.get('access', '') not in UNUSABLE_ACCESS
+
+
+class ParkingIndex:
+    """Parking lots as areas: every lot is densified, so a point is the nearest spot on its outline, not its centre."""
+
+    def __init__(self, lots=()):
+        """lots: [[(lon, lat), ...]] one outline (or single point) per lot."""
+        pts = [densify(lot) if len(lot) > 1 else xy(lot) for lot in lots if len(lot)]
+        self.xy = np.vstack(pts) if pts else np.zeros((0, 2))
+
+    def __len__(self):
+        return len(self.xy)
+
+    def nearest(self, lon_lat):
+        """(distance in metres, [lon, lat] of the nearest lot point) or None when there are no lots."""
+        if not len(self.xy):
+            return None
+        d = np.hypot(*(self.xy - xy([lon_lat])[0]).T)
+        j = int(d.argmin())
+        x, y = self.xy[j]
+        return float(d[j]), [x / (M_LON * math.cos(math.radians(REF_LAT))), y / M_LAT]
+
+
+def pick_trailhead(end_points, parking):
     """
-    end_points: [(lon, lat)] trail ends; parkings: [(lon, lat)] with parking_xy = xy(parkings).
-    -> ([lon, lat, 1], end_index) for the nearest parking within PARKING_M of any end,
+    end_points: [(lon, lat)] trail ends (both ends of the stitched line); parking: ParkingIndex.
+    -> ([lon, lat, 1], end_index) for the lot point nearest to any end within PARKING_M,
        else ([lon, lat, 0], 0) at the first end. The third value says whether it is a parking lot.
+    The lot point is the nearest spot on the lot's outline to the end, so the app's own distance check agrees.
     """
     best = None
-    if len(parkings):
-        for ei, e in enumerate(end_points):
-            d = np.hypot(*(parking_xy - xy([e])[0]).T)
-            j = int(d.argmin())
-            if d[j] <= PARKING_M and (best is None or d[j] < best[0]):
-                best = (d[j], parkings[j], ei)
+    for ei, e in enumerate(end_points):
+        hit = parking.nearest(e)
+        if hit and hit[0] <= PARKING_M and (best is None or hit[0] < best[0]):
+            best = (hit[0], hit[1], ei)
     if best:
         return [round(best[1][0], 5), round(best[1][1], 5), 1], best[2]
     return [end_points[0][0], end_points[0][1], 0], 0

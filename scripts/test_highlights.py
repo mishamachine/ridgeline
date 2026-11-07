@@ -60,13 +60,34 @@ class Geometry(unittest.TestCase):
 
     def test_trailhead_prefers_parking_within_300_m_of_an_end(self):
         ends = [(-121.8, 47.49), (-121.7, 47.51)]
-        pk = [(-121.8005, 47.4905), (-121.7, 47.5200)]
-        th, ei = hl.pick_trailhead(ends, pk, hl.xy(pk))
+        pk = hl.ParkingIndex([[(-121.8005, 47.4905)], [(-121.7, 47.5200)]])
+        th, ei = hl.pick_trailhead(ends, pk)
         self.assertEqual((th[2], ei), (1, 0))
         self.assertEqual(th[:2], [-121.8005, 47.4905])
-        far = [(-121.5, 47.0)]
-        self.assertEqual(hl.pick_trailhead(ends, far, hl.xy(far)), ([-121.8, 47.49, 0], 0))
-        self.assertEqual(hl.pick_trailhead(ends, [], np.zeros((0, 2)))[0][2], 0)
+        self.assertEqual(hl.pick_trailhead(ends, hl.ParkingIndex([[(-121.5, 47.0)]])), ([-121.8, 47.49, 0], 0))
+        self.assertEqual(hl.pick_trailhead(ends, hl.ParkingIndex())[0][2], 0)
+
+    def test_parking_area_is_measured_to_its_outline_not_its_centre(self):
+        # Rattlesnake Lake lot (way 53622139): centre ~350 m from the trail start, nearest edge ~270 m.
+        lot = [(-121.76828, 47.43305), (-121.76740, 47.43305), (-121.76740, 47.43461), (-121.76828, 47.43461), (-121.76828, 47.43305)]
+        start, ledge = (-121.77165, 47.43564), (-121.7785, 47.43604)
+        centre = (-121.76784, 47.43383)
+        self.assertGreater(hl.ParkingIndex([[centre]]).nearest(start)[0], hl.PARKING_M)
+        th, ei = hl.pick_trailhead([start, ledge], hl.ParkingIndex([lot]))
+        self.assertEqual((th[2], ei), (1, 0))
+        self.assertLessEqual(hl.ParkingIndex([lot]).nearest(start)[0], hl.PARKING_M)
+        self.assertTrue(-121.76828 <= th[0] <= -121.7674 and 47.43305 <= th[1] <= 47.43461)  # on the lot, not the trail
+
+    def test_parking_at_the_far_end_counts(self):
+        ends = [(-121.8, 47.49), (-121.7, 47.51)]
+        th, ei = hl.pick_trailhead(ends, hl.ParkingIndex([[(-121.7003, 47.5101)]]))
+        self.assertEqual((th[2], ei), (1, 1))
+
+    def test_private_and_customer_parking_is_not_a_trailhead(self):
+        for access in ('private', 'no', 'customers', 'delivery'):
+            self.assertFalse(hl.usable_parking({'amenity': 'parking', 'access': access}))
+        for tags in ({'amenity': 'parking'}, {'amenity': 'parking', 'access': 'yes'}, {'amenity': 'parking', 'access': 'permissive'}):
+            self.assertTrue(hl.usable_parking(tags))
 
     def test_branch_point_follows_the_branch_and_stops_at_its_end(self):
         p = hl.branch_point((-121.8, 47.4), [(-121.8, 47.4009), (-121.8, 47.4100)])

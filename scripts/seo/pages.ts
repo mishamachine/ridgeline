@@ -114,7 +114,7 @@ export function describe(t: Trail): string {
   const hl = certainHighlights(t);
   const parts = [`${t.name} is ${shape} ${area}, mapped in OpenStreetMap.`];
   if (hl.length) parts.push(`Mapped highlights: ${hl.join(', ')}.`);
-  parts.push(t.trailheadIsParking ? 'A car park is mapped at the trailhead.' : 'No car park is mapped at the trailhead.');
+  if (t.trailheadIsParking) parts.push('A car park is mapped at the trailhead.');
   return parts.join(' ');
 }
 
@@ -165,8 +165,7 @@ export function renderPage(t: Trail, o: Opts): Page {
       <p>${esc(description)}</p>
       ${sketch(t.coords)}
       <ul>
-        <li>${t.loop ? 'Loop' : 'Out and back'}: ${d} mi ${t.loop ? 'around' : 'round trip'}</li>${hl.length ? `\n        <li>Mapped highlights: ${esc(hl.join(', '))}</li>` : ''}
-        <li>${t.trailheadIsParking ? 'Car park mapped at the trailhead' : 'No car park mapped at the trailhead'}</li>
+        <li>${t.loop ? 'Loop' : 'Out and back'}: ${d} mi ${t.loop ? 'around' : 'round trip'}</li>${hl.length ? `\n        <li>Mapped highlights: ${esc(hl.join(', '))}</li>` : ''}${t.trailheadIsParking ? '\n        <li>Car park mapped at the trailhead</li>' : ''}
       </ul>
       <p><a href="${o.appBase}trail/${t.id}" style="display:inline-block;padding:.8rem 1.2rem;background:#D52B26;color:#fff;border-radius:10px;text-decoration:none;min-height:44px;box-sizing:border-box">Open in Ridgeline</a></p>
       <p><strong>${esc(SAFETY_LINE)}</strong></p>

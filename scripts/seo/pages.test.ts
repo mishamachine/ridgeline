@@ -71,9 +71,10 @@ describe('page text', () => {
     expect(certainHighlights(t)).toEqual(['views', 'dogs allowed']);
     expect(describeTrail(t)).not.toMatch(/climb|\?|ft|difficult|easy|hard|moderate/i);
   });
-  it('says loop or out and back, and whether a car park is mapped', () => {
+  it('says loop or out and back, and mentions a car park only when one is mapped', () => {
     expect(describeTrail(trail({ loop: true, lengthM: 3218, trailheadIsParking: true }))).toMatch(/2\.0 mi loop.*A car park is mapped/);
-    expect(describeTrail(trail({ trailheadIsParking: false }))).toMatch(/out and back.*No car park is mapped/);
+    expect(describeTrail(trail({ trailheadIsParking: false }))).toMatch(/out and back/);
+    expect(describeTrail(trail({ trailheadIsParking: false }))).not.toMatch(/car park|parking/i);
   });
   it('labels the area by the nearest listed town, else Washington', () => {
     expect(areaOf([-121.55, 47.82])).toBe('near Index, WA');
@@ -82,6 +83,14 @@ describe('page text', () => {
 });
 
 describe('renderPage', () => {
+  it('never states an absence of parking: no sentence or list item when no lot is matched', () => {
+    for (const flag of [false, undefined]) {
+      const h = renderPage(trail({ trailheadIsParking: flag }), opts).html;
+      expect(h).not.toMatch(/car park|parking/i);
+      expect(h).not.toMatch(/\bno\b[^.<]*(mapped|parking)/i);
+    }
+    expect(renderPage(trail({ trailheadIsParking: true }), opts).html).toContain('Car park mapped at the trailhead');
+  });
   const p = renderPage(trail({ trailhead: [-121.6, 47.8], trailheadIsParking: true, highlights: ['view'] }), opts);
   it('has title, description, canonical from the base, OG/Twitter, one h1, the SVG, safety line and credits', () => {
     expect(p.html).toContain('<title>Lake Serene Trail — 4.0 mi hike near Index, WA | Ridgeline</title>');
