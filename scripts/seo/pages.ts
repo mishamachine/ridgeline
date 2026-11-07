@@ -9,7 +9,7 @@ import type { Trail } from '../../src/lib/trails';
 import { areaOf } from './places';
 
 export const MIN_MI = 1, MAX_MI = 15, DEFAULT_CAP = 300;
-const ID_OK = /^[A-Za-z0-9_.-]{1,64}$/;
+const ID_OK = /^osm-[rw]\d{1,15}(-\d{1,6})?$/;
 
 export const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 /** JSON for an inline <script type="application/ld+json">: nothing in it can close the tag. */
@@ -94,7 +94,6 @@ export function renderPage(t: Trail, o: Opts): Page {
   const th = t.trailhead ?? t.coords[0];
   const ld = {
     '@context': 'https://schema.org', '@type': 'TouristAttraction', name: t.name, description, url, image,
-    isAccessibleForFree: true,
     geo: { '@type': 'GeoCoordinates', latitude: +th[1].toFixed(5), longitude: +th[0].toFixed(5) },
     sameAs: t.osmUrl,
   };
@@ -104,7 +103,7 @@ export function renderPage(t: Trail, o: Opts): Page {
     `<link rel="canonical" href="${esc(url)}">`,
     `<meta property="og:type" content="website">`, `<meta property="og:site_name" content="Ridgeline">`,
     `<meta property="og:title" content="${esc(title)}">`, `<meta property="og:description" content="${esc(description)}">`,
-    `<meta property="og:url" content="${esc(url)}">`, `<meta property="og:image" content="${esc(image)}">`,
+    `<meta property="og:url" content="${esc(url)}">`, `<meta property="og:image" content="${esc(image)}">`, '<meta property="og:image:width" content="1200">', '<meta property="og:image:height" content="630">', '<meta property="og:image:alt" content="Ridgeline logo: a white ridge line with a red summit dot on black">',
     `<meta name="twitter:card" content="summary_large_image">`,
     `<meta name="twitter:title" content="${esc(title)}">`, `<meta name="twitter:description" content="${esc(description)}">`,
     `<meta name="twitter:image" content="${esc(image)}">`,

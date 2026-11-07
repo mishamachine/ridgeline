@@ -101,7 +101,7 @@ describe('renderPage', () => {
   it('puts the trailhead only in the structured data, and the page is free of scripts other than the bundle and JSON-LD', () => {
     const ld = JSON.parse(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/.exec(p.html)![1]);
     expect(ld['@type']).toBe('TouristAttraction');
-    expect(ld.isAccessibleForFree).toBe(true);
+    expect(ld.isAccessibleForFree).toBeUndefined(); // no fee data: never claim free
     expect(ld.geo).toEqual({ '@type': 'GeoCoordinates', latitude: 47.8, longitude: -121.6 });
     expect(p.html.match(/<script/g)).toHaveLength(2);
     expect(p.html).not.toMatch(/https?:\/\/(?!hike\.example\.org|www\.openstreetmap\.org|schema\.org|www\.w3\.org)/);

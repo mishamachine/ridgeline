@@ -17,6 +17,7 @@ const appBase = process.env.BASE_PATH ?? '/';
 const trailDir = join(dir, 'trails');
 const files = readdirSync(trailDir).filter((f) => /^\d+_\d+\.json$/.test(f)).map((f) => JSON.parse(readFileSync(join(trailDir, f), 'utf8')));
 const picked = seo.selectTrails(cells.cellsToTrails(files), cap);
+if (picked.length < 50) { console.error(`seo pages: only ${picked.length} trails selected from ${trailDir}; refusing to publish a thin sitemap`); process.exit(1); }
 let bytes = 0;
 for (const t of picked) {
   const p = seo.renderPage(t, { base, appBase, template });
