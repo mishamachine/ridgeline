@@ -165,27 +165,41 @@ UNUSABLE_ACCESS = {'private', 'no', 'customers', 'delivery'}
 
 def usable_parking(tags):
     """A lot hikers can use: not tagged private / no / customers-only / delivery."""
-    return tags.get('access', '') not in UNUSABLE_ACCESS
+    values = {v.strip().lower() for v in tags.get('access', '').split(';')}
+    return not (values & UNUSABLE_ACCESS)
 
 
 class ParkingIndex:
-    """Parking lots as areas: every lot is densified, so a point is the nearest spot on its outline, not its centre."""
+    """Parking lots as areas: every lot is densified, so a point is the nearest spot on its outline, not its centre.
+    Points sit in a PARKING_M grid, so a lookup only looks at the 3x3 cells around the query."""
 
     def __init__(self, lots=()):
         """lots: [[(lon, lat), ...]] one outline (or single point) per lot."""
         pts = [densify(lot) if len(lot) > 1 else xy(lot) for lot in lots if len(lot)]
         self.xy = np.vstack(pts) if pts else np.zeros((0, 2))
+        g = defaultdict(list)
+        for i, k in enumerate(map(tuple, np.floor(self.xy / PARKING_M).astype(int))):
+            g[k].append(i)
+        self.grid = {k: np.array(v) for k, v in g.items()}
 
     def __len__(self):
         return len(self.xy)
 
     def nearest(self, lon_lat):
-        """(distance in metres, [lon, lat] of the nearest lot point) or None when there are no lots."""
-        if not len(self.xy):
+        """(distance in metres, [lon, lat] of the nearest lot point), or None when no lot point is within PARKING_M."""
+        if not self.grid:
             return None
-        d = np.hypot(*(self.xy - xy([lon_lat])[0]).T)
+        q = xy([lon_lat])[0]
+        kx, ky = np.floor(q / PARKING_M).astype(int)
+        cand = [self.grid[(kx + dx, ky + dy)] for dx in (-1, 0, 1) for dy in (-1, 0, 1) if (kx + dx, ky + dy) in self.grid]
+        if not cand:
+            return None
+        idx = np.concatenate(cand)
+        d = np.hypot(*(self.xy[idx] - q).T)
         j = int(d.argmin())
-        x, y = self.xy[j]
+        if d[j] > PARKING_M:
+            return None
+        x, y = self.xy[idx[j]]
         return float(d[j]), [x / (M_LON * math.cos(math.radians(REF_LAT))), y / M_LAT]
 
 

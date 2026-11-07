@@ -72,11 +72,24 @@ class Geometry(unittest.TestCase):
         lot = [(-121.76828, 47.43305), (-121.76740, 47.43305), (-121.76740, 47.43461), (-121.76828, 47.43461), (-121.76828, 47.43305)]
         start, ledge = (-121.77165, 47.43564), (-121.7785, 47.43604)
         centre = (-121.76784, 47.43383)
-        self.assertGreater(hl.ParkingIndex([[centre]]).nearest(start)[0], hl.PARKING_M)
+        self.assertIsNone(hl.ParkingIndex([[centre]]).nearest(start))
         th, ei = hl.pick_trailhead([start, ledge], hl.ParkingIndex([lot]))
         self.assertEqual((th[2], ei), (1, 0))
         self.assertLessEqual(hl.ParkingIndex([lot]).nearest(start)[0], hl.PARKING_M)
         self.assertTrue(-121.76828 <= th[0] <= -121.7674 and 47.43305 <= th[1] <= 47.43461)  # on the lot, not the trail
+
+    def test_grid_lookup_matches_a_brute_force_scan(self):
+        rng = np.random.default_rng(7)
+        lots = [[(-121.8 + float(a), 47.4 + float(b)), (-121.8 + float(a) + 0.001, 47.4 + float(b) + 0.0005)]
+                for a, b in rng.uniform(0, 0.05, (300, 2))]
+        idx = hl.ParkingIndex(lots)
+        for q in [(-121.8 + float(a), 47.4 + float(b)) for a, b in rng.uniform(-0.01, 0.06, (60, 2))]:
+            d = np.hypot(*(idx.xy - hl.xy([q])[0]).T).min()
+            got = idx.nearest(q)
+            if d <= hl.PARKING_M:
+                self.assertAlmostEqual(got[0], d, places=6)
+            else:
+                self.assertIsNone(got)
 
     def test_parking_at_the_far_end_counts(self):
         ends = [(-121.8, 47.49), (-121.7, 47.51)]
@@ -86,6 +99,8 @@ class Geometry(unittest.TestCase):
     def test_private_and_customer_parking_is_not_a_trailhead(self):
         for access in ('private', 'no', 'customers', 'delivery'):
             self.assertFalse(hl.usable_parking({'amenity': 'parking', 'access': access}))
+        for access in ('private;customers', 'yes;private', 'Customers', ' no '):
+            self.assertFalse(hl.usable_parking({'amenity': 'parking', 'access': access}), access)
         for tags in ({'amenity': 'parking'}, {'amenity': 'parking', 'access': 'yes'}, {'amenity': 'parking', 'access': 'permissive'}):
             self.assertTrue(hl.usable_parking(tags))
 
