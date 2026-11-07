@@ -36,9 +36,15 @@ describe('routes', () => {
     expect(parseRoute(url[0], url[1], '/', false)).toEqual({ kind: 'tab', tab: 'find' });
     expect(parseRoute('/ridgeline/h/osm-r123', '', '/ridgeline/', true)).toMatchObject({ kind: 'hike', id: 'osm-r123' });
   });
-  it('the flag ships OFF until the domain is live, and the default route follows it', () => {
-    expect(features.celebrate).toBe(false);
-    expect(parseRoute('/h/osm-r123', '?d=1')).toEqual({ kind: 'tab', tab: 'find' });
+  it('the flag is ON now the domain is live, and the default route follows it', () => {
+    expect(features.celebrate).toBe(true);
+    expect(parseRoute('/h/osm-r123', '?d=1')).toEqual({ kind: 'hike', id: 'osm-r123', stats: { miles: 1 } });
+  });
+  it('the privacy page describes sharing a hike and carries today\'s date', () => {
+    const html = readFileSync('public/privacy/index.html', 'utf8');
+    expect(html).toContain('<h2>Sharing a hike</h2>');
+    expect(html).toContain('Last updated 7 November 2026');
+    expect(html).toContain('first and last 200 m');
   });
   it('refuses a bad hike id', () => {
     expect(parseRoute('/h/%E0%A4%A', '', '/', true)).toEqual({ kind: 'tab', tab: 'find' });
