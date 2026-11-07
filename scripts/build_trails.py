@@ -17,7 +17,7 @@ Optional fields (old apps ignore them; `v` stays 1), see scripts/highlights.py:
   h   highlights of the route / connected path ('view','lake','falls','beach','bikes','horses',
       'dogs','nodogs'; a trailing '?' means partial or mixed evidence). 'climb' and 'long' come
       from the stitched trail in the app.
-  th  trailhead [lon, lat, 1|0]: nearest amenity=parking within 300 m of a trail end (1), else a trail end (0)
+  th  trailhead [lon, lat, 1|0]: nearest usable amenity=parking (node or area outline, not private) within 300 m of a trail end (1), else a trail end (0)
   j   junctions on a way: [[vertex index, [[lon, lat, name?], ...]], ...], one point ~20 m along each
       other path that meets the trail at that vertex (routes: inside the member as a 4th item)
 The app stitches ways into trails at run time and builds each trail's profile from these.
@@ -132,7 +132,7 @@ class WayHandler(osmium.SimpleHandler):
         self.modes = {}        # way id -> bicycle/horse/dog tags
         self.paths = {}        # way id -> tags, for named paths not in a route
         self.features = {k: hl.PointIndex() for k in hl.FEATURES}
-        self.parking = []      # (lon, lat)
+        self.parking = []      # one outline per usable lot: [(lon, lat)] (a single point for a node)
 
     def _feature(self, tags, is_water_outer=False, compact=False):
         if tags.get('tourism') == 'viewpoint' or tags.get('natural') == 'peak':
@@ -153,8 +153,8 @@ class WayHandler(osmium.SimpleHandler):
         kind = self._feature(n.tags)
         if kind in ('view', 'falls', 'beach'):
             self.features[kind].add(hl.xy([(n.location.lon, n.location.lat)]))
-        if n.tags.get('amenity') == 'parking':
-            self.parking.append((round(n.location.lon, 5), round(n.location.lat, 5)))
+        if n.tags.get('amenity') == 'parking' and hl.usable_parking(n.tags):
+            self.parking.append([(round(n.location.lon, 5), round(n.location.lat, 5))])
 
     def way(self, w):
         is_member = w.id in self.member_ways
@@ -179,8 +179,8 @@ class WayHandler(osmium.SimpleHandler):
             return
         if kind:
             self.features[kind].add(hl.densify(coords))
-        if is_parking:
-            self.parking.append((round(sum(c[0] for c in coords) / len(coords), 5), round(sum(c[1] for c in coords) / len(coords), 5)))
+        if is_parking and hl.usable_parking(w.tags):
+            self.parking.append(coords)
         if not (is_member or is_path):
             return
         self.geoms[w.id] = coords
@@ -289,7 +289,7 @@ def way_length(coords):
     return float(np.hypot(*(p[1:] - p[:-1]).T).sum()) if len(p) > 1 else 0.0
 
 
-def describe(way_ids, ways, rel_modes, parking_xy):
+def describe(way_ids, ways, rel_modes, parking):
     """(highlights, trailhead, owner way id) for one trail: a route's ways or a connected set of named-path ways."""
     dense = np.vstack([hl.densify(ways.geoms[w]) for w in way_ids])
     feats = {k for k in hl.FEATURES if ways.features[k].near(dense)}
@@ -305,7 +305,7 @@ def describe(way_ids, ways, rel_modes, parking_xy):
     node_lists = [ways.nodes[w] for w in way_ids]
     ends = hl.chain_ends(node_lists)
     end_pts = [ways.geoms[way_ids[wi]][pos] for wi, pos in ends]
-    th, ei = hl.pick_trailhead(end_pts, ways.parking, parking_xy)
+    th, ei = hl.pick_trailhead(end_pts, parking)
     return h, th, way_ids[ends[ei][0]]
 
 
@@ -318,7 +318,7 @@ def build(pbf, out_dir, source, dem_dir=None):
     lats = [c[1] for g in ways.geoms.values() for c in g]
     if lats:
         hl.set_ref_lat(float(np.median(lats)))
-    parking_xy = hl.xy(ways.parking) if ways.parking else np.zeros((0, 2))
+    parking = hl.ParkingIndex(ways.parking)
     route_ways = {rid: [w for w in dict.fromkeys(r['ways']) if w in ways.geoms] for rid, r in routes.routes.items()}
     keys = {}
     for rid, wids in route_ways.items():
@@ -334,10 +334,10 @@ def build(pbf, out_dir, source, dem_dir=None):
     route_info, path_info = {}, {}
     for rid, wids in route_ways.items():
         if wids:
-            h, th, _ = describe(wids, ways, routes.routes[rid]['modes'], parking_xy)
+            h, th, _ = describe(wids, ways, routes.routes[rid]['modes'], parking)
             route_info[rid] = {'h': h, 'th': th}
     for wids in path_groups(ways):
-        h, th, owner = describe(wids, ways, None, parking_xy)
+        h, th, owner = describe(wids, ways, None, parking)
         for w in wids:
             path_info[w] = {'h': h, 'th': th if w == owner else None}
 

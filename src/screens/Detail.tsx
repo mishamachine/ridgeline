@@ -149,7 +149,7 @@ export function Detail({ tpl, trail, bookmarked, onBack, onStart, onSavedChange 
           </div>
 
           <ul className="facts">
-            {trail.trailhead && <li><b>Parking:</b> {trail.trailheadIsParking ? 'a mapped parking lot is next to the trail start' : 'no parking lot mapped; the pin is where the trail starts'}</li>}
+            {trail.trailhead && trail.trailheadIsParking && <li><b>Parking:</b> a mapped parking lot is next to the trail start</li>}
             {trail.tags.sac_scale && <li><b>Terrain:</b> {SAC[trail.tags.sac_scale] ?? trail.tags.sac_scale}</li>}
             {trail.tags.surface && <li><b>Surface:</b> {trail.tags.surface.replace(/_/g, ' ')}</li>}
             {trail.tags.dog && <li><b>Dogs:</b> {trail.tags.dog}</li>}
