@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Ridgeline</string>
+    <string name="title_activity_main">Ridgeline</string>
+    <string name="package_name">com.bbprojectfactory.ridgeline</string>
+    <string name="custom_url_scheme">com.bbprojectfactory.ridgeline</string>
+</resources>

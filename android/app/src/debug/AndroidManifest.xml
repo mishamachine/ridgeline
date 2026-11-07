@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds only (CI emulator run): lets `adb shell am broadcast` start the hike service. Never in release builds. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <receiver android:name=".DebugHikeReceiver" android:exported="true" />
+    </application>
+</manifest>

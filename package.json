@@ -9,12 +9,20 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "build:native": "vite build --mode native --outDir dist-native && npx cap sync",
+    "build:ios": "vite build --mode native --outDir dist-native && npx cap sync ios",
+    "build:android": "vite build --mode native --outDir dist-native && npx cap sync android",
+    "icons": "python3 scripts/make-icons.py",
     "e2e": "playwright test"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@capacitor-community/text-to-speech": "^8.0.2",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/share": "^8.0.3",
     "@fontsource/inter": "^5.3.0",
     "@fontsource/inter-tight": "^5.3.0",
     "idb-keyval": "^6.3.0",
@@ -24,6 +32,10 @@
     "react-dom": "^19.3.1"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/assets": "^4.0.0",
+    "@capacitor/cli": "^8.6.0",
+    "@capacitor/ios": "^8.6.0",
     "@playwright/test": "1.64.1",
     "@types/geojson": "^7946.0.16",
     "@types/node": "^26.6.5",
@@ -40,5 +52,6 @@
     "workbox-routing": "^7.4.1",
     "workbox-strategies": "^7.4.1"
   },
-  "type": "module"
+  "type": "module",
+  "versionCode": 1
 }

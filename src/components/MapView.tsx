@@ -6,6 +6,7 @@ import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 setWorkerUrl(workerUrl);
 import { swissStyle, INK, RED } from '../lib/mapStyle';
 import type { LngLat } from '../lib/geo';
+import { transformRequest } from '../lib/native/offlineMaps';
 
 interface Props {
   tileTemplate: string;
@@ -39,6 +40,7 @@ export function MapView({ tileTemplate, center, zoom = 12, bounds, interactive =
       attributionControl: { compact: true },
       dragRotate: false,
       pitchWithRotate: false,
+      transformRequest, // native apps only: saved maps come from Cache Storage (no service worker there)
     });
     map.touchZoomRotate.disableRotation();
     map.on('error', (e) => { console.warn('[map]', e.error?.message ?? e); problem.current?.(); });

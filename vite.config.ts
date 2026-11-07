@@ -34,7 +34,7 @@ const devNames: Plugin = {
   },
 };
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   base,
   test: { exclude: ['node_modules/**', 'dist/**', 'e2e/**', 'test-results/**'] }, // e2e/ is Playwright's (npm run e2e)
   // Dev only: set TRAILS_PROXY=https://<host> to read hosted trail cells from a live site.
@@ -44,6 +44,8 @@ export default defineConfig({
     spaFallback,
     devNames,
     VitePWA({
+      // The native apps bundle everything and have no service worker (vite build --mode native).
+      disable: mode === 'native',
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.ts',
@@ -70,4 +72,4 @@ export default defineConfig({
       },
     }),
   ],
-});
+}));
