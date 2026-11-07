@@ -72,7 +72,12 @@ export async function loadGlyph(url: string, d: Deps = defaults()): Promise<Arra
 
 export async function loadMapResource(requestUrl: string, d?: Deps): Promise<ArrayBuffer> {
   const url = requestUrl.startsWith(`${PROTOCOL}://`) ? requestUrl.slice(PROTOCOL.length + 3) : requestUrl;
-  return isGlyph(new URL(url)) ? loadGlyph(url, d) : loadTile(url, d);
+  let u: URL;
+  try { u = new URL(url); } catch { throw new Error('Not a map URL'); }
+  if (u.protocol !== 'https:') throw new Error('Not a map URL');
+  if (isGlyph(u)) return loadGlyph(url, d);
+  if (isTile(u)) return loadTile(url, d);
+  throw new Error('Not a map URL'); // only OpenFreeMap tiles and fonts go through here
 }
 
 /** Round-trips one entry through Cache Storage; logged once at start-up so a simulator or device log shows whether it works. */

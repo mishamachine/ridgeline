@@ -25,7 +25,7 @@
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Ridgeline uses your location only during a hike you start, to show your position and speak directions. It stays on your phone.</string>
+	<string>Ridgeline uses your location to centre the map when you tap Near me or Locate, and to show your position and speak directions during a hike you start. It stays on your phone.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
@@ -58,7 +58,7 @@
 	<string>Main</string>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
-		<string>armv7</string>
+		<string>arm64</string>
 	</array>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>

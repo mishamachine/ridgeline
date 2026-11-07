@@ -52,6 +52,15 @@ Keep the file and passwords in your password manager, not in the repo.
 7. Associated domains: once the Team ID is known, replace `TODO_RELEASE_TEAMID` in
    `public/.well-known/apple-app-site-association` and deploy it to hike.bbprojectfactory.com.
 
+### App Review note (guideline 2.5.4, background location)
+
+Background modes are `location` and `audio`. Paste in the review notes: "Ridgeline uses the location background mode only
+while the user has started a hike in the app (Start hike), to keep showing their position and to speak turn
+directions through the audio background mode while the phone is locked or in a pocket. Location updates start when
+the hike starts and stop when it ends; the system blue location indicator is shown the whole time. Location is never
+sent off the device. Without the background mode, directions would stop when the screen locks and hikers could miss a
+fork." Also paste the "Safety line" above. Purpose string text is in `ios/App/App/Info.plist`.
+
 ## Google Play (Android)
 
 1. Play Console -> Create app: "Ridgeline", package `com.bbprojectfactory.ridgeline`. Use Play App Signing.

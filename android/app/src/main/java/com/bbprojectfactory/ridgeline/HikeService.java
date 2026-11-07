@@ -161,6 +161,14 @@ public class HikeService extends Service {
         s.onFix(o);
     }
 
+    /** The app was swiped away: end the hike service and its notification with it. */
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        stopForeground(STOP_FOREGROUND_REMOVE);
+        stopSelf();
+        super.onTaskRemoved(rootIntent);
+    }
+
     @Override
     public void onDestroy() {
         if (fused != null && fusedCallback != null) fused.removeLocationUpdates(fusedCallback);

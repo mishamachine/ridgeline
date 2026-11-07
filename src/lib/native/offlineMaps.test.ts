@@ -68,6 +68,16 @@ describe('offline maps in the apps', () => {
     expect(arr(await loadTile(TILE, d))).toEqual([4]);
   });
 
+  it('refuses anything that is not an OpenFreeMap tile or font', async () => {
+    const fetchFn = vi.fn();
+    const d: Deps = { caches: fakeCaches(), fetch: fetchFn as unknown as typeof fetch };
+    await expect(loadMapResource(`${PROTOCOL}://https://evil.example/planet/1/2/3.pbf`, d)).rejects.toThrow();
+    await expect(loadMapResource(`${PROTOCOL}://https://tiles.openfreemap.org/other.json`, d)).rejects.toThrow();
+    await expect(loadMapResource(`${PROTOCOL}://http://tiles.openfreemap.org/planet/1/2/3.pbf`, d)).rejects.toThrow();
+    await expect(loadMapResource('not a url', d)).rejects.toThrow();
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   it('does not rewrite requests in a browser', () => {
     expect(transformRequest(TILE)).toBeUndefined();
   });
