@@ -1,17 +1,17 @@
 // Trail-name search over the hosted index (trails/names.json, built by scripts/name_index.py).
 import { haversine, type LngLat } from './geo';
+import { trailBase } from './native/trailBase';
 
 /** [id, name, lon, lat, length in metres] */
 export type NameEntry = [string, string, number, number, number];
 interface NameFile { v: number; e: NameEntry[] }
 
-const base = () => `${import.meta.env.BASE_URL ?? '/'}trails/`;
 
 let promise: Promise<NameEntry[]> | null = null;
 
 /** The whole index, fetched once, only when someone starts searching. Empty when none is deployed. */
 export function loadNameIndex(): Promise<NameEntry[]> {
-  promise ??= fetch(`${base()}names.json`)
+  promise ??= fetch(`${trailBase()}names.json`)
     .then((r) => (r.ok ? (r.json() as Promise<NameFile>) : null))
     .then((f) => f?.e ?? [])
     .catch(() => [] as NameEntry[])

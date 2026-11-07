@@ -1,4 +1,5 @@
 # Ridgeline on Apache/LiteSpeed (Hostinger)
+SetEnvIf Origin "^(capacitor|https)://localhost$" CORS_ORIGIN=$0
 RewriteEngine On
 # www to apex first (always to https, one hop), then http to https; HSTS below (1 year, no preload yet)
 RewriteCond %{HTTP_HOST} ^www\.(.+)$ [NC]
@@ -23,6 +24,12 @@ AddType application/json .json
   # Always check for app updates
   <FilesMatch "^(sw\.js|registerSW\.js|index\.html|manifest\.webmanifest)$">
     Header set Cache-Control "no-cache"
+  </FilesMatch>
+  # Trail data (the only .json files served) is public: the native apps may read it from their WebView origin
+  # (capacitor://localhost on iOS, https://localhost on Android) and nobody else is allowed cross-origin.
+  <FilesMatch "\.json$">
+    Header set Access-Control-Allow-Origin "%{CORS_ORIGIN}e" env=CORS_ORIGIN
+    Header merge Vary Origin
   </FilesMatch>
   Header always set Strict-Transport-Security "max-age=31536000"
 </IfModule>
