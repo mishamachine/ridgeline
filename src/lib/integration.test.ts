@@ -45,6 +45,7 @@ describe('routes', () => {
     expect(html).toContain('<h2>Sharing a hike</h2>');
     expect(html).toContain('Last updated 7 November 2026');
     expect(html).toContain('first and last 200 m');
+    expect(html).toContain('whether you finished');
   });
   it('refuses a bad hike id', () => {
     expect(parseRoute('/h/%E0%A4%A', '', '/', true)).toEqual({ kind: 'tab', tab: 'find' });

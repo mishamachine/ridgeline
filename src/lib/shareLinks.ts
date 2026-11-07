@@ -15,14 +15,8 @@ export interface HikeStats {
   partial?: boolean;
 }
 
-/**
- * Where share links point. On the web: the origin the app is served from. On native, and for anything
- * that outlives the host (the printed card URL and QR), the canonical SITE_URL.
- */
-export function shareBase(): string {
-  if (typeof window === 'undefined' || (window as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()) return SITE_URL;
-  return `${window.location.origin}${import.meta.env.BASE_URL}`.replace(/\/+$/, '');
-}
+/** Where share links point: always the canonical SITE_URL, on the web and in the apps, so no link names an old or mirror host. */
+export const shareBase = (): string => SITE_URL;
 
 export const isTrailId = (id: unknown): id is string => typeof id === 'string' && TRAIL_ID.test(id);
 

@@ -189,14 +189,14 @@ describe('highlights', () => {
 });
 
 describe('link origin', () => {
-  it('web links use the host the user is on; no window means the public site', async () => {
+  it('every link uses the public site, whatever host the app is served from', async () => {
     const { linkOrigin, linkBase } = await import('./origin');
     expect(linkOrigin()).toBe(SITE_URL);
     expect(linkBase()).toBe('/');
     (globalThis as unknown as { window: unknown }).window = { location: { origin: 'https://example.test' } };
     try {
-      expect(linkOrigin()).toBe('https://example.test');
-      expect(trailUrl(trail({ id: 'osm-r1', name: 'X' }))).toMatch(/^https:\/\/example\.test\/trail\/osm-r1\?ll=/);
+      expect(linkOrigin()).toBe(SITE_URL);
+      expect(trailUrl(trail({ id: 'osm-r1', name: 'X' }))).toMatch(/^https:\/\/hike\.bbprojectfactory\.com\/trail\/osm-r1\?ll=/);
       (globalThis as unknown as { window: unknown }).window = { Capacitor: { isNativePlatform: () => true }, location: { origin: 'capacitor://localhost' } };
       expect(linkOrigin()).toBe(SITE_URL);
     } finally { delete (globalThis as unknown as { window?: unknown }).window; }
