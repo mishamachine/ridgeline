@@ -8,3 +8,5 @@ __pycache__/
 
 .dev-data/
 *.tsbuildinfo
+test-results/
+playwright-report/
