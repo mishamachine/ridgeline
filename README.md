@@ -26,6 +26,8 @@ GPS and offline need HTTPS (or localhost).
 
 ## Deploy
 
+Canonical host: https://hike.bbprojectfactory.com (moved from the old bobolearns subdomain, which was removed, 6 Nov 2026; see docs/DOMAIN_MOVE.md). The GitHub Pages copy is noindex.
+
 Each push to `main` builds and publishes to GitHub Pages through `.github/workflows/deploy.yml`.
 
 One-time setup: in the repo, go to **Settings → Pages → Source** and choose **GitHub Actions**.

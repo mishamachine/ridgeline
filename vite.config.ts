@@ -41,6 +41,13 @@ export default defineConfig(({ mode }) => ({
   server: process.env.TRAILS_PROXY ? { proxy: { '/trails': { target: process.env.TRAILS_PROXY, changeOrigin: true } } } : {},
   plugins: [
     react(),
+    {
+      // The GitHub Pages copy (BASE_PATH other than "/") must not compete with the canonical host.
+      name: 'noindex-pages-copy',
+      transformIndexHtml(html) {
+        return base === '/' ? html : html.replace('</head>', '  <meta name="robots" content="noindex">\n  </head>');
+      },
+    },
     spaFallback,
     devNames,
     VitePWA({
