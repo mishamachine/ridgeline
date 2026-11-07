@@ -6,6 +6,7 @@ import { GpsEngine } from '../gps/engine';
 import type { Junction } from '../trails';
 import { Announcer, type Utterance } from './announcer';
 import { forksFor, nextStep } from './forkpoints';
+import { TurnBack } from './turnback';
 import { OffRouteWords, offRouteSide } from './offroute';
 import { shortDistance, spokenDistance } from './units';
 
@@ -253,5 +254,39 @@ describe('off-route words settle', () => {
     expect(out).toEqual([false, false, false, false, false, false, true, true]);
     const flat = new OffRouteWords();
     expect([60, 61, 59, 60, 61, 60, 60].map((d) => flat.push(r('ahead', d))!.closing).some(Boolean)).toBe(false);
+  });
+});
+
+describe('an automatic switch that was a mis-snap stays quiet', () => {
+  it('armed at 92%, mis-snapped 70 m back, then the hiker carries on forward: no fork line on the reversed route', () => {
+    const fr = new Frame([-121.7, 47.5]);
+    const coords: LngLat[] = [fr.toLngLat(0, 0), fr.toLngLat(500, 0), fr.toLngLat(1000, 0)];
+    const total = cumulative(coords).at(-1)!;
+    const J: Junction[] = [{ along: 800, branches: [{ name: 'Side Path', point: fr.toLngLat(817, 10) }, { point: fr.toLngLat(783, 10) }] }];
+    const tb = new TurnBack(total, false);
+    let fired = false;
+    const range = (to: number) => Array.from({ length: Math.floor(to / 1.2) + 1 }, (_, i) => i * 1.2);
+    for (const d of [...range(920), 920, 920, 850, 850, 850]) { // up to 92%, then a mis-snap 70 m back
+      if (tb.update(d, false)) { fired = true; break; }
+    }
+    expect(fired).toBe(true);
+    // Navigate now builds the reversed route's announcer, hushed until 60 m have really been walked that way.
+    const back = new Announcer({ forks: forksFor(coords, J, true, 'Mount Test Trail'), turnarounds: [], total });
+    back.hushForksUntilWalked(60);
+    const said: Utterance[] = [];
+    const revAlong = (orig: number) => total - orig;
+    // The hiker was really still going forward: original 850 -> 960 is reversed 150 -> 40. Without the hush the fork 50 m ahead on the reversed route (original 800) is announced at once.
+    for (let o = 850, t = 0; o <= 960; o += 1.2, t++) said.push(...back.update({ t: T0 + t * 1000, along: revAlong(o), offRoute: false }));
+    expect(texts(said)).toEqual([]);
+  });
+  it('a real walk back releases the hush after 60 m, whatever the clock says', () => {
+    const fr = new Frame([-121.7, 47.5]);
+    const coords: LngLat[] = [fr.toLngLat(0, 0), fr.toLngLat(500, 0), fr.toLngLat(1000, 0)];
+    const J: Junction[] = [{ along: 500, branches: [{ name: 'Side Path', point: fr.toLngLat(517, 10) }, { point: fr.toLngLat(483, 10) }] }];
+    const a = new Announcer({ forks: forksFor(coords, J, true, 'Mount Test Trail'), turnarounds: [], total: 1000 });
+    a.hushForksUntilWalked(60);
+    const said: Utterance[] = [];
+    for (let d = 0, t = 0; d <= 520; d += 1.2, t++) said.push(...a.update({ t: T0 + t * 1000, along: d, offRoute: false }));
+    expect(texts(said).length).toBeGreaterThan(0);
   });
 });

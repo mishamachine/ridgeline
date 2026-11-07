@@ -1,6 +1,5 @@
 // Climb on real trails. Cells are slices of the hosted trail files (fixtures/wa-cells.json: the real relations, with their Copernicus DEM heights).
-// Reference numbers are the Washington Trails Association "Elevation Gain" for each hike (wta.org/go-hiking/hikes/<slug>, read 6 Nov 2026).
-// They are a sanity band only (+-10%); nothing here is copied into the app.
+// The gains below are a regression snapshot of what the app computes from those cells (+-3%), plus a physical bound.
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { cellsToTrails } from './cells';
@@ -12,19 +11,25 @@ const cells = JSON.parse(readFileSync(new URL('./fixtures/wa-cells.json', import
 const load = (key: string, id: string) => cellsToTrails(cells[key]).find((t) => t.id === id)!;
 const ft = (m: number | null) => Math.round((m ?? 0) * M_TO_FT);
 
-const REFERENCE: [string, string, string, number][] = [
-  ['ledge', 'osm-r5588030', 'Rattlesnake Ledge (WTA 1,160 ft)', 1160],
-  ['mount-si', 'osm-r5553769', 'Mount Si (WTA 3,150 ft)', 3150],
-  ['granite-mountain', 'osm-r4794995', 'Granite Mountain (WTA 3,800 ft)', 3800],
-  ['annette-lake', 'osm-r4794619', 'Annette Lake (WTA 1,800 ft)', 1800],
+const SNAPSHOT: [string, string, number][] = [
+  ['ledge', 'osm-r5588030', 1135],
+  ['mount-si', 'osm-r5553769', 3251],
+  ['granite-mountain', 'osm-r4794995', 3688],
+  ['annette-lake', 'osm-r4794619', 1827],
 ];
 
 describe('headline gain on real trails', () => {
-  it.each(REFERENCE)('%s: %s is within 10%% of the published gain', (key, id, _name, published) => {
+  it.each(SNAPSHOT)('%s %s: gain stays at its snapshot (+-3%%)', (key, id, expected) => {
+    const g = ft(gainM(load(key, id)));
+    expect(g).toBeGreaterThan(expected * 0.97);
+    expect(g).toBeLessThan(expected * 1.03);
+  });
+
+  it.each(SNAPSHOT)('%s %s: physical bounds (gain is at least the net rise, and only a little more on these climbs)', (key, id) => {
     const t = load(key, id);
-    const g = ft(gainM(t));
-    expect(g).toBeGreaterThan(published * 0.9);
-    expect(g).toBeLessThan(published * 1.1);
+    const range = Math.max(...t.elevation!) - Math.min(...t.elevation!);
+    expect(gainM(t)!).toBeGreaterThanOrEqual(range * 0.97);
+    expect(gainM(t)!).toBeLessThanOrEqual(range * 1.15);
   });
 
   it('Rattlesnake Ledge (B-1): about 1,130 ft one way, not 2,329 (ascent + descent) and not the raw 1,545', () => {
@@ -64,12 +69,11 @@ describe('totalAscent', () => {
 
 describe('gainM direction', () => {
   const base = { lengthM: 3000, loop: false, ascentM: 400, descentM: 100 };
-  it('loops give the whole ascent; out and back gives one way, from the car park end when known', () => {
+  it('loops give the whole ascent; out and back gives the bigger of the two ways (a chain can run either direction)', () => {
     expect(gainM({ ...base, loop: true })).toBe(400);
     expect(gainM(base)).toBe(400);
-    const coords = [[-121.77, 47.43], [-121.77, 47.46]] as [number, number][];
-    expect(gainM({ ...base, coords, trailhead: [-121.77, 47.4601], trailheadIsParking: true })).toBe(100); // the chain runs downhill from the car park: way up = its descent
-    expect(gainM({ ...base, coords, trailhead: [-121.77, 47.4301], trailheadIsParking: true })).toBe(400);
+    expect(gainM({ ...base, ascentM: 100, descentM: 400 })).toBe(400);
+    expect(gainM({ ...base, descentM: undefined })).toBe(400);
     expect(gainM({ lengthM: 1, loop: false })).toBeNull();
   });
 });

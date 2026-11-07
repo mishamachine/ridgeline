@@ -43,3 +43,18 @@ describe('controllerchange', () => {
     expect(posted).toEqual([]);
   });
 });
+
+describe('chunk load failure', () => {
+  it('reloads once, then leaves it to the Reload button; never mid-hike', async () => {
+    const store = new Map<string, string>();
+    vi.stubGlobal('sessionStorage', { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v) });
+    const { reloadAfterChunkError, setHikeActive } = await import('./swUpdate');
+    const reload = vi.fn();
+    setHikeActive(true);
+    expect(reloadAfterChunkError(10_000, reload)).toBe(false);
+    setHikeActive(false);
+    expect(reloadAfterChunkError(10_000, reload)).toBe(true);
+    expect(reloadAfterChunkError(10_500, reload)).toBe(false);
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+});

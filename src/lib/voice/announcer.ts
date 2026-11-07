@@ -56,7 +56,7 @@ export class Announcer {
   private offAt: number | null = null;
   private finished = false;
   private seenMid = false;
-  private hush: { t0?: number; a0?: number } | null = null;
+  private hush: { t0?: number; a0?: number; minM?: number } | null = null;
 
   constructor(private route: AnnouncerRoute, private units: Units = 'imperial') {}
 
@@ -69,6 +69,8 @@ export class Announcer {
    * Fork and turnaround lines are marked as said but not spoken until HUSH_MS have passed and the hiker has moved HUSH_GROW_M.
    */
   hushForks() { this.hush = {}; }
+  /** For an automatic switch (it may be a mis-snap): quiet until the hiker has really walked `minM` the new way, with no time release. */
+  hushForksUntilWalked(minM: number) { this.hush = { minM }; }
 
   update(i: AnnouncerInput): Utterance[] {
     const out: Utterance[] = [];
@@ -76,7 +78,8 @@ export class Announcer {
     if (this.hush && i.along != null && !i.offRoute) {
       this.hush.t0 ??= i.t;
       this.hush.a0 ??= i.along;
-      if (i.t - this.hush.t0 >= HUSH_MS && i.along - this.hush.a0 >= HUSH_GROW_M) this.hush = null;
+      const h = this.hush;
+      if (h.minM != null ? i.along - h.a0! >= h.minM : i.t - h.t0! >= HUSH_MS && i.along - h.a0! >= HUSH_GROW_M) this.hush = null;
     }
     const sayRoute = this.hush ? () => 0 : say;
 

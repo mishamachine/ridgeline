@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getTileTemplate } from './lib/offline';
 import { listAllSaved } from './lib/saved';
 import { bookmark, unsave } from './lib/saved';
@@ -25,6 +25,7 @@ import { FindIcon, HikeIcon, ProfileIcon, SavedIcon } from './components/NavIcon
 import { count } from './lib/counter';
 import { setHikeActive } from './lib/swUpdate';
 import { Toaster } from './components/Toaster';
+import { Later } from './components/ScreenBoundary';
 import { Find } from './screens/Find';
 import { Hike } from './screens/Hike';
 import { Saved } from './screens/Saved';
@@ -39,7 +40,6 @@ const Profile = lazy(() => import('./screens/Profile').then((m) => ({ default: m
 const Badges = lazy(() => import('./screens/Badges').then((m) => ({ default: m.Badges })));
 const Celebrate = lazy(() => import('./screens/Celebrate').then((m) => ({ default: m.Celebrate })));
 const Landing = lazy(() => import('./screens/Landing').then((m) => ({ default: m.Landing })));
-const Later = ({ children }: { children: React.ReactNode }) => <Suspense fallback={<Placeholder title="Loading…" />}>{children}</Suspense>;
 
 export type { Tab };
 
