@@ -1,0 +1,16 @@
+[
+  { "label": "Rattlesnake Ledge", "osm": ["r5588030"], "near": [-121.772, 47.436] },
+  { "label": "Lake 22", "osm": ["r5537770"], "near": [-121.746, 48.077], "name": "Lake Twenty Two Trail (Lake 22)" },
+  { "label": "Wallace Falls", "osm": ["r5634476"], "near": [-121.655, 47.873], "name": "Wallace Falls (Woody Trail)" },
+  { "label": "Maple Pass (Loop)", "osm": ["r6632394"], "near": [-120.736, 48.515] },
+  { "label": "Mount Si", "osm": ["r5553769"], "near": [-121.723, 47.488] },
+  { "label": "Lake Serene", "osm": ["r4807642"], "near": [-121.574, 47.809] },
+  { "label": "Mailbox Peak", "osm": ["r5426108", "r18019377"], "near": [-121.639, 47.462] },
+  { "label": "Snow Lake (Snoqualmie)", "osm": ["r4793517"], "near": [-121.448, 47.469] },
+  { "label": "Colchuck Lake", "osm": ["r4152031"], "near": [-120.821, 47.528] },
+  { "label": "Skyline Trail (Paradise, Mount Rainier)", "osm": ["r5199914"], "near": [-121.733, 46.791], "name": "Skyline Trail (Paradise, Mount Rainier)" },
+  { "label": "Twin Falls (Olallie)", "osm": ["r4039417"], "near": [-121.705, 47.453], "bench": true },
+  { "label": "Franklin Falls", "osm": ["r4794997"], "near": [-121.433, 47.425], "bench": true },
+  { "label": "Poo Poo Point", "osm": ["r5519227"], "near": [-122.03, 47.519], "bench": true },
+  { "label": "Mount Pilchuck", "osm": ["r5537775"], "near": [-121.815, 48.07], "bench": true }
+]

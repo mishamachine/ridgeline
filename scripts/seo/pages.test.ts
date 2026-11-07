@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { Trail } from '../../src/lib/trails';
-import { addToSitemap, canonicalBase, certainHighlights, describe as describeTrail, esc, jsonLd, renderPage, selectTrails } from './pages';
+import { cellsToTrails, type CellFile } from '../../src/lib/cells';
+import { addToSitemap, canonicalBase, certainHighlights, describe as describeTrail, esc, findSeed, hikingSignal, jsonLd, renderPage, selectTrails, selectWithSeeds, type Seed } from './pages';
+import seedList from './seed.json';
+import fixtureCells from './fixtures/cells.json';
 import { areaOf } from './places';
 
 const line = (n = 40, lon = -121.6, lat = 47.8): [number, number][] => Array.from({ length: n }, (_, i) => [lon + i * 0.0006, lat + Math.sin(i / 5) * 0.0004]);
@@ -36,9 +39,9 @@ describe('canonicalBase', () => {
 
 describe('selectTrails', () => {
   const routes = Array.from({ length: 5 }, (_, i) => trail({ id: `osm-r${i + 1}`, name: `Route Number ${i + 1}`, coords: line(40, -121.6 + i * 0.5) }));
-  const sacPath = trail({ id: 'osm-w9-0', name: 'Mailbox Peak Path', coords: line(40, -122.5), tags: { sac_scale: 'hiking' } });
+  const sacPath = trail({ id: 'osm-w9-0', name: 'Some Rocky Path', coords: line(40, -122.5), tags: { sac_scale: 'hiking' } });
   const plainPath = trail({ id: 'osm-w8-0', name: 'Some Other Path', coords: line(40, -123.5) });
-  it('routes first, then sac_scale paths; plain paths are left out', () => {
+  it('routes before sac_scale paths of the same kind; plain paths are left out', () => {
     const ids = selectTrails([plainPath, sacPath, ...routes]).map((t) => t.id);
     expect(ids.slice(0, 5).sort()).toEqual(['osm-r1', 'osm-r2', 'osm-r3', 'osm-r4', 'osm-r5']);
     expect(ids[5]).toBe('osm-w9-0');
@@ -139,5 +142,68 @@ describe('addToSitemap', () => {
     expect(twice).toContain('<loc>https://hike.example.org/trail/b/</loc>');
     expect(twice).not.toContain('/trail/a/');
     expect(twice.match(/<loc>/g)).toHaveLength(2);
+  });
+});
+
+// Real cell shapes (thinned) for flagship routes plus the Bridle Crest Trail, from the hosted data of 6 Nov 2026.
+const real = cellsToTrails([fixtureCells as unknown as CellFile]);
+const seeds = seedList as Seed[];
+const routes = Array.from({ length: 5 }, (_, i) => trail({ id: `osm-r${i + 1}`, name: `Route Number ${i + 1}`, coords: line(40, -121.6 + i * 0.5) }));
+
+describe('seed list', () => {
+  it('has the ten must-haves and four bench trails, each with an OSM id and a spot', () => {
+    expect(seeds.filter((s) => !s.bench)).toHaveLength(10);
+    expect(seeds.filter((s) => s.bench)).toHaveLength(4);
+    for (const s of seeds) { expect(s.osm.length).toBeGreaterThan(0); s.osm.forEach((o) => expect(o).toMatch(/^[rw]\d+$/)); expect(s.near).toHaveLength(2); }
+    for (const l of ['Rattlesnake Ledge', 'Lake 22', 'Wallace Falls', 'Maple Pass (Loop)', 'Mount Si', 'Lake Serene', 'Mailbox Peak']) expect(seeds.map((s) => s.label)).toContain(l);
+  });
+  it('finds flagships by OSM id even when the name differs', () => {
+    const lake22 = seeds.find((s) => s.label === 'Lake 22')!;
+    expect(findSeed(real, lake22)?.id).toBe('osm-r5537770');
+    expect(findSeed(real, seeds.find((s) => s.label === 'Wallace Falls')!)?.id).toBe('osm-r5634476');
+  });
+  it('matches a split way trail on its min way id, else by name near the spot', () => {
+    const split = trail({ id: 'osm-w456-1', name: 'Some Peak Trail', coords: line(40, -121.5, 47.5) });
+    expect(findSeed([split], { label: 'x', osm: ['w456'], near: [0, 0] })?.id).toBe('osm-w456-1');
+    expect(findSeed([split], { label: 'Some Peak', osm: ['w999'], near: [-121.49, 47.5] })?.id).toBe('osm-w456-1');
+    expect(findSeed([split], { label: 'Some Peak', osm: ['w999'], near: [-120, 47.5] })).toBeUndefined();
+  });
+  it('puts seeds first, allows up to 20 mi, and applies a display name', () => {
+    const big = trail({ id: 'osm-r700', name: 'Big Peak Trail', lengthM: 14000, coords: line(40, -121.9) }); // ~17 mi out and back
+    const sel = selectWithSeeds([...routes, big], [{ label: 'Big Peak', osm: ['r700'], near: [-121.9, 47.8], name: 'Big Peak (Seed)' }], 4);
+    expect(sel.trails[0]).toMatchObject({ id: 'osm-r700', name: 'Big Peak (Seed)' });
+    expect(selectTrails([big])).toEqual([]);
+    expect(sel.trails).toHaveLength(4);
+    expect(sel.missing).toEqual([]);
+  });
+  it('reports a seed it cannot find instead of throwing', () => {
+    const sel = selectWithSeeds(routes, [{ label: 'Nowhere Peak', osm: ['r99999'], near: [0, 0] }]);
+    expect(sel.missing).toEqual(['Nowhere Peak']);
+    expect(sel.trails.length).toBe(routes.length);
+  });
+  it('real flagship fixture: every fixture seed is found', () => {
+    const sel = selectWithSeeds(real, seeds);
+    expect(sel.seeded.map((s) => s.id).sort()).toEqual(['osm-r5426108', 'osm-r5537770', 'osm-r5537775', 'osm-r5588030', 'osm-r5634476']);
+    expect(sel.missing).toContain('Maple Pass (Loop)');
+  });
+});
+
+describe('hiking signal', () => {
+  const bridle = real.find((t) => t.name === 'Bridle Crest Trail')!;
+  const pilchuck = real.find((t) => t.name === 'Mount Pilchuck Trail')!;
+  it('puts a hiking peak route above a Bridle Crest-like path', () => {
+    expect(hikingSignal(pilchuck)).toBeGreaterThan(hikingSignal(bridle));
+    const ids = selectTrails([bridle, pilchuck]).map((t) => t.id);
+    expect(ids).toEqual(['osm-r5537775', 'osm-r10668791']);
+  });
+  it('pushes down connectors, horse-only and access paths', () => {
+    const base = hikingSignal(trail({ name: 'Fern Lake Trail' }));
+    expect(hikingSignal(trail({ name: 'Fern Lake Connector' }))).toBeLessThan(base);
+    expect(hikingSignal(trail({ name: 'Fern Lake Trail', tags: { horse: 'designated' } }))).toBeLessThan(base);
+    expect(hikingSignal(trail({ name: 'Fern Lake Trail', tags: { horse: 'designated', foot: 'designated' } }))).toBe(base);
+  });
+  it('is deterministic whatever the input order', () => {
+    const a = selectTrails(real).map((t) => t.id), b = selectTrails([...real].reverse()).map((t) => t.id);
+    expect(a).toEqual(b);
   });
 });
