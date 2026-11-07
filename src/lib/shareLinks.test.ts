@@ -94,10 +94,10 @@ describe('isTrailId', () => {
 
 describe('web vs native base', () => {
   afterEach(() => vi.unstubAllGlobals());
-  it('uses the serving origin on the web, but the canonical host on the card', () => {
+  it('uses the canonical host on the web too, never the serving origin', () => {
     vi.stubGlobal('window', { location: { origin: 'https://example.test' } });
-    expect(appShareUrl()).toBe('https://example.test/?ref=share');
-    expect(hikeShareUrl(hike).startsWith('https://example.test/h/osm-r123?')).toBe(true);
+    expect(appShareUrl()).toBe(`${SITE_URL}/?ref=share`);
+    expect(hikeShareUrl(hike).startsWith(`${SITE_URL}/h/osm-r123?`)).toBe(true);
     expect(trailUrl('osm-r123')).toBe(`${SITE_URL}/h/osm-r123`);
   });
   it('uses SITE_URL on native', () => {
