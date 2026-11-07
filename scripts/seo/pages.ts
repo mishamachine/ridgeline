@@ -1,8 +1,7 @@
 // Thin pre-rendered trail pages for search engines. Pure functions here; scripts/seo-pages.mjs does the file work.
-// No climb or difficulty yet: the climb figures are being fixed (cto/test-pass-fixes). TODO(climb): add them once that lands.
-import { M_TO_MI, haversine, resample, type LngLat } from '../../src/lib/geo';
+import { M_TO_FT, M_TO_MI, haversine, resample, type LngLat } from '../../src/lib/geo';
 import { mi } from '../../src/lib/format';
-import { roundTripM } from '../../src/lib/plan';
+import { gainM, level, roundTripM } from '../../src/lib/plan';
 import { filterTrails, isJunkName, isRoute, relevance } from '../../src/lib/quality';
 import { ELEVATION_NOTICE, SAFETY_LINE } from '../../src/lib/credits';
 import type { Trail } from '../../src/lib/trails';
@@ -108,13 +107,21 @@ export function sketch(coords: LngLat[], w = 320, h = 200, pad = 14): string {
     + `<circle cx="${a[0]}" cy="${a[1]}" r="5" fill="#ffffff" stroke="#111111" stroke-width="2"/><circle cx="${b[0]}" cy="${b[1]}" r="5" fill="#D52B26"/></svg>`;
 }
 
+/** Climb in feet to the nearest 10, from the app's own gain (one way up for out and back, total for a loop). */
+export function gainFt(t: Trail): number | null {
+  const g = gainM(t);
+  return g == null ? null : Math.round(g * M_TO_FT / 10) * 10;
+}
+
 export function describe(t: Trail): string {
   const d = mi(roundTripM(t)), area = areaOf(t.coords[0]);
   const shape = t.loop ? `a ${d} mi loop` : `a ${mi(t.lengthM)} mi trail (${d} mi out and back)`;
   const hl = certainHighlights(t);
   const parts = [`${t.name} is ${shape} ${area}, mapped in OpenStreetMap.`];
+  const g = gainFt(t), lv = level(t);
+  if (g != null) parts.push(`About ${g.toLocaleString('en-US')} ft of gain${lv ? `, computed level ${lv.toLowerCase()}` : ''}.`);
   if (hl.length) parts.push(`Mapped highlights: ${hl.join(', ')}.`);
-  parts.push(t.trailheadIsParking ? 'A car park is mapped at the trailhead.' : 'No car park is mapped at the trailhead.');
+  if (t.trailheadIsParking) parts.push('A car park is mapped at the trailhead.');
   return parts.join(' ');
 }
 
@@ -165,8 +172,7 @@ export function renderPage(t: Trail, o: Opts): Page {
       <p>${esc(description)}</p>
       ${sketch(t.coords)}
       <ul>
-        <li>${t.loop ? 'Loop' : 'Out and back'}: ${d} mi ${t.loop ? 'around' : 'round trip'}</li>${hl.length ? `\n        <li>Mapped highlights: ${esc(hl.join(', '))}</li>` : ''}
-        <li>${t.trailheadIsParking ? 'Car park mapped at the trailhead' : 'No car park mapped at the trailhead'}</li>
+        <li>${t.loop ? 'Loop' : 'Out and back'}: ${d} mi ${t.loop ? 'around' : 'round trip'}</li>${gainFt(t) != null ? `\n        <li>About ${gainFt(t)!.toLocaleString('en-US')} ft gain${t.loop ? '' : ' (one way up)'}${level(t) ? `, level ${level(t)!.toLowerCase()} (computed from distance and climb)` : ''}</li>` : ''}${hl.length ? `\n        <li>Mapped highlights: ${esc(hl.join(', '))}</li>` : ''}${t.trailheadIsParking ? '\n        <li>Car park mapped at the trailhead</li>' : ''}
       </ul>
       <p><a href="${o.appBase}trail/${t.id}" style="display:inline-block;padding:.8rem 1.2rem;background:#D52B26;color:#fff;border-radius:10px;text-decoration:none;min-height:44px;box-sizing:border-box">Open in Ridgeline</a></p>
       <p><strong>${esc(SAFETY_LINE)}</strong></p>

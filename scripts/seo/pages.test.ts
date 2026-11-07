@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Trail } from '../../src/lib/trails';
 import { cellsToTrails, type CellFile } from '../../src/lib/cells';
-import { addToSitemap, canonicalBase, certainHighlights, describe as describeTrail, esc, findSeed, hikingSignal, jsonLd, renderPage, selectTrails, selectWithSeeds, type Seed } from './pages';
+import { gainM, level } from '../../src/lib/plan';
+import { gainFt, addToSitemap, canonicalBase, certainHighlights, describe as describeTrail, esc, findSeed, hikingSignal, jsonLd, renderPage, selectTrails, selectWithSeeds, type Seed } from './pages';
 import seedList from './seed.json';
 import fixtureCells from './fixtures/cells.json';
 import { areaOf } from './places';
@@ -71,9 +72,10 @@ describe('page text', () => {
     expect(certainHighlights(t)).toEqual(['views', 'dogs allowed']);
     expect(describeTrail(t)).not.toMatch(/climb|\?|ft|difficult|easy|hard|moderate/i);
   });
-  it('says loop or out and back, and whether a car park is mapped', () => {
+  it('says loop or out and back, and mentions a car park only when one is mapped', () => {
     expect(describeTrail(trail({ loop: true, lengthM: 3218, trailheadIsParking: true }))).toMatch(/2\.0 mi loop.*A car park is mapped/);
-    expect(describeTrail(trail({ trailheadIsParking: false }))).toMatch(/out and back.*No car park is mapped/);
+    expect(describeTrail(trail({ trailheadIsParking: false }))).toMatch(/out and back/);
+    expect(describeTrail(trail({ trailheadIsParking: false }))).not.toMatch(/car park|parking/i);
   });
   it('labels the area by the nearest listed town, else Washington', () => {
     expect(areaOf([-121.55, 47.82])).toBe('near Index, WA');
@@ -81,7 +83,32 @@ describe('page text', () => {
   });
 });
 
+describe('climb', () => {
+  it('shows the app gain to the nearest 10 ft: one way for out and back, total for a loop', () => {
+    const o = trail({ ascentM: 300, descentM: 40 });
+    expect(gainFt(o)).toBe(Math.round(gainM(o)! * 3.28084 / 10) * 10);
+    expect(gainFt(o)).toBe(980);
+    const l = trail({ loop: true, ascentM: 300, descentM: 300 });
+    expect(gainFt(l)).toBe(980);
+    expect(gainFt(trail({ ascentM: 40, descentM: 300 }))).toBe(980);
+    expect(gainFt(trail())).toBeNull();
+    expect(describeTrail(o)).toContain('About 980 ft of gain, computed level');
+    expect(describeTrail(o)).toContain(`computed level ${level(o)!.toLowerCase()}`);
+    const h = renderPage(o, opts).html;
+    expect(h).toContain('About 980 ft gain (one way up)');
+    expect(renderPage(trail(), opts).html).not.toMatch(/ft gain|of gain/);
+  });
+});
+
 describe('renderPage', () => {
+  it('never states an absence of parking: no sentence or list item when no lot is matched', () => {
+    for (const flag of [false, undefined]) {
+      const h = renderPage(trail({ trailheadIsParking: flag }), opts).html;
+      expect(h).not.toMatch(/car park|parking/i);
+      expect(h).not.toMatch(/\bno\b[^.<]*(mapped|parking)/i);
+    }
+    expect(renderPage(trail({ trailheadIsParking: true }), opts).html).toContain('Car park mapped at the trailhead');
+  });
   const p = renderPage(trail({ trailhead: [-121.6, 47.8], trailheadIsParking: true, highlights: ['view'] }), opts);
   it('has title, description, canonical from the base, OG/Twitter, one h1, the SVG, safety line and credits', () => {
     expect(p.html).toContain('<title>Lake Serene Trail — 4.0 mi hike near Index, WA | Ridgeline</title>');
