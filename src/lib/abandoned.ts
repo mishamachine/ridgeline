@@ -1,5 +1,7 @@
 // A hike that was never finished (phone died, app closed): close it honestly, or offer to resume it.
-import { Activity, listActivities, putActivity } from './store';
+import type { BadgeTrail } from './badges';
+import { endActivity } from './finish';
+import { Activity, getSaved, getShortlisted, listActivities, putActivity } from './store';
 
 export const STALE_MS = 6 * 3600_000;
 
@@ -17,13 +19,25 @@ export function resumable(list: Activity[], now: number): Activity | null {
   return open.sort((x, y) => lastT(y) - lastT(x))[0] ?? null;
 }
 
-/** Run at app start (and again before reading the list): writes the sealed hikes and returns the full list. */
-export async function closeAbandoned(now = Date.now()): Promise<Activity[]> {
+/** The trail a hike was on, from what is saved on this phone (null when it was cleared). */
+export async function savedTrailFor(id: string): Promise<BadgeTrail | null> {
+  return (await getSaved(id))?.trail ?? (await getShortlisted(id))?.trail ?? null;
+}
+
+/**
+ * Run at app start (and again before reading the list): writes the sealed hikes and returns the full list.
+ * A sealed hike goes through endActivity like a finished one, so it keeps a trail snapshot while the trail is still saved.
+ */
+export async function closeAbandoned(now = Date.now(), trailFor: (id: string) => Promise<BadgeTrail | null> = savedTrailFor): Promise<Activity[]> {
   const list = await listActivities();
   const out: Activity[] = [];
   for (const a of list) {
     const sealed = sealIfAbandoned(a, now);
-    if (sealed) await putActivity(sealed);
+    if (sealed) {
+      const trail = sealed.trailId ? await trailFor(sealed.trailId).catch(() => null) : null;
+      if (trail) endActivity(sealed, trail, sealed.endedAt!);
+      await putActivity(sealed);
+    }
     out.push(sealed ?? a);
   }
   return out;

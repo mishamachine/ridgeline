@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Marker, type Map as MLMap } from 'maplibre-gl';
-import { MapView, setGeo, metersToPixels } from '../components/MapView';
+import { LazyMap as MapView } from '../components/LazyMap';
+import { setGeo, metersToPixels } from '../components/mapGeo';
 import { LocateIcon, SwapIcon } from '../components/Icons';
 import { Banner } from '../components/nav/Banner';
 import { PocketMode } from '../components/nav/PocketMode';
@@ -8,7 +9,7 @@ import { buildView } from '../components/nav/view';
 import { buildSummary, type HikeSummary } from '../components/nav/summary';
 import { cumulative, haversine, pointAt, totalAscent, LngLat } from '../lib/geo';
 import { estimateMinutes, Trail } from '../lib/trails';
-import { addPoint, keepAwake } from '../lib/tracker';
+import { addPoint, keepAwake, progressFromTrack } from '../lib/tracker';
 import { putActivity, Activity } from '../lib/store';
 import { duration } from '../lib/format';
 import { INK } from '../lib/mapStyle';
@@ -19,7 +20,7 @@ import { requestCompassPermission, startCompass } from '../lib/gps/compass';
 import { findReversals } from '../lib/gps/reversals';
 import { Announcer } from '../lib/voice/announcer';
 import { forksFor, nextStep } from '../lib/voice/forkpoints';
-import { offRouteSide } from '../lib/voice/offroute';
+import { OffRouteWords, offRouteSide } from '../lib/voice/offroute';
 import { useSettings } from '../lib/settings';
 import { endActivity, startActivity } from '../lib/finish';
 import { cancelSpeech, primeSpeech, speak } from '../lib/voice/speak';
@@ -53,7 +54,7 @@ export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) 
   const priorFractionRef = useRef(0);
   const priorClimbRef = useRef(0);
   const followRef = useRef(true);
-  const pausedMsRef = useRef(0);
+  const pausedMsRef = useRef(resume ? Math.max(0, Date.now() - (resume.points.at(-1)?.t ?? Date.now())) : 0); // the time the app was closed counts as paused
   const pauseStartRef = useRef<number | null>(null);
   const markersRef = useRef<{ key: string; list: Marker[] }>({ key: '', list: [] });
 
@@ -84,6 +85,13 @@ export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) 
     return { coords, elevation, cum: cumulative(coords) };
   }, [trail, reversed]);
   const total = route.cum.at(-1)!;
+  // A resumed hike picks its progress up from the track already recorded, not from 0.
+  const seededRef = useRef(false);
+  if (!seededRef.current) {
+    seededRef.current = true;
+    const p = resume ? progressFromTrack(resume.points, route.coords, route.cum) : null;
+    if (p) { startAlongRef.current = p.start; maxAlongRef.current = p.max; }
+  }
 
   const forks = useMemo(() => forksFor(trail.coords, trail.junctions, reversed, trail.name), [trail, reversed]);
   const tips = useMemo(() => findReversals(route.coords, route.cum), [route]);
@@ -150,7 +158,12 @@ export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) 
   }, [paused, along, offRoute]);
 
   // Direction changed: measure pace from here.
-  useEffect(() => { startAlongRef.current = null; maxAlongRef.current = 0; }, [reversed]);
+  const reversedBefore = useRef(reversed);
+  useEffect(() => {
+    if (reversedBefore.current === reversed) return; // not on first render: a resumed hike keeps its seeded progress
+    reversedBefore.current = reversed;
+    startAlongRef.current = null; maxAlongRef.current = 0;
+  }, [reversed]);
 
   // Switching direction (tapped, or after the end of an out-and-back). The outbound leg stays part of this hike.
   const flipRef = useRef<{ det: FlipBack; before: boolean } | null>(null);
@@ -183,17 +196,19 @@ export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) 
   }, [g, turnBack, paused, along, offRoute]);
 
   // Which way the trail lies when you are off it.
-  const offSide = useMemo(
-    () => (offRoute && g.filtered ? offRouteSide(route.coords, g.filtered, g.heading) : null),
-    [offRoute, g.filtered, g.heading, route],
-  );
+  // Read once per fix even before the alert, so the words are settled when it comes: the side holds for 3 fixes, and no reminder while you walk back.
+  const wordsRef = useRef(new OffRouteWords());
+  const offSide = useMemo(() => {
+    const w = wordsRef.current.push(g.filtered && (offRoute || (g.offsetM ?? 0) > 25) ? offRouteSide(route.coords, g.filtered, g.heading) : null);
+    return offRoute ? w : null;
+  }, [offRoute, g, route]);
 
   // Talk, only when there is something to say. Vibrate with it.
   useEffect(() => {
     if (paused) return;
     // After a reversal the screen can still hold the old direction's state for one render: wait for the engine's first state on the new route.
     if (g !== engine.state) return;
-    for (const u of announcer.update({ t: Date.now(), along, offRoute, holdOff: g.recalLastOffRoute, walkedM: walkedRef.current, off: offSide ?? undefined })) {
+    for (const u of announcer.update({ t: Date.now(), along, offRoute, holdOff: g.recalLastOffRoute, walkedM: walkedRef.current, off: offSide?.settled ? offSide : undefined, closing: offSide?.closing })) {
       if (u.kind === 'finish') finishedDir.current[String(reversed)] = true;
       navigator.vibrate?.(u.vibrate);
       if (voiceRef.current) speak(u.text, u.interrupt);

@@ -158,9 +158,9 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, version, p
                   </button>
                 </div>
                 {menu === a.id && (
-                  <div className="pf-menu" role="menu">
-                    <button role="menuitem" className="pf-btn" onClick={() => { downloadGPX(a); setMenu(null); }}>Export as GPX</button>
-                    <button role="menuitem" className="pf-btn danger" onClick={() => { setMenu(null); setConfirmDelete(a.id); }}>Delete hike</button>
+                  <div className="pf-menu">
+                    <button className="pf-btn" onClick={() => { downloadGPX(a); setMenu(null); }}>Export as GPX</button>
+                    <button className="pf-btn danger" onClick={() => { setMenu(null); setConfirmDelete(a.id); }}>Delete hike</button>
                   </div>
                 )}
                 {confirmDelete === a.id && (

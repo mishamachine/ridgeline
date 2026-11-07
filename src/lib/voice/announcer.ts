@@ -34,6 +34,8 @@ export interface AnnouncerInput {
   walkedM?: number;
   /** Distance to the trail and which way it lies, when off route. */
   off?: { distM: number; side: OffSide };
+  /** The hiker is walking back toward the trail: no repeat reminder. */
+  closing?: boolean;
 }
 
 export const NEAR_M = 150;        // "In 500 feet" (about 150 m)
@@ -83,7 +85,7 @@ export class Announcer {
 
     // Off the trail: say it once, then at most once a minute.
     if (i.offRoute) {
-      if (this.offAt == null || i.t - this.offAt >= OFF_REPEAT_MS) {
+      if (this.offAt == null || (i.t - this.offAt >= OFF_REPEAT_MS && !i.closing)) {
         this.offAt = i.t;
         say('off-route', i.off ? offRouteText(i.off.distM, i.off.side, this.units) : "You're off the trail.", true, [300, 100, 300]);
       }

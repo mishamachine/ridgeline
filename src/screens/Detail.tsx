@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Map as MLMap } from 'maplibre-gl';
-import { MapView, setGeo } from '../components/MapView';
+import { setGeo } from '../components/mapGeo';
+import { LazyMap as MapView } from '../components/LazyMap';
 import { ElevationChart } from '../components/ElevationChart';
 import { HighlightChips } from '../components/Chips';
 import { BackIcon } from '../components/Icons';
@@ -11,7 +12,7 @@ import { getSaved, SavedTrail } from '../lib/store';
 import { removeTrailOffline, tilesForTrail } from '../lib/offline';
 import { bboxOf } from '../lib/geo';
 import { ft, hrs, mb, mi } from '../lib/format';
-import { level, roundTripClimbM, roundTripM, tripMinutes } from '../lib/plan';
+import { gainM, level, roundTripM, tripMinutes } from '../lib/plan';
 import { detectPlatform, driveLabel, mapsOptions, trailheadOf } from '../lib/maps';
 import { shareTrail } from '../lib/share';
 import { bookmark, unsave } from '../lib/saved';
@@ -67,8 +68,8 @@ export function Detail({ tpl, trail, bookmarked, onBack, onStart, onSavedChange 
   };
 
   const lv = level(trail);
-  const climb = roundTripClimbM(trail);
-  const minutes = climb != null ? tripMinutes(trail) : null;
+  const gain = gainM(trail);
+  const minutes = gain != null ? tripMinutes(trail) : null;
   const estimate = useMemo(() => tilesForTrail(trail).length * AVG_TILE_BYTES, [trail]);
   const options = mapsOptions(trail, detectPlatform());
 
@@ -117,7 +118,7 @@ export function Detail({ tpl, trail, bookmarked, onBack, onStart, onSavedChange 
 
           <div className="tiles">
             <div className="tile"><div className="tile-num">{mi(roundTripM(trail))} mi</div><div className="tile-lab">{trail.loop ? 'loop' : 'round trip'}</div></div>
-            <div className="tile"><div className="tile-num">{climb != null ? ft(climb) : '—'}</div><div className="tile-lab">ft climb</div></div>
+            <div className="tile"><div className="tile-num">{gain != null ? ft(gain) : '—'}</div><div className="tile-lab">ft gain</div></div>
             <div className="tile"><div className="tile-num">{minutes != null ? hrs(minutes) : '—'}</div><div className="tile-lab">est. time</div></div>
             <div className="tile tile-level"><div className={`tile-word${lv === 'Hard' ? ' hard' : ''}`}>{lv ?? '—'}</div><div className="tile-lab">level</div></div>
           </div>

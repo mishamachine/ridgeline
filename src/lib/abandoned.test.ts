@@ -4,6 +4,8 @@ const db = new Map<string, unknown>();
 vi.mock('./store', () => ({
   listActivities: async () => [...db.values()],
   putActivity: async (a: { id: string }) => { db.set(a.id, a); },
+  getSaved: async () => undefined,
+  getShortlisted: async () => undefined,
 }));
 
 import { STALE_MS, closeAbandoned, resumable, sealIfAbandoned } from './abandoned';
@@ -42,6 +44,15 @@ describe('abandoned hikes', () => {
     expect((db.get('old') as Activity).unfinished).toBe(true);
     expect((db.get('live') as Activity).endedAt).toBeUndefined();
     expect(out.map((a) => a.id).sort()).toEqual(['live', 'old']);
+  });
+  it('a sealed hike keeps a snapshot of its trail while the trail is still saved, like a finished one', async () => {
+    db.clear();
+    db.set('old', mk('old', STALE_MS + 5));
+    const trail = { id: 'osm-w1', name: 'Rattlesnake Ledge', ascentM: 340, coords: [[-121.77, 47.43], [-121.77, 47.4375]] as [number, number][] };
+    await closeAbandoned(NOW, async () => trail);
+    const a = db.get('old') as Activity;
+    expect(a.unfinished).toBe(true);
+    expect(a.snapshot).toMatchObject({ name: 'Rattlesnake Ledge', ascentM: 340 });
   });
   it('totals count only the distance actually walked; an unfinished hike has no trail climb', () => {
     const a = sealIfAbandoned(mk('x', STALE_MS + 1), NOW)!;

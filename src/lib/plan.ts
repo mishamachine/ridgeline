@@ -1,13 +1,25 @@
 // Trip numbers the way a hiker plans: the whole outing, not one way.
-import { M_TO_FT, M_TO_MI } from './geo';
+import { M_TO_FT, M_TO_MI, haversine } from './geo';
 import { estimateMinutes, type Difficulty, type Trail } from './trails';
 
 type T = Pick<Trail, 'lengthM' | 'loop' | 'ascentM' | 'descentM'>;
+type G = T & Partial<Pick<Trail, 'coords' | 'trailhead' | 'trailheadIsParking'>>;
 
 /** Out-and-back trails are walked twice; loops once. */
 export const roundTripM = (t: Pick<Trail, 'lengthM' | 'loop'>) => (t.loop ? t.lengthM : t.lengthM * 2);
 
-/** Climb over the whole outing (m). Out and back = the way up plus the climbs on the way home. */
+/**
+ * Headline gain (m), the number hikers compare: the way up for an out-and-back (starting at the car park end when the
+ * data knows it, else the trail start), the whole ascent for a loop. Never ascent + descent.
+ */
+export function gainM(t: G): number | null {
+  if (t.ascentM == null) return null;
+  if (t.loop || !t.trailheadIsParking || !t.trailhead || !t.coords?.length) return t.ascentM;
+  const fromEnd = haversine(t.trailhead, t.coords.at(-1)!) < haversine(t.trailhead, t.coords[0]);
+  return fromEnd ? (t.descentM ?? t.ascentM) : t.ascentM;
+}
+
+/** Climbing over the whole outing (m), for time and level. Out and back = the way up plus the climbs on the way home. */
 export function roundTripClimbM(t: T): number | null {
   if (t.ascentM == null) return null;
   return t.loop ? t.ascentM : t.ascentM + (t.descentM ?? 0);

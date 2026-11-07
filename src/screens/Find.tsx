@@ -1,6 +1,7 @@
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import type { Map as MLMap } from 'maplibre-gl';
-import { MapView, setGeo } from '../components/MapView';
+import { setGeo } from '../components/mapGeo';
+import { LazyMap as MapView } from '../components/LazyMap';
 import { Placeholder } from '../components/Bobo';
 import { PageHead } from '../components/PageHead';
 import { TrailCard } from '../components/TrailCard';

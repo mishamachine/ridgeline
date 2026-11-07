@@ -6,7 +6,7 @@ import { GpsEngine } from '../gps/engine';
 import type { Junction } from '../trails';
 import { Announcer, type Utterance } from './announcer';
 import { forksFor, nextStep } from './forkpoints';
-import { offRouteSide } from './offroute';
+import { OffRouteWords, offRouteSide } from './offroute';
 import { shortDistance, spokenDistance } from './units';
 
 const fr = new Frame([-121.7, 47.5]);
@@ -87,6 +87,14 @@ describe('announcer on a simulated walk', () => {
     expect(f[0]).toMatchObject({ kind: 'turn', side: 'left' });
     const a = new Announcer({ forks: f, turnarounds: [], total: 600 });
     expect(texts(walk(a, 0, 300))).toEqual(['In 500 feet, turn left onto Bend Trail.', 'Turn left.']);
+  });
+  it('no 60 s reminder while the hiker is walking back toward the trail; it comes again if they stop closing', () => {
+    const a = new Announcer({ forks: [], turnarounds: [], total: TOTAL });
+    const off = (s: number, closing: boolean) => a.update({ t: T0 + s * 1000, along: 300, offRoute: true, off: { distM: 36.6, side: 'ahead' }, closing });
+    expect(texts(off(0, false))).toHaveLength(1);
+    expect(off(61, true)).toEqual([]);
+    expect(off(90, true)).toEqual([]);
+    expect(texts(off(95, false))).toHaveLength(1);
   });
   it('off the trail: once, again only after 60 s, then back on', () => {
     const a = new Announcer({ forks: [], turnarounds: [], total: TOTAL });
@@ -223,5 +231,27 @@ describe('units', () => {
     expect(shortDistance(1900, 'metric')).toBe('1.9 km');
     expect(spokenDistance(36.6, 'imperial')).toBe('120 feet');
     expect(spokenDistance(36.6, 'metric')).toBe('35 metres');
+  });
+});
+
+describe('off-route words settle', () => {
+  const r = (side: 'left' | 'right' | 'behind' | 'ahead', distM = 50) => ({ side, distM, target: [0, 0] as LngLat });
+  it('a side change is spoken only after 3 fixes in a row; one stray fix does not flip it', () => {
+    const w = new OffRouteWords();
+    const seq = ['behind', 'behind', 'behind', 'right', 'behind', 'behind', 'left', 'left', 'left'] as const;
+    expect(seq.map((s) => w.push(r(s))!.side)).toEqual(['behind', 'behind', 'behind', 'behind', 'behind', 'behind', 'behind', 'behind', 'left']);
+  });
+  it('is not settled until the first side has held 3 fixes, and clears when back near the trail', () => {
+    const w = new OffRouteWords();
+    expect([w.push(r('left'))!.settled, w.push(r('left'))!.settled, w.push(r('left'))!.settled]).toEqual([false, false, true]);
+    expect(w.push(null)).toBeNull();
+    expect(w.push(r('right'))!.settled).toBe(false);
+  });
+  it('closing is true only once the distance has shrunk 5 m over 6 fixes', () => {
+    const w = new OffRouteWords();
+    const out = [60, 60, 59, 58, 57, 56, 54, 50].map((d) => w.push(r('ahead', d))!.closing);
+    expect(out).toEqual([false, false, false, false, false, false, true, true]);
+    const flat = new OffRouteWords();
+    expect([60, 61, 59, 60, 61, 60, 60].map((d) => flat.push(r('ahead', d))!.closing).some(Boolean)).toBe(false);
   });
 });

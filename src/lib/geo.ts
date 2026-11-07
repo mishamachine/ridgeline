@@ -91,18 +91,38 @@ export function tilesForBBox(b: BBox, zmin: number, zmax: number): [number, numb
   return out;
 }
 
-/** Total ascent from an elevation series (m). Ignores wiggles under `noise` m. */
-export function totalAscent(elev: number[], noise = 2): number {
-  let gain = 0;
-  let ref = elev[0];
-  for (const e of elev.slice(1)) {
-    if (e > ref + noise) { gain += e - ref; ref = e; }
-    else if (e < ref - noise) ref = e;
+/** Hilltop DEM pixels are 90 m wide, so a switchback trail reads up and down by tens of metres that are not there. */
+export const ASCENT_NOISE_M = 8;
+
+/** Running median over `w` points. Removes one-sample DEM spikes without moving real slopes; the two end values stay as measured. Short series are left alone. */
+export function medianSmooth(elev: number[], w = 5): number[] {
+  if (elev.length < 12) return elev;
+  const h = w >> 1;
+  return elev.map((v, i) => {
+    if (i === 0 || i === elev.length - 1) return v;
+    const a = elev.slice(Math.max(0, i - h), i + h + 1).sort((x, y) => x - y);
+    return a[a.length >> 1];
+  });
+}
+
+/**
+ * Total ascent from an elevation series (m): median-smoothed, then a climb only counts once the profile has
+ * risen `noise` m from its last low, and a drop only once it has fallen `noise` m from its last high.
+ */
+export function totalAscent(elev: number[], noise = ASCENT_NOISE_M): number {
+  if (elev.length < 2) return 0;
+  const s = medianSmooth(elev);
+  let gain = 0, lo = s[0], hi = s[0], up = false;
+  for (const v of s) {
+    if (up) {
+      if (v > hi) hi = v;
+      else if (hi - v >= noise) { gain += hi - lo; up = false; lo = v; }
+    } else {
+      if (v < lo) lo = v;
+      else if (v - lo >= noise) { up = true; hi = v; }
+    }
   }
-  // Count a final climb that ended within the noise band.
-  const last = elev.at(-1)!;
-  if (last > ref) gain += last - ref;
-  return gain;
+  return up ? gain + (hi - lo) : gain;
 }
 
 export const M_TO_MI = 0.000621371;

@@ -12,3 +12,6 @@ createRoot(document.getElementById('root')!).render(
     <App />
   </StrictMode>,
 );
+
+// The map library is the heaviest part of the app and Find shows a map, so start fetching it now, in parallel with the first paint.
+void import('./components/MapView');
