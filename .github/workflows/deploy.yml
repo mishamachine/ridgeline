@@ -52,6 +52,10 @@ jobs:
           BASE_PATH=/ npx vite build --outDir dist-root --emptyOutDir
           cp -r dist/trails dist-root/trails
           cp deploy/htaccess dist-root/.htaccess
+      - name: Pre-render pages for the top 300 trails (SEO), in both copies
+        run: |
+          BASE_PATH=/${{ github.event.repository.name }}/ node scripts/seo-pages.mjs dist
+          BASE_PATH=/ node scripts/seo-pages.mjs dist-root
       - name: Publish the Hostinger copy to the 'hostinger' branch
         if: github.ref == 'refs/heads/main'
         run: |
