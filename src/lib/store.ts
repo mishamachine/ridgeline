@@ -11,6 +11,15 @@ export interface SavedTrail {
 
 export interface TrackPoint { lon: number; lat: number; alt: number | null; acc: number; t: number }
 
+/** What badges need to know about the trail, kept on the hike so they survive "Clear offline maps". */
+export interface TrailSnapshot {
+  name: string;
+  ascentM?: number;
+  highlights?: string[];
+  /** Share (0..1) of the trail the recorded track covered. */
+  coverage: number;
+}
+
 export interface Activity {
   id: string;
   name: string;
@@ -18,9 +27,18 @@ export interface Activity {
   startedAt: number;
   endedAt?: number;
   points: TrackPoint[];
+  /** Set by the hiker after the hike (badges: Trail Buddy, Rain or Shine). */
+  withDog?: boolean;
+  rain?: boolean;
+  /** Written when the hike finishes (see snapshotForActivity in badges.ts). */
+  snapshot?: TrailSnapshot;
+  /** The hike was never finished; it was closed at its last point. See abandoned.ts. */
+  unfinished?: boolean;
+  /** Time spent paused (or with the app closed, on a resumed hike) so far, ms. Kept so a hike resumed twice still counts the first session's pauses. */
+  pausedMs?: number;
 }
 
-const T = 'trail:', A = 'act:';
+const T = 'trail:', A = 'act:', S = 'sl:';
 
 export const getSaved = (id: string) => get<SavedTrail>(T + id);
 export const putSaved = (s: SavedTrail) => set(T + s.trail.id, s);
@@ -33,6 +51,10 @@ export async function listSaved(): Promise<SavedTrail[]> {
 }
 
 export const putActivity = (a: Activity) => set(A + a.id, a);
+export const patchActivity = async (id: string, patch: Partial<Pick<Activity, 'withDog' | 'rain'>>) => {
+  const a = await get<Activity>(A + id);
+  if (a) await set(A + id, { ...a, ...patch });
+};
 export const deleteActivity = (id: string) => del(A + id);
 
 export async function listActivities(): Promise<Activity[]> {
@@ -43,3 +65,17 @@ export async function listActivities(): Promise<Activity[]> {
 
 export const getSetting = <V>(k: string) => get<V>('set:' + k);
 export const putSetting = (k: string, v: unknown) => set('set:' + k, v);
+
+// Shortlist: trails the user bookmarked. A trail saved for offline use is also kept here.
+export interface Shortlisted { trail: Trail; addedAt: number }
+export const getShortlisted = (id: string) => get<Shortlisted>(S + id);
+export const putShortlisted = (trail: Trail) => set(S + trail.id, { trail, addedAt: Date.now() } satisfies Shortlisted);
+/** Used by restore, to keep the original date. */
+export const restoreShortlisted = (s: Shortlisted) => set(S + s.trail.id, s);
+export const deleteShortlisted = (id: string) => del(S + id);
+
+export async function listShortlisted(): Promise<Shortlisted[]> {
+  const ks = (await keys()).filter((k) => String(k).startsWith(S));
+  const all = (await getMany<Shortlisted | undefined>(ks)).filter((x): x is Shortlisted => !!x);
+  return all.sort((a, b) => b.addedAt - a.addedAt);
+}

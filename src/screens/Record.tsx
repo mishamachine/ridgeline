@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { listActivities, deleteActivity, putActivity, Activity } from '../lib/store';
 import { addFix, newActivity, trackDistance, downloadGPX, keepAwake } from '../lib/tracker';
 import { duration, mi } from '../lib/format';
+import { ConfirmSheet } from '../components/ConfirmSheet';
 
 export function Record() {
   const [past, setPast] = useState<Activity[]>([]);
   const [current, setCurrent] = useState<Activity | null>(null);
   const [, force] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<Activity | null>(null);
   const watchRef = useRef<number | null>(null);
   const releaseRef = useRef<() => void>(() => {});
 
@@ -55,7 +57,6 @@ export function Record() {
   return (
     <>
       <div className="top" style={{ borderBottom: '1px solid var(--ink)', paddingBottom: 16 }}>
-        <h1>Record</h1>
         {current ? (
           <div style={{ marginTop: 16 }}>
             <div style={{ font: '800 96px/0.9 var(--display)', letterSpacing: '-0.05em' }}>{mi(trackDistance(current.points))}</div>
@@ -76,12 +77,14 @@ export function Record() {
               <span className="meta">{mi(trackDistance(a.points))} mi · {duration(elapsed(a))} · {new Date(a.startedAt).toLocaleDateString('en-US')}</span>
             </span>
             <button className="text-btn" onClick={() => downloadGPX(a)}>GPX</button>
-            <button className="text-btn danger" onClick={() => remove(a.id)} aria-label={`Delete ${a.name}`}>Delete</button>
+            <button className="text-btn danger" onClick={() => setDeleting(a)} aria-label={`Delete ${a.name}`}>Delete</button>
           </div>
         ))}
         {past.length === 0 && <p className="empty" style={{ padding: '8px 0' }}>No hikes yet.</p>}
       </div>
 
+      {deleting && <ConfirmSheet title={`Delete ${deleting.name}?`} body="The recorded track is removed from this phone. This can’t be undone." confirmLabel="Delete hike" cancelLabel="Keep it" danger
+        onConfirm={() => { const id = deleting.id; setDeleting(null); remove(id); }} onCancel={() => setDeleting(null)} />}
       <div className="actions" style={{ gridTemplateColumns: '1fr' }}>
         {current
           ? <button className="action dark" onClick={stop}><span>Stop and save</span><small>Saved on this phone</small></button>

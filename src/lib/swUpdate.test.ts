@@ -1,0 +1,60 @@
+import { describe, it, expect, vi } from 'vitest';
+import { decideUpdate, mayReload, RELOAD_GUARD_MS } from './swUpdate';
+
+describe('update decision', () => {
+  it('applies at once when no hike is running', () => expect(decideUpdate(false)).toBe('apply'));
+  it('shows the toast, never reloads, during a hike', () => expect(decideUpdate(true)).toBe('toast'));
+});
+
+describe('reload loop guard', () => {
+  it('allows the first reload', () => expect(mayReload(null, 1000)).toBe(true));
+  it('blocks a second reload within a minute', () => expect(mayReload(1000, 1000 + RELOAD_GUARD_MS - 1)).toBe(false));
+  it('allows it again after a minute', () => expect(mayReload(1000, 1000 + RELOAD_GUARD_MS)).toBe(true));
+  it('allows it if the clock went backwards', () => expect(mayReload(5000, 1000)).toBe(true));
+});
+
+describe('hike ends with an update waiting', () => {
+  it('shows the toast during the hike, then applies when the hike ends', async () => {
+    const store = new Map<string, string>();
+    vi.stubGlobal('sessionStorage', { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v) });
+    const { setHikeActive, handleWaiting, onUpdateReady } = await import('./swUpdate');
+    const posted: string[] = [];
+    const ready: boolean[] = [];
+    onUpdateReady((r) => ready.push(r));
+    setHikeActive(true);
+    handleWaiting({ postMessage: (m: string) => posted.push(m) } as unknown as ServiceWorker);
+    expect(ready).toEqual([true]);
+    expect(posted).toEqual([]);
+    setHikeActive(false);
+    expect(posted).toEqual(['SKIP_WAITING']);
+  });
+});
+
+describe('controllerchange', () => {
+  it('forgets the waiting worker, so a later hike end cannot re-apply it', async () => {
+    vi.stubGlobal('sessionStorage', { getItem: () => null, setItem: () => {} });
+    const { setHikeActive, handleWaiting, onControllerChange, onUpdateReady } = await import('./swUpdate');
+    const posted: string[] = [];
+    onUpdateReady(() => {});
+    setHikeActive(true);
+    handleWaiting({ postMessage: (m: string) => posted.push(m) } as unknown as ServiceWorker);
+    onControllerChange(false); // first-install path: returns early, but still clears waiting
+    setHikeActive(false);
+    expect(posted).toEqual([]);
+  });
+});
+
+describe('chunk load failure', () => {
+  it('reloads once, then leaves it to the Reload button; never mid-hike', async () => {
+    const store = new Map<string, string>();
+    vi.stubGlobal('sessionStorage', { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v) });
+    const { reloadAfterChunkError, setHikeActive } = await import('./swUpdate');
+    const reload = vi.fn();
+    setHikeActive(true);
+    expect(reloadAfterChunkError(10_000, reload)).toBe(false);
+    setHikeActive(false);
+    expect(reloadAfterChunkError(10_000, reload)).toBe(true);
+    expect(reloadAfterChunkError(10_500, reload)).toBe(false);
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+});

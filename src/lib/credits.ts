@@ -6,3 +6,6 @@ export const ELEVATION_NOTICE =
 
 export const ELEVATION_LIABILITY =
   'The organisations in charge of the Copernicus programme by law or by delegation do not incur any liability for any use of the Copernicus WorldDEM™-90';
+
+/** Shown wherever directions or a route are shown. */
+export const SAFETY_LINE = 'Directions are a guide; check conditions; not for emergency use.';

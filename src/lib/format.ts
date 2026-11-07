@@ -15,3 +15,11 @@ export function duration(minutes: number): string {
 }
 
 export const mb = (bytes: number) => (bytes < 1024 * 1024 ? `${bytes === 0 ? 0 : Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`);
+
+/** "2h 54" for planning cards; "45 min" under an hour. */
+export function hrs(minutes: number): string {
+  const total = Math.round(minutes);
+  if (total < 60) return `${Math.max(1, total)} min`;
+  const h = Math.floor(total / 60), m = total % 60;
+  return m === 0 ? `${h}h` : `${h}h ${String(m).padStart(2, '0')}`;
+}

@@ -1,5 +1,5 @@
 // GPS track recording, saved to the device as it goes.
-import { haversine } from './geo';
+import { haversine, projectOnLine, type LngLat } from './geo';
 import { Activity, TrackPoint, putActivity } from './store';
 
 const MAX_ACCURACY_M = 50; // ignore fixes worse than this
@@ -11,13 +11,32 @@ export function trackDistance(points: TrackPoint[]): number {
   return d;
 }
 
+const ON_TRAIL_M = 40;
+
+/** Where an earlier part of a hike joined the trail and the furthest it got (m along `coords`), for picking a resumed hike up. Null when it never was on the trail. */
+export function progressFromTrack(points: TrackPoint[], coords: LngLat[], cum: number[]): { start: number; max: number } | null {
+  let start: number | null = null, max = 0;
+  const step = Math.max(1, Math.floor(points.length / 400));
+  for (let i = 0; i < points.length; i += step) {
+    const p = projectOnLine(coords, cum, [points[i].lon, points[i].lat]);
+    if (p.offset > ON_TRAIL_M) continue;
+    start ??= p.along;
+    max = Math.max(max, p.along);
+  }
+  return start == null ? null : { start, max };
+}
+
 /** Adds a GPS fix to the activity if it is accurate and has moved. Returns true if added. */
 export function addFix(a: Activity, pos: GeolocationPosition): boolean {
   const { longitude, latitude, altitude, accuracy } = pos.coords;
-  if (accuracy > MAX_ACCURACY_M) return false;
+  return addPoint(a, { lon: longitude, lat: latitude, alt: altitude, acc: accuracy, t: pos.timestamp });
+}
+
+export function addPoint(a: Activity, p: TrackPoint): boolean {
+  if (p.acc > MAX_ACCURACY_M) return false;
   const last = a.points.at(-1);
-  if (last && haversine([last.lon, last.lat], [longitude, latitude]) < MIN_STEP_M) return false;
-  a.points.push({ lon: longitude, lat: latitude, alt: altitude, acc: accuracy, t: pos.timestamp });
+  if (last && haversine([last.lon, last.lat], [p.lon, p.lat]) < MIN_STEP_M) return false;
+  a.points.push(p);
   if (a.points.length % 10 === 0) putActivity(a);
   return true;
 }

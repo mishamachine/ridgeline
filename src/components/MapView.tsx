@@ -1,11 +1,12 @@
 import { useEffect, useRef } from 'react';
-import { Map as MLMap, GeoJSONSource, setWorkerUrl, type LngLatBoundsLike } from 'maplibre-gl';
+import { Map as MLMap, setWorkerUrl, type LngLatBoundsLike } from 'maplibre-gl';
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 
 // MapLibre looks for its worker next to its own file, which bundling moves; point it at the bundled copy.
 setWorkerUrl(workerUrl);
 import { swissStyle, INK, RED } from '../lib/mapStyle';
 import type { LngLat } from '../lib/geo';
+import { transformRequest } from '../lib/native/offlineMaps';
 
 interface Props {
   tileTemplate: string;
@@ -15,13 +16,17 @@ interface Props {
   interactive?: boolean;
   onReady?: (map: MLMap) => void;
   label?: string;
+  /** Called when map data (tiles, style) fails to load, e.g. the tile server answers 429. */
+  onProblem?: () => void;
 }
 
 /** A MapLibre map with the Swiss style and empty trail layers ready to fill. */
-export function MapView({ tileTemplate, center, zoom = 12, bounds, interactive = true, onReady, label = 'Map' }: Props) {
+export function MapView({ tileTemplate, center, zoom = 12, bounds, interactive = true, onReady, label = 'Map', onProblem }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const ready = useRef(onReady);
   ready.current = onReady;
+  const problem = useRef(onProblem);
+  problem.current = onProblem;
 
   useEffect(() => {
     const map = new MLMap({
@@ -35,9 +40,10 @@ export function MapView({ tileTemplate, center, zoom = 12, bounds, interactive =
       attributionControl: { compact: true },
       dragRotate: false,
       pitchWithRotate: false,
+      transformRequest, // native apps only: saved maps come from Cache Storage (no service worker there)
     });
     map.touchZoomRotate.disableRotation();
-    map.on('error', (e) => console.warn('[map]', e.error?.message ?? e));
+    map.on('error', (e) => { console.warn('[map]', e.error?.message ?? e); problem.current?.(); });
     (window as unknown as { __ridgelineMap?: MLMap }).__ridgelineMap = map;
     map.once('style.load', () => {
       const empty = { type: 'FeatureCollection', features: [] } as GeoJSON.FeatureCollection;
@@ -58,14 +64,4 @@ export function MapView({ tileTemplate, center, zoom = 12, bounds, interactive =
   }, [tileTemplate]);
 
   return <div ref={ref} className="map" role="region" aria-label={label} />;
-}
-
-export function setGeo(map: MLMap, source: string, data: GeoJSON.FeatureCollection) {
-  (map.getSource(source) as GeoJSONSource | undefined)?.setData(data);
-}
-
-/** Approximate pixel radius for a GPS accuracy circle at the current zoom. */
-export function metersToPixels(map: MLMap, meters: number, lat: number) {
-  const mPerPx = (40075016.686 * Math.cos((lat * Math.PI) / 180)) / (512 * 2 ** map.getZoom());
-  return meters / mPerPx;
 }

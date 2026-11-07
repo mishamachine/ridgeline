@@ -1,7 +1,8 @@
 name: PR check
 
 # Runs on every pull request into main. Mirrors the check steps of deploy.yml
-# (tests, the trail build script on sample data, and the site build) plus the typecheck script.
+# (tests, the trail build script on sample data, and the site build) plus the typecheck script,
+# (npm test includes the Ledge GPS replay gate: src/lib/gps/ledge.replay.test.ts), and a Playwright browser check of the offline flow.
 # Never deploys or publishes, downloads no map extract and reads no secrets. The sample trail
 # build fetches one public Copernicus DEM tile (about 5 MB) from the open AWS bucket, no credentials.
 
@@ -64,3 +65,21 @@ jobs:
       - run: npm run build
         env:
           BASE_PATH: /${{ github.event.repository.name }}/
+
+  # Real browser on the built app: save a trail, go offline, reload, open the trail page and Navigate.
+  # Runs beside the job above, so it adds no wall-clock time. Stubs the map servers; reads no secrets.
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+      - run: npx playwright install chromium --with-deps
+      - run: npm run e2e
