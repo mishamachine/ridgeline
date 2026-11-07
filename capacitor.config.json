@@ -1,0 +1,7 @@
+{
+  "appId": "com.bbprojectfactory.ridgeline",
+  "appName": "Ridgeline",
+  "webDir": "dist-native",
+  "android": { "backgroundColor": "#F7F7F5" },
+  "ios": { "backgroundColor": "#F7F7F5" }
+}
