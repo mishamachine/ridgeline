@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { copyFileSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { defineConfig, type Plugin } from 'vite';
@@ -35,6 +36,7 @@ const devNames: Plugin = {
 
 export default defineConfig(({ mode }) => ({
   base,
+  test: { exclude: ['node_modules/**', 'dist/**', 'e2e/**', 'test-results/**'] }, // e2e/ is Playwright's (npm run e2e)
   // Dev only: set TRAILS_PROXY=https://<host> to read hosted trail cells from a live site.
   server: process.env.TRAILS_PROXY ? { proxy: { '/trails': { target: process.env.TRAILS_PROXY, changeOrigin: true } } } : {},
   plugins: [

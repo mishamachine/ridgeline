@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getTileTemplate } from './lib/offline';
 import { listAllSaved } from './lib/saved';
 import { bookmark, unsave } from './lib/saved';
@@ -25,17 +25,21 @@ import { FindIcon, HikeIcon, ProfileIcon, SavedIcon } from './components/NavIcon
 import { count } from './lib/counter';
 import { setHikeActive } from './lib/swUpdate';
 import { Toaster } from './components/Toaster';
+import { Later } from './components/ScreenBoundary';
 import { Find } from './screens/Find';
-import { Detail } from './screens/Detail';
 import { Hike } from './screens/Hike';
-import { Navigate } from './screens/Navigate';
 import { Saved } from './screens/Saved';
-import { SharedList } from './screens/SharedList';
-import { Profile } from './screens/Profile';
-import { Badges } from './screens/Badges';
 import { Onboarding } from './screens/Onboarding';
-import { Celebrate } from './screens/Celebrate';
-import { Landing } from './screens/Landing';
+
+// Screens people reach later load on demand (Find, Saved, Hike and the first-run tour stay in the first download);
+// each shows the static Bobo loading state for the moment it takes. Navigate and the maps carry MapLibre.
+const Detail = lazy(() => import('./screens/Detail').then((m) => ({ default: m.Detail })));
+const Navigate = lazy(() => import('./screens/Navigate').then((m) => ({ default: m.Navigate })));
+const SharedList = lazy(() => import('./screens/SharedList').then((m) => ({ default: m.SharedList })));
+const Profile = lazy(() => import('./screens/Profile').then((m) => ({ default: m.Profile })));
+const Badges = lazy(() => import('./screens/Badges').then((m) => ({ default: m.Badges })));
+const Celebrate = lazy(() => import('./screens/Celebrate').then((m) => ({ default: m.Celebrate })));
+const Landing = lazy(() => import('./screens/Landing').then((m) => ({ default: m.Landing })));
 
 export type { Tab };
 
@@ -51,6 +55,7 @@ const readRoute = (): Route => parseRoute(location.pathname, location.search, ba
 
 export function App() {
   const [tpl, setTpl] = useState<string | null>(null);
+  const profileOpened = useRef(false);
   const [route, setRoute] = useState<Route>(readRoute);
   const [trail, setTrail] = useState<Trail | null>(null);       // trail shown on a /trail/<id> page
   const [trailState, setTrailState] = useState<'idle' | 'loading' | 'missing'>('idle');
@@ -181,6 +186,7 @@ export function App() {
   const onHike = route.kind === 'hike';
   const bookmarkedNow = useMemo(() => (trail ? saved.marked.has(trail.id) : false), [trail, saved]);
 
+  if (tab === 'profile') profileOpened.current = true; // the Profile chunk loads the first time the tab is opened
   if (!tpl) return <div className="app"><Placeholder title="Loading Ridgeline…" /></div>;
 
   const hiking = !!hike && tab === 'hike';
@@ -197,50 +203,52 @@ export function App() {
       <div className="screen" hidden={tab !== 'hike' || !!hike}>
         <Hike visible={tab === 'hike' && !hike} version={saved.version} onStart={startHike} onFind={() => goTab('find')} onResume={resumeHike} />
       </div>
-      <div className="screen" hidden={tab !== 'profile'}>
-        <Profile version={profileVersion} onOpenBadges={() => go({ kind: 'badges' })} onReplayTour={() => setOnboarding('replay')} onOpenActivity={openActivity} />
-      </div>
+      {profileOpened.current && (
+        <div className="screen" hidden={tab !== 'profile'}>
+          <Later><Profile version={profileVersion} onOpenBadges={() => go({ kind: 'badges' })} onReplayTour={() => setOnboarding('replay')} onOpenActivity={openActivity} /></Later>
+        </div>
+      )}
 
       {hike && (
         <div className="screen" hidden={!hiking}>
-          <Navigate key={hike.id} tpl={tpl} trail={hike} resume={resume ?? undefined} saved={saved.offline.has(hike.id)} onEnd={() => { const t = hike; setHike(null); openTrail(t); }} onFinish={(sm, a) => finishHike(hike, sm, a)} />
+          <Later><Navigate key={hike.id} tpl={tpl} trail={hike} resume={resume ?? undefined} saved={saved.offline.has(hike.id)} onEnd={() => { const t = hike; setHike(null); openTrail(t); }} onFinish={(sm, a) => finishHike(hike, sm, a)} /></Later>
         </div>
       )}
 
       {onBadges && (
-        <div className="screen overlay"><Badges onBack={backToProfile} /></div>
+        <div className="screen overlay"><Later><Badges onBack={backToProfile} /></Later></div>
       )}
 
       {onHike && landing && landing.id === route.id && (
         <div className="screen overlay">
-          <Landing
+          <Later><Landing
             trail={landing.name ? { name: landing.name } : null}
             stats={route.stats}
             features={features}
             platform={/Android/i.test(navigator.userAgent) ? 'android' : detectPlatform() === 'ios' ? 'ios' : 'other'}
             onGetApp={() => { setOnboarding(getSettings().onboardingSeen ? 'replay' : 'first'); go({ kind: 'tab', tab: 'find' }, true); }}
             onSeeTrail={landing.name ? () => go({ kind: 'trail', id: route.id }) : undefined}
-          />
+          /></Later>
         </div>
       )}
 
       {done && (
         <div className="screen overlay">
-          <Celebrate summary={done.summary} newBadges={done.newBadges} badgeCount={done.badgeCount}
-            onDone={() => { setDone(null); go({ kind: 'tab', tab: 'profile' }); }} onShareApp={shareApp} />
+          <Later><Celebrate summary={done.summary} newBadges={done.newBadges} badgeCount={done.badgeCount}
+            onDone={() => { setDone(null); go({ kind: 'tab', tab: 'profile' }); }} onShareApp={shareApp} /></Later>
         </div>
       )}
 
       {onShared && (
         <div className="screen overlay">
-          <SharedList ids={route.ids} lls={route.lls} onOpen={openTrail} onHome={() => go({ kind: 'tab', tab: 'find' })} />
+          <Later><SharedList ids={route.ids} lls={route.lls} onOpen={openTrail} onHome={() => go({ kind: 'tab', tab: 'find' })} /></Later>
         </div>
       )}
 
       {onTrail && (
         <div className="screen overlay">
           {trail && trail.id === route.id && trailState !== 'loading' ? (
-            <Detail key={trail.id} tpl={tpl} trail={trail} bookmarked={bookmarkedNow} onBack={back} onStart={startHike} onSavedChange={refreshSaved} />
+            <Later><Detail key={trail.id} tpl={tpl} trail={trail} bookmarked={bookmarkedNow} onBack={back} onStart={startHike} onSavedChange={refreshSaved} /></Later>
           ) : trailState === 'missing' ? (
             <div className="page">
               <div className="page-head"><Bobo size={44} /><h1 className="page-title">Trail not found</h1></div>

@@ -34,6 +34,8 @@ export interface Activity {
   snapshot?: TrailSnapshot;
   /** The hike was never finished; it was closed at its last point. See abandoned.ts. */
   unfinished?: boolean;
+  /** Time spent paused (or with the app closed, on a resumed hike) so far, ms. Kept so a hike resumed twice still counts the first session's pauses. */
+  pausedMs?: number;
 }
 
 const T = 'trail:', A = 'act:', S = 'sl:';

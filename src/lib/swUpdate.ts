@@ -51,7 +51,19 @@ export function onControllerChange(hadController: boolean) {
   location.reload();
 }
 
+/**
+ * A screen's chunk failed to load (a deploy replaced it, or the signal dropped): reload once, never mid-hike and
+ * never twice within the reload guard. Returns whether it reloaded; if not, the screen shows its own "Reload" button.
+ */
+export function reloadAfterChunkError(now = Date.now(), reload: () => void = () => location.reload()): boolean {
+  if (hikeActive || !mayReload(lastReload(), now)) return false;
+  try { sessionStorage.setItem(RELOAD_KEY, String(now)); } catch { return false; }
+  reload();
+  return true;
+}
+
 export function initSwUpdate() {
+  window.addEventListener('vite:preloadError', (e) => { if (reloadAfterChunkError()) e.preventDefault(); });
   if (!('serviceWorker' in navigator) || import.meta.env.DEV) return;
   const sw = navigator.serviceWorker;
   const hadController = !!sw.controller;

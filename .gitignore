@@ -9,3 +9,5 @@ __pycache__/
 .dev-data/
 *.tsbuildinfo
 dist-native
+test-results/
+playwright-report/

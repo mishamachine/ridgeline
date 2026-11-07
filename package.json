@@ -12,7 +12,8 @@
     "build:native": "vite build --mode native --outDir dist-native && npx cap sync",
     "build:ios": "vite build --mode native --outDir dist-native && npx cap sync ios",
     "build:android": "vite build --mode native --outDir dist-native && npx cap sync android",
-    "icons": "python3 scripts/make-icons.py"
+    "icons": "python3 scripts/make-icons.py",
+    "e2e": "playwright test"
   },
   "keywords": [],
   "author": "",
@@ -35,6 +36,7 @@
     "@capacitor/assets": "^4.0.0",
     "@capacitor/cli": "^8.6.0",
     "@capacitor/ios": "^8.6.0",
+    "@playwright/test": "1.64.1",
     "@types/geojson": "^7946.0.16",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",

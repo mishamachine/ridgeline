@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { ft, hrs, mi } from '../lib/format';
-import { level, roundTripClimbM, roundTripM, tripMinutes } from '../lib/plan';
+import { gainM, level, roundTripM, tripMinutes } from '../lib/plan';
 import type { Trail } from '../lib/trails';
 import { HighlightChips } from './Chips';
 import { SavedIcon } from './NavIcons';
@@ -20,9 +20,9 @@ interface Props {
 export const awayLabel = (m: number) => (m < 1 ? 'Under 1 mi away' : `${Math.round(m)} mi away`);
 
 export function statsLine(t: Trail): string {
-  const climb = roundTripClimbM(t);
+  const gain = gainM(t);
   const parts = [`${mi(roundTripM(t))} mi${t.loop ? ' loop' : ''}`];
-  if (climb != null) parts.push(`${ft(climb)} ft climb`, `~${hrs(tripMinutes(t))}`);
+  if (gain != null) parts.push(`${ft(gain)} ft gain`, `~${hrs(tripMinutes(t))}`);
   return parts.join(' · ');
 }
 

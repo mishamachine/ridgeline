@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Marker, type Map as MLMap } from 'maplibre-gl';
-import { MapView, setGeo, metersToPixels } from '../components/MapView';
+import { LazyMap as MapView } from '../components/LazyMap';
+import { setGeo, metersToPixels } from '../components/mapGeo';
 import { LocateIcon, SwapIcon } from '../components/Icons';
 import { Banner } from '../components/nav/Banner';
 import { PocketMode } from '../components/nav/PocketMode';
@@ -8,7 +9,7 @@ import { buildView } from '../components/nav/view';
 import { buildSummary, type HikeSummary } from '../components/nav/summary';
 import { cumulative, haversine, pointAt, totalAscent, LngLat } from '../lib/geo';
 import { estimateMinutes, Trail } from '../lib/trails';
-import { addPoint, keepAwake } from '../lib/tracker';
+import { addPoint, keepAwake, progressFromTrack } from '../lib/tracker';
 import { putActivity, Activity } from '../lib/store';
 import { duration } from '../lib/format';
 import { INK } from '../lib/mapStyle';
@@ -21,13 +22,13 @@ import { requestCompassPermission, startCompass } from '../lib/gps/compass';
 import { findReversals } from '../lib/gps/reversals';
 import { Announcer } from '../lib/voice/announcer';
 import { forksFor, nextStep } from '../lib/voice/forkpoints';
-import { offRouteSide } from '../lib/voice/offroute';
+import { OffRouteWords, offRouteSide, type OffWords } from '../lib/voice/offroute';
 import { useSettings } from '../lib/settings';
 import { endActivity, startActivity } from '../lib/finish';
 import { cancelSpeech, primeSpeech, speak } from '../lib/voice/speak';
 import { climbText, shortDistance } from '../lib/voice/units';
 import { offRouteText } from '../lib/voice/announcer';
-import { FlipBack, TurnBack } from '../lib/voice/turnback';
+import { BACK_M, FlipBack, TurnBack } from '../lib/voice/turnback';
 
 export type { HikeSummary };
 
@@ -55,7 +56,7 @@ export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) 
   const priorFractionRef = useRef(0);
   const priorClimbRef = useRef(0);
   const followRef = useRef(true);
-  const pausedMsRef = useRef(0);
+  const pausedMsRef = useRef(resume ? (resume.pausedMs ?? 0) + Math.max(0, Date.now() - (resume.points.at(-1)?.t ?? Date.now())) : 0); // earlier pauses, plus the time the app was closed
   const pauseStartRef = useRef<number | null>(null);
   const markersRef = useRef<{ key: string; list: Marker[] }>({ key: '', list: [] });
 
@@ -86,16 +87,26 @@ export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) 
     return { coords, elevation, cum: cumulative(coords) };
   }, [trail, reversed]);
   const total = route.cum.at(-1)!;
+  // A resumed hike picks its progress up from the track already recorded, not from 0.
+  const seededRef = useRef(false);
+  if (!seededRef.current) {
+    seededRef.current = true;
+    const p = resume ? progressFromTrack(resume.points, route.coords, route.cum) : null;
+    if (p) { startAlongRef.current = p.start; maxAlongRef.current = p.max; }
+    if (resume) resume.pausedMs = pausedMsRef.current; // saved with the next track write
+  }
 
   const forks = useMemo(() => forksFor(trail.coords, trail.junctions, reversed, trail.name), [trail, reversed]);
   const tips = useMemo(() => findReversals(route.coords, route.cum), [route]);
   // One announcer per walking direction. "You made it." is said once per direction, and a hand-tapped switch hushes fork lines for a while.
   const finishedDir = useRef<Record<string, boolean>>({});
-  const hushNext = useRef(false);
+  const hushNext = useRef<false | 'timed' | 'walked'>(false);
   const announcer = useMemo(() => {
     const a = new Announcer({ forks, turnarounds: tips, total }, units);
     if (finishedDir.current[String(reversed)]) a.markFinished();
-    if (hushNext.current) { a.hushForks(); hushNext.current = false; }
+    if (hushNext.current === 'walked') a.hushForksUntilWalked(BACK_M);
+    else if (hushNext.current) a.hushForks();
+    hushNext.current = false;
     return a;
   }, [forks, tips, total, units]);
 
@@ -152,7 +163,12 @@ export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) 
   }, [paused, along, offRoute]);
 
   // Direction changed: measure pace from here.
-  useEffect(() => { startAlongRef.current = null; maxAlongRef.current = 0; }, [reversed]);
+  const reversedBefore = useRef(reversed);
+  useEffect(() => {
+    if (reversedBefore.current === reversed) return; // not on first render: a resumed hike keeps its seeded progress
+    reversedBefore.current = reversed;
+    startAlongRef.current = null; maxAlongRef.current = 0;
+  }, [reversed]);
 
   // Switching direction (tapped, or after the end of an out-and-back). The outbound leg stays part of this hike.
   const flipRef = useRef<{ det: FlipBack; before: boolean } | null>(null);
@@ -163,7 +179,7 @@ export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) 
       priorClimbRef.current += totalAscent(route.elevation.slice(k(startAlongRef.current), k(maxAlongRef.current) + 1));
     }
     flipRef.current = flipRef.current ? null : { det: new FlipBack(), before: reversed }; // tapping again undoes it by hand, so the net stands down
-    if (!auto) hushNext.current = true; // the hiker may have tapped by mistake: no fork sides until it is clear
+    hushNext.current = auto ? 'walked' : 'timed'; // a tap may be a mistake and an auto switch may be a mis-snap: no fork sides until the hiker has really walked the new way
     if (auto) {
       navigator.vibrate?.([120]);
       if (voiceRef.current) speak("Heading back. I'll call the forks on the way down.", false);
@@ -180,27 +196,32 @@ export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) 
     const fl = flipRef.current;
     if (fl && along != null) {
       const original = reversed === fl.before ? along : total - along;
-      if (fl.det.update(original, offRoute)) { flipRef.current = null; autoTurnedRef.current = true; hushNext.current = true; setHeadingBack(false); setReversed(fl.before); }
+      if (fl.det.update(original, offRoute)) { flipRef.current = null; autoTurnedRef.current = true; hushNext.current = 'timed'; setHeadingBack(false); setReversed(fl.before); }
     }
   }, [g, turnBack, paused, along, offRoute]);
 
-  // Which way the trail lies when you are off it.
-  const offSide = useMemo(
-    () => (offRoute && g.filtered ? offRouteSide(route.coords, g.filtered, g.heading) : null),
-    [offRoute, g.filtered, g.heading, route],
-  );
+  // Which way the trail lies when you are off it. Read once per fix (an effect, so it runs exactly once per fix) even before the alert,
+  // so the words are settled when it comes: the side holds for 3 fixes, and no reminder while you walk back.
+  const wordsRef = useRef(new OffRouteWords());
+  const [offSide, setOffSide] = useState<OffWords | null>(null);
+  const wordsFix = useRef<{ g: GpsState; w: OffWords | null } | null>(null);
 
   // Talk, only when there is something to say. Vibrate with it.
   useEffect(() => {
-    if (paused) return;
     // After a reversal the screen can still hold the old direction's state for one render: wait for the engine's first state on the new route.
     if (g !== engine.state) return;
-    for (const u of announcer.update({ t: Date.now(), along, offRoute, holdOff: g.recalLastOffRoute, walkedM: walkedRef.current, off: offSide ?? undefined })) {
+    if (wordsFix.current?.g !== g) { // one reading per fix, even when the effect re-runs for another reason
+      wordsFix.current = { g, w: wordsRef.current.push(g.filtered && (offRoute || (g.offsetM ?? 0) > 25) ? offRouteSide(route.coords, g.filtered, g.heading) : null) };
+    }
+    const w = wordsFix.current.w;
+    setOffSide(offRoute ? w : null);
+    if (paused) return;
+    for (const u of announcer.update({ t: Date.now(), along, offRoute, holdOff: g.recalLastOffRoute, walkedM: walkedRef.current, off: offRoute && w?.settled ? w : undefined, closing: offRoute ? w?.closing : false })) {
       if (u.kind === 'finish') finishedDir.current[String(reversed)] = true;
       navigator.vibrate?.(u.vibrate);
       if (voiceRef.current) speak(u.text, u.interrupt);
     }
-  }, [g, announcer, paused, along, offRoute, offSide]);
+  }, [g, announcer, paused, along, offRoute, route]);
 
   // iOS only starts speech from a completed tap (click or touchend, not pointerdown): unlock it on the first one on this screen.
   useEffect(() => {
@@ -233,9 +254,10 @@ export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) 
   }
 
   // Climb ahead and time left, adjusted to your pace once you've walked a bit.
-  const climbAhead = route.elevation
-    ? totalAscent(route.elevation.slice(Math.min(route.elevation.length - 1, Math.floor(((along ?? 0) / total) * (route.elevation.length - 1)))))
-    : null;
+  const aheadElev = route.elevation?.slice(Math.min(route.elevation.length - 1, Math.floor(((along ?? 0) / total) * (route.elevation.length - 1))));
+  const climbAhead = aheadElev ? totalAscent(aheadElev) : null;
+  // Outbound on an out-and-back, show the same "gain" as the trail page (the bigger way); heading back or on a loop, the climb actually ahead.
+  const climbShown = aheadElev ? (!trail.loop && !headingBack ? Math.max(climbAhead!, totalAscent([...aheadElev].reverse())) : climbAhead) : null;
   const pausedNow = pausedMsRef.current + (pauseStartRef.current ? now - pauseStartRef.current : 0);
   const movingMin = (now - actRef.current.startedAt - pausedNow) / 60000;
   let minutesLeft = estimateMinutes(remaining, climbAhead ?? 0);
@@ -325,6 +347,8 @@ export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) 
     if (paused) {
       pausedMsRef.current += Date.now() - (pauseStartRef.current ?? Date.now());
       pauseStartRef.current = null;
+      actRef.current.pausedMs = pausedMsRef.current;
+      putActivity(actRef.current);
     } else pauseStartRef.current = Date.now();
     pausedRef.current = !paused;
     setPaused(!paused);
@@ -334,6 +358,7 @@ export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) 
     const a = actRef.current;
     const endedAt = Date.now();
     if (pauseStartRef.current) { pausedMsRef.current += endedAt - pauseStartRef.current; pauseStartRef.current = null; }
+    a.pausedMs = pausedMsRef.current;
     if (endActivity(a, trail, endedAt)) await putActivity(a);
     cancelSpeech();
     if (!onFinish) return onEnd();
@@ -349,7 +374,7 @@ export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) 
   const pct = g.progress;
   const toGo = shortDistance(remaining, units);
   const pace = `${duration(minutesLeft)}`;
-  const climb = climbAhead != null ? climbText(climbAhead, units) : '—';
+  const climb = climbShown != null ? climbText(climbShown, units) : '—';
 
   // Lock-screen notification (apps only): the next instruction, distance left, % done. Refreshed at most every 5 s,
   // at once when the instruction changes.

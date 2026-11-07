@@ -75,6 +75,29 @@ describe('turn back after the end', () => {
   });
 });
 
+describe('turn back where the mapped end runs past where people stop', () => {
+  it('fires after 60 m back from the furthest point when the walk reached 97% of a route whose end is 90 m further on', () => {
+    const tb = new TurnBack(TOTAL, false);
+    const turn = TOTAL - 90;
+    let fired = -1;
+    [...range(0, turn), ...range(turn, turn - 100, -1.2)].forEach((d, k) => { if (fired < 0 && tb.update(d, false)) fired = d; });
+    expect(fired).toBeGreaterThan(0);
+    expect(fired).toBeLessThanOrEqual(turn - 60);
+  });
+  it('does not fire for a turn before 90% along (and 300 m from the end on a long route)', () => {
+    const a = new TurnBack(TOTAL, false);
+    for (const d of [...range(0, 800), ...range(800, 600, -1.2)]) expect(a.update(d, false)).toBe(false);
+    const long = new TurnBack(10_000, false);
+    for (const d of [...range(0, 9_500, 5), ...range(9_500, 9_300, -5)]) expect(long.update(d, false)).toBe(false); // 500 m short of the end
+  });
+  it('one stray fix ahead does not move the turning point', () => {
+    const tb = new TurnBack(TOTAL, false);
+    for (const d of range(0, 930)) tb.update(d, false);
+    tb.update(990, false);
+    for (let k = 0; k < 4; k++) expect(tb.update(920, false)).toBe(false);
+  });
+});
+
 describe('flip back safety net', () => {
   it('flips back when the hiker keeps going the original way for 60 m, not before', () => {
     const f = new FlipBack();

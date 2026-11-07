@@ -7,7 +7,7 @@ export interface Speaker {
 
 let live: unknown[] = []; // browsers can drop an utterance that nothing references
 
-/** An English voice that runs on the device. Never a network voice: it must work offline and not send the text anywhere. */
+/** An English voice installed on the device, so it works offline. If there is none, the caller leaves the voice unset and the browser's default is used, which some browsers may run online (the privacy page says so). */
 function pickVoice(synth: SpeechSynthesis): SpeechSynthesisVoice | undefined {
   const lang = (typeof navigator !== 'undefined' ? navigator.language : 'en-US') || 'en-US';
   const local = synth.getVoices().filter((v) => v.localService && v.lang.toLowerCase().startsWith('en'));

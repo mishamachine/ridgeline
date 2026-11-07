@@ -7,7 +7,16 @@ type T = Pick<Trail, 'lengthM' | 'loop' | 'ascentM' | 'descentM'>;
 /** Out-and-back trails are walked twice; loops once. */
 export const roundTripM = (t: Pick<Trail, 'lengthM' | 'loop'>) => (t.loop ? t.lengthM : t.lengthM * 2);
 
-/** Climb over the whole outing (m). Out and back = the way up plus the climbs on the way home. */
+/**
+ * Headline gain (m), the number hikers compare: the way up for an out-and-back (the bigger of the two ways, since the
+ * mapped line can run either direction), the whole ascent for a loop. Never ascent + descent.
+ */
+export function gainM(t: T): number | null {
+  if (t.ascentM == null) return null;
+  return t.loop ? t.ascentM : Math.max(t.ascentM, t.descentM ?? 0);
+}
+
+/** Climbing over the whole outing (m), for time and level. Out and back = the way up plus the climbs on the way home. */
 export function roundTripClimbM(t: T): number | null {
   if (t.ascentM == null) return null;
   return t.loop ? t.ascentM : t.ascentM + (t.descentM ?? 0);
