@@ -168,6 +168,17 @@ describe('seed list', () => {
     expect(findSeed([split], { label: 'Some Peak', osm: ['w999'], near: [-121.49, 47.5] })?.id).toBe('osm-w456-1');
     expect(findSeed([split], { label: 'Some Peak', osm: ['w999'], near: [-120, 47.5] })).toBeUndefined();
   });
+  it('name fallback skips junk names, other trails, and keeps the trail own name', () => {
+    const sd: Seed = { label: 'Mount Si', osm: ['r1'], near: [-121.5, 47.5], name: 'Mount Si' };
+    expect(findSeed([trail({ id: 'osm-w5-0', name: 'Trail', coords: line(40, -121.5, 47.5) })], sd)).toBeUndefined();
+    const old = trail({ id: 'osm-r9', name: 'Old Mount Si Trail', coords: line(40, -121.5, 47.5) });
+    expect(selectWithSeeds([old], [sd]).trails[0].name).toBe('Old Mount Si Trail');
+  });
+  it('two seeds on the same trail: the second is reported missing', () => {
+    const sel = selectWithSeeds(routes, [{ label: 'A', osm: ['r1'], near: [0, 0] }, { label: 'B', osm: ['r1'], near: [0, 0] }]);
+    expect(sel.seeded).toHaveLength(1);
+    expect(sel.missing).toEqual(['B']);
+  });
   it('puts seeds first, allows up to 20 mi, and applies a display name', () => {
     const big = trail({ id: 'osm-r700', name: 'Big Peak Trail', lengthM: 14000, coords: line(40, -121.9) }); // ~17 mi out and back
     const sel = selectWithSeeds([...routes, big], [{ label: 'Big Peak', osm: ['r700'], near: [-121.9, 47.8], name: 'Big Peak (Seed)' }], 4);
@@ -199,8 +210,10 @@ describe('hiking signal', () => {
   it('pushes down connectors, horse-only and access paths', () => {
     const base = hikingSignal(trail({ name: 'Fern Lake Trail' }));
     expect(hikingSignal(trail({ name: 'Fern Lake Connector' }))).toBeLessThan(base);
-    expect(hikingSignal(trail({ name: 'Fern Lake Trail', tags: { horse: 'designated' } }))).toBeLessThan(base);
+    const way = { id: 'osm-w1-0', name: 'Fern Lake Trail' };
+    expect(hikingSignal(trail({ ...way, tags: { horse: 'designated' } }))).toBeLessThan(hikingSignal(trail(way)));
     expect(hikingSignal(trail({ name: 'Fern Lake Trail', tags: { horse: 'designated', foot: 'designated' } }))).toBe(base);
+    expect(hikingSignal(trail({ name: 'Fern Lake Trail', tags: { horse: 'designated' } }))).toBe(base); // a route with foot unset is not penalised
   });
   it('is deterministic whatever the input order', () => {
     const a = selectTrails(real).map((t) => t.id), b = selectTrails([...real].reverse()).map((t) => t.id);

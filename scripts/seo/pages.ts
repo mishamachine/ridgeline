@@ -33,7 +33,7 @@ export function hikingSignal(t: Trail): number {
   if (DESTINATION.test(t.name)) s += 2;
   s += Math.min(2, certainHighlights(t).filter((h) => /views|lake|waterfall/.test(h)).length);
   if (URBAN.test(t.name)) s -= 5;
-  if (t.tags.horse === 'designated' && !/^(designated|yes)$/.test(t.tags.foot ?? '')) s -= 4;
+  if (t.tags.horse === 'designated' && (t.tags.foot === 'no' || (!t.tags.foot && !isRoute(t)))) s -= 4;
   return s;
 }
 
@@ -45,13 +45,13 @@ const lc = (s: string) => s.toLowerCase();
 
 /** The built trail for a seed: by OSM id (in the order listed), else by a matching name within 1 km of `near`. */
 export function findSeed(all: Trail[], seed: Seed): Trail | undefined {
-  const usable = (t: Trail) => !t.partial && ID_OK.test(t.id) && t.coords.length >= 2 && roundTripM(t) * M_TO_MI <= SEED_MAX_MI;
+  const usable = (t: Trail) => !t.partial && !isJunkName(t.name) && ID_OK.test(t.id) && t.coords.length >= 2 && roundTripM(t) * M_TO_MI <= SEED_MAX_MI;
   for (const o of seed.osm) {
     const hit = all.find((t) => usable(t) && hasOsm(t, o));
     if (hit) return hit;
   }
   const key = lc(seed.label);
-  return all.filter((t) => usable(t) && (lc(t.name).includes(key) || key.includes(lc(t.name))) && t.coords.some((c) => haversine(c, seed.near) <= SEED_NEAR_M))
+  return all.filter((t) => usable(t) && lc(t.name).includes(key) && t.coords.some((c) => haversine(c, seed.near) <= SEED_NEAR_M))
     .sort((a, b) => a.id.localeCompare(b.id))[0];
 }
 
@@ -63,8 +63,8 @@ export function selectWithSeeds(all: Trail[], seeds: Seed[], cap = DEFAULT_CAP):
   for (const sd of [...seeds.filter((s) => !s.bench), ...seeds.filter((s) => s.bench)]) {
     const t = findSeed(all, sd);
     if (!t) { missing.push(sd.label); continue; }
-    if (picked.some((p) => p.id === t.id)) continue;
-    picked.push(sd.name ? { ...t, name: sd.name } : t);
+    if (picked.some((p) => p.id === t.id)) { missing.push(sd.label); continue; }
+    picked.push(sd.name && sd.osm.some((o) => hasOsm(t, o)) ? { ...t, name: sd.name } : t);
     seeded.push({ label: sd.label, id: t.id });
   }
   const taken = new Set(picked.map((t) => t.id));

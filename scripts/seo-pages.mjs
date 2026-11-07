@@ -19,6 +19,7 @@ const files = readdirSync(trailDir).filter((f) => /^\d+_\d+\.json$/.test(f)).map
 const seeds = JSON.parse(readFileSync('./scripts/seo/seed.json', 'utf8'));
 const sel = seo.selectWithSeeds(cells.cellsToTrails(files), seeds, cap);
 const picked = sel.trails;
+if (sel.missing.length) console.warn(`::warning::seo pages: seeds ${sel.seeded.length}/${seeds.length}`);
 for (const m of sel.missing) console.warn(`::warning::seo pages: seed trail "${m}" not found in the trail data; continuing without it`);
 if (picked.length < 50) { console.error(`seo pages: only ${picked.length} trails selected from ${trailDir}; refusing to publish a thin sitemap`); process.exit(1); }
 let bytes = 0;
