@@ -1,6 +1,6 @@
 // Thin pre-rendered trail pages for search engines. Pure functions here; scripts/seo-pages.mjs does the file work.
 // No climb or difficulty yet: the climb figures are being fixed (cto/test-pass-fixes). TODO(climb): add them once that lands.
-import { M_TO_MI, resample, type LngLat } from '../../src/lib/geo';
+import { M_TO_MI, haversine, resample, type LngLat } from '../../src/lib/geo';
 import { mi } from '../../src/lib/format';
 import { roundTripM } from '../../src/lib/plan';
 import { filterTrails, isJunkName, isRoute, relevance } from '../../src/lib/quality';
@@ -22,16 +22,64 @@ export function canonicalBase(indexHtml: string): string {
   return new URL(m[1]).origin;
 }
 
+const DESTINATION = /\b(lake|lakes|peak|mount|mountain|mt|falls|viewpoint|lookout|ridge|pass|point|summit|butte|basin|meadows?|ledge|crest|divide|glacier)\b/i;
+const URBAN = /\b(connector|bridle|horse|horses|equestrian|greenway|spur|access|cutoff|cut-off|sidewalk|bike|bicycle)\b/i;
+
+/** How much a trail looks like a real hike, before length. Higher is better; deterministic. */
+export function hikingSignal(t: Trail): number {
+  let s = 0;
+  if (isRoute(t) && (!t.tags.route || t.tags.route === 'hiking')) s += 3;
+  if (t.tags.sac_scale) s += 2;
+  if (DESTINATION.test(t.name)) s += 2;
+  s += Math.min(2, certainHighlights(t).filter((h) => /views|lake|waterfall/.test(h)).length);
+  if (URBAN.test(t.name)) s -= 5;
+  if (t.tags.horse === 'designated' && (t.tags.foot === 'no' || (!t.tags.foot && !isRoute(t)))) s -= 4;
+  return s;
+}
+
+export interface Seed { label: string; osm: string[]; near: [number, number]; name?: string; bench?: boolean }
+export const SEED_MAX_MI = 20, SEED_NEAR_M = 1000;
+
+const hasOsm = (t: Trail, osm: string) => t.id === `osm-${osm}` || t.id.startsWith(`osm-${osm}-`);
+const lc = (s: string) => s.toLowerCase();
+
+/** The built trail for a seed: by OSM id (in the order listed), else by a matching name within 1 km of `near`. */
+export function findSeed(all: Trail[], seed: Seed): Trail | undefined {
+  const usable = (t: Trail) => !t.partial && !isJunkName(t.name) && ID_OK.test(t.id) && t.coords.length >= 2 && roundTripM(t) * M_TO_MI <= SEED_MAX_MI;
+  for (const o of seed.osm) {
+    const hit = all.find((t) => usable(t) && hasOsm(t, o));
+    if (hit) return hit;
+  }
+  const key = lc(seed.label);
+  return all.filter((t) => usable(t) && lc(t.name).includes(key) && t.coords.some((c) => haversine(c, seed.near) <= SEED_NEAR_M))
+    .sort((a, b) => a.id.localeCompare(b.id))[0];
+}
+
+export interface Selection { trails: Trail[]; seeded: { label: string; id: string }[]; missing: string[] }
+
+/** Seeds first (must-haves, then bench), then the rest by hiking signal before length. A seed that cannot be found is reported, not fatal. */
+export function selectWithSeeds(all: Trail[], seeds: Seed[], cap = DEFAULT_CAP): Selection {
+  const picked: Trail[] = [], seeded: Selection['seeded'] = [], missing: string[] = [];
+  for (const sd of [...seeds.filter((s) => !s.bench), ...seeds.filter((s) => s.bench)]) {
+    const t = findSeed(all, sd);
+    if (!t) { missing.push(sd.label); continue; }
+    if (picked.some((p) => p.id === t.id)) { missing.push(sd.label); continue; }
+    picked.push(sd.name && sd.osm.some((o) => hasOsm(t, o)) ? { ...t, name: sd.name } : t);
+    seeded.push({ label: sd.label, id: t.id });
+  }
+  const taken = new Set(picked.map((t) => t.id));
+  const rest = selectTrails(all, Infinity).filter((t) => !taken.has(t.id));
+  return { trails: [...picked, ...rest].slice(0, cap), seeded, missing };
+}
+
 export function selectTrails(all: Trail[], cap = DEFAULT_CAP): Trail[] {
   const ok = (t: Trail) => !t.partial && ID_OK.test(t.id) && !isJunkName(t.name) && t.coords.length >= 2 && (() => {
     const x = roundTripM(t) * M_TO_MI;
     return x >= MIN_MI && x <= MAX_MI;
   })();
-  const pool = filterTrails(all).filter(ok);
-  const byRank = (a: Trail, b: Trail) => relevance(b) - relevance(a) || a.id.localeCompare(b.id);
-  const routes = pool.filter(isRoute).sort(byRank);
-  const paths = pool.filter((t) => !isRoute(t) && !!t.tags.sac_scale).sort(byRank);
-  return [...routes, ...paths].slice(0, cap);
+  const pool = filterTrails(all).filter(ok).filter((t) => isRoute(t) || !!t.tags.sac_scale);
+  const sig = new Map(pool.map((t) => [t.id, hikingSignal(t)]));
+  return pool.sort((a, b) => sig.get(b.id)! - sig.get(a.id)! || relevance(b) - relevance(a) || a.id.localeCompare(b.id)).slice(0, cap);
 }
 
 const HIGHLIGHT_TEXT: Record<string, string> = {
