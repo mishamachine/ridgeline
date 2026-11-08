@@ -14,6 +14,7 @@ import { features } from '../lib/features';
 import { ChevronIcon } from '../components/Icons';
 import { PageHead } from '../components/PageHead';
 import { AccountRow } from '../components/AccountRow';
+import { pick, PROFILE_LOCATION_SENTENCE, PROFILE_LOCATION_SUMMARY } from '../lib/accounts/goLiveCopy';
 import { useAccount } from '../lib/accounts/useAccount';
 import { BadgeMedal } from './Badges';
 import './profile.css';
@@ -251,9 +252,9 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenDeleteAccount, onOpe
           )}
 
           <details className="pf-row" style={{ display: 'block', padding: 0 }}>
-            <summary className="pf-row" style={{ borderBottom: 0, cursor: 'pointer', listStyle: 'none' }}><span>Location &amp; privacy</span><span className="val">Live location stays on your phone</span></summary>
+            <summary className="pf-row" style={{ borderBottom: 0, cursor: 'pointer', listStyle: 'none' }}><span>Location &amp; privacy</span><span className="val">{pick(PROFILE_LOCATION_SUMMARY)}</span></summary>
             <div className="pf-credits">
-              <p>Ridgeline uses your location to centre the map when you open it or tap Locate, and your precise location while you navigate or record a hike. It stops when you finish. In the web version, location stops when your screen locks, so Ridgeline keeps the screen on. Your live location is never sent to our servers. If you sign in, the route of a finished hike is saved to your account (minus the first and last 200 m), unless you turn on &lsquo;Keep hike tracks on this phone only&rsquo;.</p>
+              <p>Ridgeline uses your location to centre the map when you open it or tap Locate, and your precise location while you navigate or record a hike. It stops when you finish. In the web version, location stops when your screen locks, so Ridgeline keeps the screen on. {pick(PROFILE_LOCATION_SENTENCE)}</p>
               <a className="pf-link" href={`${base}privacy/`}>Read the privacy policy</a>
             </div>
           </details>

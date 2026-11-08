@@ -5,6 +5,7 @@ import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import { accountsFlagOn, injectAccountsSection } from './src/lib/accounts/privacyAccounts';
+import { applyStaticSwaps, STATIC_SWAPS } from './src/lib/accounts/goLiveCopy';
 
 // BASE_PATH is set at deploy time for GitHub Pages (e.g. "/ridgeline/").
 const base = process.env.BASE_PATH ?? '/';
@@ -32,6 +33,11 @@ const privacyAccounts: Plugin = {
     if (!existsSync(f)) return;
     const on = accountsFlagOn(readFileSync(join('src', 'lib', 'features.ts'), 'utf8'));
     writeFileSync(f, injectAccountsSection(readFileSync(f, 'utf8'), on));
+    // The support page and llms.txt: the same go-live wording, only when accounts are on.
+    for (const file of new Set(STATIC_SWAPS.map((x) => x.file))) {
+      const g = join(privacyOut, file);
+      if (existsSync(g)) writeFileSync(g, applyStaticSwaps(file, readFileSync(g, 'utf8'), on));
+    }
   },
 };
 
