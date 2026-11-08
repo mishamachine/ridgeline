@@ -3,6 +3,9 @@
 import { Kind, SyncRec, winner } from './merge';
 import type { LocalSource } from './local';
 
+/** Re-read this far behind the cursor: a row committed late (its synced_at older than a row we already saw) is still caught. Merging is idempotent. */
+export const PULL_OVERLAP_MS = 60_000;
+
 export const KINDS: Kind[] = ['shortlist', 'saved', 'activities', 'settings'];
 
 export interface Remote {
@@ -23,7 +26,7 @@ export async function syncOnce(userId: string, local: LocalSource, remote: Remot
     const applied = new Map<string, number>();
     // 1. Pull and merge.
     const since = await cursors.get(key(userId, kind, 'pull'));
-    const incoming = await remote.pull(kind, since);
+    const incoming = await remote.pull(kind, Math.max(0, since - PULL_OVERLAP_MS));
     if (incoming.length) {
       const here = new Map((await local.readAll(kind)).map((r) => [r.id, r]));
       for (const r of incoming) {

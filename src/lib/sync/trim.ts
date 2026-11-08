@@ -5,18 +5,14 @@ import type { TrackPoint } from '../store';
 export const TRIM_M = 200;
 
 /**
- * The track with TRIM_M cut off each end, or null when nothing is left to upload
- * (a hike shorter than 2 x TRIM_M, or fewer than 2 points remain). The kept points are at least TRIM_M from both ends.
+ * The track without any point within TRIM_M (straight line, not along the track) of where the hike started or ended,
+ * or null when fewer than 2 points are left. Straight-line matters: a loop that comes back past the start, or a route
+ * that passes the trailhead mid-hike, must not reveal where the person lives or parks.
  */
 export function trimTrack(points: TrackPoint[], trimM = TRIM_M): TrackPoint[] | null {
   if (points.length < 2) return null;
-  const cum = [0];
-  for (let i = 1; i < points.length; i++) cum.push(cum[i - 1] + haversine([points[i - 1].lon, points[i - 1].lat], [points[i].lon, points[i].lat]));
-  const total = cum[cum.length - 1];
-  let a = 0;
-  while (a < points.length && cum[a] < trimM) a++;
-  let b = points.length - 1;
-  while (b >= 0 && total - cum[b] < trimM) b--;
-  if (a > b || b - a + 1 < 2) return null;
-  return points.slice(a, b + 1);
+  const a = points[0], b = points[points.length - 1];
+  const far = (p: TrackPoint, q: TrackPoint) => haversine([p.lon, p.lat], [q.lon, q.lat]) >= trimM;
+  const kept = points.filter((p) => far(p, a) && far(p, b));
+  return kept.length >= 2 ? kept : null;
 }

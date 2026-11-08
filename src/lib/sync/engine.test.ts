@@ -7,7 +7,7 @@ import type { Activity } from '../store';
 
 // A fake server with the same rules as the SQL: synced_at set on every write, stale writes ignored, future clocks clamped.
 class Server {
-  rows = new Map<string, SyncRec>(); clock = 1_000_000;
+  rows = new Map<string, SyncRec>(); clock = 10_000_000;
   remote(): Remote {
     return {
       pull: async (kind, since) => [...this.rows.values()].filter((r) => r.kind === kind && r.syncedAt! > since).sort((a, b) => a.syncedAt! - b.syncedAt!),
@@ -99,6 +99,27 @@ describe('two-device sync', () => {
     const other = new Server();
     await a.sync(other, 'user-2');
     expect([...other.rows.keys()]).toEqual(['shortlist/way/1']); // pushed in full to the new account (the "keep a copy" merge)
+  });
+});
+
+describe('pull overlap', () => {
+  it('catches a row that was committed late, with a synced_at older than one the phone already saw', async () => {
+    const s = new Server(), a = new Phone(), b = new Phone();
+    a.put('shortlist', 'way/1', 10);
+    await a.sync(s); await b.sync(s);                       // B's cursor is now at the first row's synced_at
+    const cursorBefore = [...b.cursors.values()].find((v) => v > 0)!;
+    // A row from another device shows up with a synced_at slightly BEHIND B's cursor (commit order differs from clock order).
+    s.rows.set('shortlist/way/2', { kind: 'shortlist', id: 'way/2', updatedAt: 20, deleted: false, payload: { n: 'way/2' }, syncedAt: cursorBefore - 5 });
+    s.rows.set('shortlist/way/3', { kind: 'shortlist', id: 'way/3', updatedAt: 21, deleted: false, payload: { n: 'way/3' }, syncedAt: cursorBefore + 5 });
+    await b.sync(s);
+    expect(b.live('shortlist')).toEqual(['way/1', 'way/2', 'way/3']);
+  });
+  it('the overlap is harmless: re-read rows are not applied again or echoed back', async () => {
+    const s = new Server(), a = new Phone(), b = new Phone();
+    a.put('shortlist', 'way/1', 10);
+    await a.sync(s); await b.sync(s);
+    expect(await b.sync(s)).toEqual({ pulled: 0, pushed: 0 });
+    expect(await b.sync(s)).toEqual({ pulled: 0, pushed: 0 });
   });
 });
 

@@ -39,9 +39,10 @@ Deno.serve(async (req) => {
       async deleteAuthUser() { const { error: e } = await admin.auth.admin.deleteUser(uid); if (e) throw e; },
       log: (ev) => console.log(JSON.stringify({ fn: 'delete-account', ev })),
     });
-    return out.ok ? reply(200, { ok: true }) : reply(502, { error: out.reason });
+    // 200 for ok and partial (the body says which); 502 only when nothing was deleted.
+    return out.status === 'failed' ? reply(502, { status: 'failed', error: out.reason }) : reply(200, out);
   } catch (e) {
     console.error('delete-account failed', e instanceof Error ? e.message : 'unknown');
-    return reply(500, { error: 'delete failed' });
+    return reply(500, { status: 'failed', error: 'delete failed' });
   }
 });
