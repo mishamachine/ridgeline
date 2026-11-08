@@ -3,14 +3,17 @@ import { get, set } from 'idb-keyval';
 import { features } from '../features';
 import { getClient } from '../accounts/client';
 import { getSettings } from '../settings';
-import { syncOnce, StaleEpochError, type Cursors } from './engine';
+import { syncOnce, StaleEpochError, type Cursors, type Owner } from './engine';
+import { isHikeActive } from '../swUpdate';
 import { idbLocal } from './local';
 import { supabaseRemote } from './remote';
 import { syncGate } from './gate';
 
-const cursors: Cursors = { get: async (k) => (await get<number>(k)) ?? 0, set: (k, v) => set(k, v) };
+const cursors: Cursors = { get: async (k) => (await get<number>(k)) ?? 0, set: (k, v) => set(k, v), getJson: async <T,>(k: string) => get<T>(k), setJson: (k, v) => set(k, v) };
+const OWNER_KEY = 'sync:owner';
+export const idbOwner: Owner = { get: async () => (await get<string>(OWNER_KEY)) ?? null, set: (id) => set(OWNER_KEY, id) };
 
-export interface PassOutcome { pulled: number; deletedElsewhere: boolean }
+export interface PassOutcome { pulled: number; deletedElsewhere: boolean; ownerMismatch?: boolean; retrySoon?: boolean }
 
 /** One sync pass for the signed-in user, under the delete gate. Never throws; a failure just means "try again later". */
 export async function runSync(userId: string): Promise<PassOutcome> {
@@ -19,8 +22,8 @@ export async function runSync(userId: string): Promise<PassOutcome> {
     try {
       const c = await getClient();
       if (!c) return none;
-      const r = await syncOnce(userId, idbLocal, supabaseRemote(c, userId, () => getSettings().keepTracksLocal), cursors, { canPush: () => !syncGate.paused });
-      return { pulled: r.pulled, deletedElsewhere: r.deletedElsewhere };
+      const r = await syncOnce(userId, idbLocal, supabaseRemote(c, userId, () => getSettings().keepTracksLocal), cursors, { canPush: () => !syncGate.paused, canWipe: () => !isHikeActive(), owner: idbOwner });
+      return { pulled: r.pulled, deletedElsewhere: r.deletedElsewhere, ownerMismatch: r.ownerMismatch };
     } catch (e) {
       // A refused write means the data was deleted elsewhere while this pass ran: the next pass will see the new epoch and clear this phone.
       if (e instanceof StaleEpochError) return { ...none, retrySoon: true } as PassOutcome;
@@ -30,17 +33,27 @@ export async function runSync(userId: string): Promise<PassOutcome> {
   return out ?? none;
 }
 
+/**
+ * The person's answer when a different account signs in on a phone that still holds another account's kept copy:
+ * 'add' hands the copy to this account (it uploads), 'remove' clears it from the phone first. Until one of them, nothing syncs.
+ */
+export async function resolveOwnerMismatch(userId: string, choice: 'add' | 'remove'): Promise<void> {
+  if (choice === 'remove') await idbLocal.wipe();
+  await idbOwner.set(userId);
+}
+
 export const DELETED_ELSEWHERE_MESSAGE = 'Your Ridgeline data was deleted on another device.';
 
 /** Syncs when the person signs in, when the app comes back to the front or the network returns, and every 2 minutes. Nothing runs while accounts are off, signed out, or a delete is in progress. */
-export function useSync(userId: string | null, onPulled: () => void, onDeletedElsewhere: () => void = () => {}, enabled: boolean = features.accounts) {
-  const cb = useRef(onPulled), cbDel = useRef(onDeletedElsewhere);
-  cb.current = onPulled; cbDel.current = onDeletedElsewhere;
+export function useSync(userId: string | null, onPulled: () => void, onDeletedElsewhere: () => void = () => {}, enabled: boolean = features.accounts, onOwnerMismatch: () => void = () => {}) {
+  const cb = useRef(onPulled), cbDel = useRef(onDeletedElsewhere), cbOwner = useRef(onOwnerMismatch);
+  cb.current = onPulled; cbDel.current = onDeletedElsewhere; cbOwner.current = onOwnerMismatch;
   useEffect(() => {
     if (!enabled || !userId) return;
     const go = () => {
       if (!navigator.onLine) return;
       runSync(userId).then((o) => {
+        if (o.ownerMismatch) { cbOwner.current(); return; }
         if (o.deletedElsewhere) { cbDel.current(); cb.current(); }
         else if (o.pulled) cb.current();
         if ((o as PassOutcome & { retrySoon?: boolean }).retrySoon) setTimeout(go, 1500);

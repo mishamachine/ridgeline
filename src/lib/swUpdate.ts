@@ -19,6 +19,8 @@ let waiting: ServiceWorker | null = null;
 let applying = false;
 let readyListener: (ready: boolean) => void = () => {};
 
+/** True while a hike is being recorded or its celebration is showing. */
+export const isHikeActive = () => hikeActive;
 export const setHikeActive = (v: boolean) => {
   hikeActive = v;
   if (!v && waiting) handleWaiting(waiting); // the hike ended: apply the update that was waiting

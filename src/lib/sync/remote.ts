@@ -3,12 +3,14 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { cleanActivity } from '../backup';
 import type { Activity } from '../store';
 import { APP_DATA_SCHEMA } from '../accounts/config';
-import { StaleEpochError, type Remote } from './engine';
+import { PausedError, StaleEpochError, type PushFailure, type Remote } from './engine';
 import type { Kind, SyncRec } from './merge';
 import { fitTrack, trimTrack } from './trim';
 
 const TABLE: Record<Kind, string> = { shortlist: 'shortlist', saved: 'saved', activities: 'activities', settings: 'settings' };
 const PAGE = 500, CHUNK = 25;
+/** Database refusals that retrying the same row can never fix: over a limit, a failed check, a value too long. */
+export const PERMANENT = new Set(['54000', '23514', '22001']);
 const iso = (ms: number) => new Date(ms).toISOString();
 type Row = Record<string, unknown>;
 
@@ -88,11 +90,13 @@ export function supabaseRemote(c: SupabaseClient, userId: string, keepTracksLoca
     },
     async push(kind, recs, epoch) {
       const conflict = kind === 'settings' ? 'user_id' : kind === 'activities' ? 'user_id,id' : 'user_id,trail_id';
-      const failed: string[] = [];
+      const failed: PushFailure[] = [];
       const send = async (rows: Row[]) => {
         const { error } = await t(kind).upsert(rows, { onConflict: conflict });
-        if (error && (error as { code?: string }).code === 'RL001') throw new StaleEpochError();
-        return error;
+        const code = (error as { code?: string } | null)?.code;
+        if (code === 'RL001') throw new StaleEpochError();
+        if (code === 'RL002') throw new PausedError();
+        return error ? { permanent: PERMANENT.has(String(code)) } : null;
       };
       for (let i = 0; i < recs.length; i += CHUNK) {
         const batch = recs.slice(i, i + CHUNK);
@@ -100,7 +104,7 @@ export function supabaseRemote(c: SupabaseClient, userId: string, keepTracksLoca
         const ok = await sendGroups(rows, send);
         if (ok) continue;
         // The batch failed: try the rows one by one so a single bad row cannot hold up the others.
-        for (let j = 0; j < rows.length; j++) if (await send([rows[j]])) failed.push(batch[j].id);
+        for (let j = 0; j < rows.length; j++) { const e = await send([rows[j]]); if (e) failed.push({ id: batch[j].id, permanent: e.permanent }); }
       }
       return { failed };
     },

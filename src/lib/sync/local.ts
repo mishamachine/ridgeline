@@ -11,7 +11,7 @@ import type { Kind, SyncRec } from './merge';
 
 export interface LocalSource {
   /** Forget this account's synced copies and all sync cursors on this phone (the server copy is untouched). */
-  wipe(): Promise<void>;
+  wipe(keep?: { keepActivitiesSince: number }): Promise<void>;
   readAll(kind: Kind): Promise<SyncRec[]>;
   apply(rec: SyncRec): Promise<void>;
 }
@@ -27,7 +27,7 @@ export function readEdit(): number {
 }
 
 export const idbLocal: LocalSource = {
-  wipe: () => wipeLocalAccountData(),
+  wipe: (keep) => wipeLocalAccountData(keep),
   async readAll(kind) {
     const tombs = kind === 'settings' ? [] : (await listTombstones()).filter((t) => t.kind === kind)
       .map((t): SyncRec => ({ kind, id: t.id, updatedAt: t.deletedAt, editedAt: t.editedAt ?? t.deletedAt, deleted: true, payload: null }));
@@ -78,12 +78,13 @@ export const idbLocal: LocalSource = {
 };
 
 /** "Remove from this phone" at sign-out: forget the synced records here (offline maps included). The server copy is untouched. */
-export async function wipeLocalAccountData(): Promise<void> {
+/** `keep`: hikes that were in progress, or finished after that time (the hike recorded while a delete from another device arrived), stay on the phone. */
+export async function wipeLocalAccountData(keep?: { keepActivitiesSince: number }): Promise<void> {
   const { removeTrailOffline } = await import('../offline');
   const { clearTombstones, deleteActivityRaw: delA, deleteShortlistedRaw: delS, listActivities: la, listSaved: ls, listShortlisted: lsh } = await import('../store');
   for (const s of await ls()) await removeTrailOffline(s.trail.id);
   for (const s of await lsh()) await delS(s.trail.id);
-  for (const a of await la()) await delA(a.id);
+  for (const a of await la()) { if (keep && (a.endedAt === undefined || a.endedAt >= keep.keepActivitiesSince)) continue; await delA(a.id); }
   await clearTombstones();
   const { keys, del } = await import('idb-keyval');
   for (const k of (await keys()).filter((k) => String(k).startsWith('sync:'))) await del(k); // so signing in again pulls everything
