@@ -1,13 +1,12 @@
 import { useState } from 'react';
 import { PageHead } from '../components/PageHead';
 import { getClient } from '../lib/accounts/client';
-import { deleteMyAccount, signIn, providersFor, type DeleteResult, type DeleteScope } from '../lib/accounts/auth';
+import { deleteMyAccount, type DeleteResult, type DeleteScope } from '../lib/accounts/auth';
 import { useAccount } from '../lib/accounts/useAccount';
 import { nativePlatform } from '../lib/native/platform';
 import { appleDisconnectSentence, DELETION_TIMING, type Platform } from '../lib/accounts/copy';
 import { ConfirmSheet } from '../components/ConfirmSheet';
 import { features } from '../lib/features';
-import { ProviderButton } from '../components/ProviderButton';
 import '../components/guestPrompt.css';
 
 export const APPLE_MANUAL_LINE = 'To fully disconnect, also remove Ridgeline in your Apple ID settings › Sign in with Apple (appleid.apple.com).';
@@ -40,7 +39,7 @@ export function resultText(scope: DeleteScope, r: DeleteResult): string {
 }
 
 /** /account/delete/ and (next PR) Profile › Account. Two choices, each with a confirm. */
-export function DeleteAccount({ onBack }: { onBack: () => void }) {
+export function DeleteAccount({ onBack, onSignIn }: { onBack: () => void; /** Opens the sign-in screen and returns here after. The delete page has no provider buttons of its own. */ onSignIn?: () => void }) {
   const acct = useAccount(features.accounts);   // deleting works while sign-in is paused, so this follows the build, not the pause flag
   const [ask, setAsk] = useState<DeleteScope | null>(null);
   const [result, setResult] = useState<{ scope: DeleteScope; r: DeleteResult } | null>(null);
@@ -63,7 +62,7 @@ export function DeleteAccount({ onBack }: { onBack: () => void }) {
         {needsSignIn && !finished && (
           <>
             <p className="pf-note">Sign in to the account you want to delete.</p>
-            <div className="gp-btns" style={{ padding: '4px 14px' }}>{providersFor(nativePlatform()).map((p) => <ProviderButton key={p} provider={p} forDelete onClick={() => signIn(p, features.accounts, 'account-delete')} />)}</div>
+            <button className="pf-row" onClick={onSignIn}>Sign in</button>
           </>
         )}
         {acct.signedIn && !finished && result?.r.status !== 'reauth' && (

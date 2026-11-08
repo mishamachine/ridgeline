@@ -59,7 +59,7 @@ describe('nothing else can request it', () => {
 
 describe('the privacy line names the host the app really loads', () => {
   it('is the approved sentence with that host in it', () => {
-    expect(APPLE_PRIVACY_LINE).toBe("Apple, when Ridgeline shows the Sign in with Apple button on the web: your browser loads Apple's Sign in with Apple button from Apple's servers (appleid.cdn-apple.com). Apple sees your IP address and browser details. If you choose Apple, it handles your sign-in under its own privacy policy.");
+    expect(APPLE_PRIVACY_LINE).toBe("Apple, when you open the sign-in screen on the web: your browser loads Apple's Sign in with Apple button from Apple's servers (appleid.cdn-apple.com). Apple sees your IP address and browser details. If you choose Apple, it handles your sign-in under its own privacy policy.");
   });
   it('the host in the line equals the host of the script URL (if one changes, this fails)', () => {
     const host = new URL(APPLE_JS_URL).hostname;
@@ -113,5 +113,61 @@ describe('the iOS button belongs to one screen at a time and hides when it is no
     expect(swift).toContain('token == self.owner');
     expect(swift).toContain('web.scrollView.convert(');
     expect(swift).toContain('self.owner = token');
+  });
+});
+
+// ---- Apple's script only ever belongs to the web sign-in screen ----
+import { renderToStaticMarkup } from 'react-dom/server';
+import { SignIn } from '../../screens/SignIn';
+import { GuestPrompt } from '../../components/GuestPrompt';
+import { AccountRow } from '../../components/AccountRow';
+import { DeleteAccount } from '../../screens/DeleteAccount';
+import { Profile } from '../../screens/Profile';
+import { Celebrate } from '../../screens/Celebrate';
+import { parseRoute } from '../route';
+
+import { ProviderButton } from '../../components/ProviderButton';
+// What the sign-in screen draws when accounts are live (the screen itself hides unless the flag says so).
+const SignInLive = () => (<>{(['apple', 'google'] as const).map((p) => <ProviderButton key={p} provider={p} platform="web" onClick={() => {}} />)}</>);
+
+describe('no Apple button, and so no request to appleid.cdn-apple.com, anywhere but the sign-in screen', () => {
+  const walk2 = (dir: string): string[] => readdirSync(dir).flatMap((f) => { const p = join(dir, f); return statSync(p).isDirectory() ? walk2(p) : [p]; });
+  const srcFiles = walk2('src').filter((f) => /\.tsx$/.test(f) && !/\.test\./.test(f));
+  it('ProviderButton (the only thing that draws Apple or Google buttons) is used by the sign-in screen alone', () => {
+    const users = srcFiles.filter((f) => /<ProviderButton/.test(readFileSync(f, 'utf8')));
+    expect(users).toEqual(['src/screens/SignIn.tsx']);
+  });
+  const none = (html: string) => { expect(html).not.toMatch(/appleid|Sign in with Apple|Sign in with Google|data-apple-button/); };
+  it('the guest prompt card has one "Sign in" button and no provider buttons', () => {
+    const card = renderToStaticMarkup(<GuestPrompt kinds={['save']} trigger enabled initialOpen onSignIn={() => {}} />);
+    expect(card).toContain('>Sign in<');
+    expect(card).toContain('Keep your saved trails');
+    none(card);
+    none(renderToStaticMarkup(<Celebrate summary={{ trail: { id: 'osm-r1', name: 'Ledge', highlights: [] }, distanceM: 6000, climbFt: 1500, movingMs: 9_000_000, startedAt: 1, endedAt: 2, highlightsHit: [], completedFraction: 1, track: [] }} onDone={() => {}} onShareApp={() => {}} guestPrompt={<GuestPrompt kinds={['hike']} trigger enabled initialOpen tone="dark" onSignIn={() => {}} />} />));
+  });
+  it('Profile › Account for a guest has one "Sign in" link and no provider buttons', () => {
+    const row = renderToStaticMarkup(<AccountRow enabled onSignIn={() => {}} />);
+    expect(row).toContain('Not signed in. Your hikes are saved only on this phone.');
+    expect(row).toContain('>Sign in<');
+    none(row);
+    none(renderToStaticMarkup(<Profile onOpenBadges={() => {}} onReplayTour={() => {}} preset={{ activities: [], trails: [] }} />));
+  });
+  it('the delete page itself asks to sign in with one button and draws no provider button', () => {
+    const page = renderToStaticMarkup(<DeleteAccount onBack={() => {}} onSignIn={() => {}} />);
+    none(page);
+  });
+  it('the sign-in screen is the one place the web Apple button is drawn, once', () => {
+    const html = renderToStaticMarkup(<SignIn platform="web" onDone={() => {}} onBack={() => {}} />);
+    // (accounts are not live in this build, so it renders nothing here; the live render is checked through its parts below)
+    expect(html).toBe('');
+    const live = renderToStaticMarkup(<SignInLive />);
+    expect((live.match(/id="appleid-signin-\d+"/g) ?? []).length).toBe(1);
+    expect(live).toContain('aria-label="Sign in with Google"');
+  });
+  it('the sign-in route: open when live, reachable while paused only from the delete flow, absent when accounts are not built in', () => {
+    expect(parseRoute('/signin', '', '/', false, true, true)).toEqual({ kind: 'sign-in' });
+    expect(parseRoute('/signin', '', '/', false, true, false)).toEqual({ kind: 'tab', tab: 'find' });                    // paused, not from delete: no
+    expect(parseRoute('/signin', '?return=delete', '/', false, true, false)).toEqual({ kind: 'sign-in', returnTo: 'account-delete' });
+    expect(parseRoute('/signin', '?return=delete', '/', false, false, true)).toEqual({ kind: 'tab', tab: 'find' });       // not built in
   });
 });

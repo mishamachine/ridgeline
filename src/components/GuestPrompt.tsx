@@ -1,11 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useAccountsState } from '../lib/accounts/flags';
 import { getSettings } from '../lib/settings';
-import { signIn, providersFor } from '../lib/accounts/auth';
 import { useAccount } from '../lib/accounts/useAccount';
-import { ProviderButton } from './ProviderButton';
 import { canShow, dismiss, loadPromptState, markShown, savePromptState, type PromptKind } from '../lib/accounts/prompt';
-import { nativePlatform } from '../lib/native/platform';
 import './guestPrompt.css';
 
 /** Final copy. A shared card (first hike that also earns the first badge) uses the hike headline. */
@@ -24,14 +21,17 @@ export interface GuestPromptProps {
   /** Sits in a page list: the card carries its own margin, so nothing is left behind when it is not shown. */
   inList?: boolean;
   enabled?: boolean;
+  /** Opens the sign-in screen. The card has no provider buttons of its own. */
+  onSignIn?: () => void;
+  /** Previews and tests: start with the card showing. */
+  initialOpen?: boolean;
 }
 
 /** A soft card, not a modal: it never blocks the map or the share button. Renders nothing while accounts are off. */
-export function GuestPrompt({ kinds, trigger, hikeActive = false, tone = 'light', inList = false, enabled }: GuestPromptProps) {
+export function GuestPrompt({ kinds, trigger, hikeActive = false, tone = 'light', inList = false, enabled, onSignIn, initialOpen = false }: GuestPromptProps) {
   const live = useAccountsState(undefined, enabled) === 'live';   // paused or unknown: the card never shows
   const acct = useAccount(live);
-  const [open, setOpen] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
 
   useEffect(() => {
     if (!trigger || open) return;
@@ -47,16 +47,12 @@ export function GuestPrompt({ kinds, trigger, hikeActive = false, tone = 'light'
 
   if (!live || !open || acct.signedIn || hikeActive) return null;
   const notNow = () => { try { savePromptState(localStorage, dismiss(loadPromptState(localStorage))); } catch { /* ignore */ } setOpen(false); };
-  const go = async (p: 'apple' | 'google') => { const r = await signIn(p, live); if (!r.ok && r.reason === 'failed') setFailed(true); };
 
   return (
     <section className={`gp gp-${tone}${inList ? ' gp-in-list' : ''}`} aria-labelledby="gp-h">
       <h2 id="gp-h">{headlineFor(kinds)}</h2>
       <p>{PROMPT_BODY}</p>
-      <div className="gp-btns">
-        {providersFor(nativePlatform()).map((p) => <ProviderButton key={p} provider={p} tone={tone} onClick={() => go(p)} />)}
-      </div>
-      {failed && <p role="status" className="gp-fail">Sign-in did not work. Your hikes are still safe on this phone.</p>}
+      <button className="gp-signin" onClick={onSignIn}>Sign in</button>
       <button className="gp-later" onClick={notNow}>Not now</button>
     </section>
   );

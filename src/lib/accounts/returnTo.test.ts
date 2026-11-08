@@ -19,8 +19,9 @@ describe('signing in again from the delete page brings the person back to it', (
     s.m.set(RETURN_KEY, 'https://evil.example/');
     expect(takeReturn(s)).toBeNull();
   });
-  it('the delete page asks for it, and the callback goes there', () => {
-    expect(readFileSync('src/screens/DeleteAccount.tsx', 'utf8')).toContain("signIn(p, features.accounts, 'account-delete')");
+  it('the delete page opens the sign-in screen with a return to it; the screen remembers it for the web redirect, and the callback goes there', () => {
+    expect(readFileSync('src/App.tsx', 'utf8')).toContain("onSignIn={() => go({ kind: 'sign-in', returnTo: 'account-delete' })}");
+    expect(readFileSync('src/screens/SignIn.tsx', 'utf8')).toContain('signIn(p, features.accounts, returnTo)');
     expect(readFileSync('src/App.tsx', 'utf8')).toContain("takeReturn() === 'account-delete'");
   });
 });

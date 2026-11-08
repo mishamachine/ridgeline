@@ -46,6 +46,7 @@ const Detail = lazy(() => import('./screens/Detail').then((m) => ({ default: m.D
 const Navigate = lazy(() => import('./screens/Navigate').then((m) => ({ default: m.Navigate })));
 const SharedList = lazy(() => import('./screens/SharedList').then((m) => ({ default: m.SharedList })));
 const Profile = lazy(() => import('./screens/Profile').then((m) => ({ default: m.Profile })));
+const SignIn = lazy(() => import('./screens/SignIn').then((m) => ({ default: m.SignIn })));
 const DeleteAccount = lazy(() => import('./screens/DeleteAccount').then((m) => ({ default: m.DeleteAccount })));
 const Badges = lazy(() => import('./screens/Badges').then((m) => ({ default: m.Badges })));
 const Celebrate = lazy(() => import('./screens/Celebrate').then((m) => ({ default: m.Celebrate })));
@@ -230,14 +231,14 @@ export function App() {
         <Find tpl={tpl} visible={tab === 'find'} savedIds={saved.marked} offlineIds={saved.offline} onOpen={openTrail} onOpenId={openId} onToggleSave={toggleSave} />
       </div>
       <div className="screen" hidden={tab !== 'saved'}>
-        <Saved visible={tab === 'saved'} version={saved.version} renderPrompt={(has) => <GuestPrompt kinds={['save']} trigger={has && tab === 'saved'} hikeActive={!!hike} inList />} onOpen={openTrail} onChange={refreshSaved} onFind={() => goTab('find')} />
+        <Saved visible={tab === 'saved'} version={saved.version} renderPrompt={(has) => <GuestPrompt kinds={['save']} trigger={has && tab === 'saved'} hikeActive={!!hike} inList onSignIn={() => go({ kind: 'sign-in' })} />} onOpen={openTrail} onChange={refreshSaved} onFind={() => goTab('find')} />
       </div>
       <div className="screen" hidden={tab !== 'hike' || !!hike}>
         <Hike visible={tab === 'hike' && !hike} version={saved.version} onStart={startHike} onFind={() => goTab('find')} onResume={resumeHike} />
       </div>
       {profileOpened.current && (
         <div className="screen" hidden={tab !== 'profile'}>
-          <Later><Profile version={profileVersion} onOpenDeleteAccount={() => go({ kind: 'account-delete' })} onOpenBadges={() => go({ kind: 'badges' })} onReplayTour={() => setOnboarding('replay')} onOpenActivity={openActivity} /></Later>
+          <Later><Profile version={profileVersion} onOpenDeleteAccount={() => go({ kind: 'account-delete' })} onOpenSignIn={() => go({ kind: 'sign-in' })} onOpenBadges={() => go({ kind: 'badges' })} onReplayTour={() => setOnboarding('replay')} onOpenActivity={openActivity} /></Later>
         </div>
       )}
 
@@ -247,8 +248,12 @@ export function App() {
         </div>
       )}
 
+      {route.kind === 'sign-in' && (
+        <div className="screen overlay"><Later><SignIn returnTo={route.returnTo} onBack={() => go(route.returnTo ? { kind: 'account-delete' } : { kind: 'tab', tab: 'profile' })} onDone={() => go(route.returnTo ? { kind: 'account-delete' } : { kind: 'tab', tab: 'profile' })} /></Later></div>
+      )}
+
       {route.kind === 'account-delete' && (
-        <div className="screen overlay"><Later><DeleteAccount onBack={() => go({ kind: 'tab', tab: 'profile' })} /></Later></div>
+        <div className="screen overlay"><Later><DeleteAccount onBack={() => go({ kind: 'tab', tab: 'profile' })} onSignIn={() => go({ kind: 'sign-in', returnTo: 'account-delete' })} /></Later></div>
       )}
 
       {onBadges && (
@@ -271,7 +276,7 @@ export function App() {
       {done && (
         <div className="screen overlay">
           <Later><Celebrate summary={done.summary} newBadges={done.newBadges} badgeCount={done.badgeCount}
-            guestPrompt={done.promptKinds.length ? <GuestPrompt kinds={done.promptKinds} trigger tone="dark" /> : undefined}
+            guestPrompt={done.promptKinds.length ? <GuestPrompt kinds={done.promptKinds} trigger tone="dark" onSignIn={() => { setDone(null); go({ kind: 'sign-in' }); }} /> : undefined}
             onDone={() => { setDone(null); go({ kind: 'tab', tab: 'profile' }); }} onShareApp={shareApp} /></Later>
         </div>
       )}
