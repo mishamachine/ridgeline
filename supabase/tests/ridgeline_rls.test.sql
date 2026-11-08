@@ -3,7 +3,7 @@
 -- Never run against the shared production project. Everything runs in one transaction and rolls back.
 begin;
 create extension if not exists pgtap;
-select plan(33);
+select plan(42);
 
 insert into auth.users (id) values ('00000000-0000-0000-0000-00000000000a'), ('00000000-0000-0000-0000-00000000000b');
 
@@ -87,6 +87,27 @@ select throws_ok($$update ridgeline.saved set deleted = false where trail_id = '
 update ridgeline.saved set deleted = true where trail_id = 't2';
 select lives_ok($$update ridgeline.saved set deleted = false where trail_id = 'gone'$$, 'after a delete frees a slot the revive works');
 select is((select count(*)::int from ridgeline.saved where user_id = '00000000-0000-0000-0000-00000000000b' and not deleted), 2000, 'live count stays at the limit');
+
+
+-- Tombstones carry no payload, and they are capped too (total rows per user and table, deleted ones included, at 2x the live limit).
+select throws_ok($$insert into ridgeline.shortlist (user_id, trail_id, trail, deleted) values ('00000000-0000-0000-0000-00000000000b', 'dead-with-data', '{"a":1}', true)$$, '23514', null, 'a tombstone with a trail snapshot is rejected');
+select throws_ok($$insert into ridgeline.activities (user_id, id, started_at, stats, deleted) values ('00000000-0000-0000-0000-00000000000b', 'dead-stats', now(), '{"name":"x"}', true)$$, '23514', null, 'a hike tombstone with stats is rejected');
+select throws_ok($$insert into ridgeline.activities (user_id, id, started_at, track, deleted) values ('00000000-0000-0000-0000-00000000000b', 'dead-track', now(), '[1]', true)$$, '23514', null, 'a hike tombstone with a route is rejected');
+insert into ridgeline.saved (user_id, trail_id, deleted) select '00000000-0000-0000-0000-00000000000b', 'x' || i, true from generate_series(1, 1999) i;   -- 2,001 + 1,999 = 4,000 rows in all
+select is((select count(*)::int from ridgeline.saved where user_id = '00000000-0000-0000-0000-00000000000b'), 4000, 'tombstones fill the table up to twice the live limit');
+select throws_ok($$insert into ridgeline.saved (user_id, trail_id, deleted) values ('00000000-0000-0000-0000-00000000000b', 'one-dead-too-many', true)$$, '54000', null, 'one more tombstone beyond 2x the limit is refused');
+select throws_ok($$insert into ridgeline.activities (user_id, id, started_at, track) values ('00000000-0000-0000-0000-00000000000b', 'huge', now(), jsonb_build_array(repeat('a', 4300000)))$$, '23514', null, 'a route over 4 MB is rejected');
+
+
+-- If the hosted owner may not delete from Vault, the fallback overwrites AND renames the secret (no token, no user id left).
+revoke delete on vault.secrets from postgres cascade;   -- inside this test transaction only
+set local role service_role;
+select ridgeline.store_apple_token('00000000-0000-0000-0000-00000000000b', 'refresh-token-2');
+select ridgeline.delete_apple_token('00000000-0000-0000-0000-00000000000b');
+reset role;
+select is((select count(*)::int from vault.secrets where name like '%00000000-0000-0000-0000-00000000000b%'), 0, 'fallback: no Vault secret still carries the user id');
+select is((select count(*)::int from vault.decrypted_secrets where decrypted_secret = 'refresh-token-2'), 0, 'fallback: the token value is gone');
+select is((select count(*)::int from ridgeline.apple_tokens where user_id = '00000000-0000-0000-0000-00000000000b'), 0, 'fallback: the reference row is gone');
 
 -- Deleting the auth user removes the Ridgeline rows.
 delete from auth.users where id = '00000000-0000-0000-0000-00000000000a';
