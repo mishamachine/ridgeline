@@ -4,11 +4,12 @@ import { getClient } from '../lib/accounts/client';
 import { deleteMyAccount, signIn, providersFor, type DeleteResult, type DeleteScope } from '../lib/accounts/auth';
 import { useAccount } from '../lib/accounts/useAccount';
 import { nativePlatform } from '../lib/native/platform';
+import { appleDisconnectSentence, type Platform } from '../lib/accounts/copy';
 import { ConfirmSheet } from '../components/ConfirmSheet';
 
 export const APPLE_MANUAL_LINE = 'To fully disconnect, also remove Ridgeline in your Apple ID settings › Sign in with Apple (appleid.apple.com).';
 
-export const COPY: Record<DeleteScope, { title: string; button: string; warn: string }> = {
+export const deleteCopy = (platform: Platform): Record<DeleteScope, { title: string; button: string; warn: string }> => ({
   data: {
     title: 'Delete my Ridgeline data',
     button: 'Delete my Ridgeline data',
@@ -17,9 +18,11 @@ export const COPY: Record<DeleteScope, { title: string; button: string; warn: st
   account: {
     title: 'Delete my whole account',
     button: 'Delete my whole account',
-    warn: 'This removes your sign-in and your data in Ridgeline, our language app (woof.bobolearns.com), the BoboLearns Hub sign-in, and any other B&B app you\u2019ve signed in to. On iPhone Apple sign-ins we also disconnect Ridgeline from your Apple ID; otherwise remove it yourself in Apple ID settings. This cannot be undone. Bobo Learns Chess doesn\u2019t use accounts; to delete its anonymous data, see chess.bobolearns.com/privacy/.',
+    warn: `This removes your sign-in and your data in Ridgeline, our language app (woof.bobolearns.com), the BoboLearns Hub sign-in, and any other B&B app you\u2019ve signed in to.${appleDisconnectSentence(platform)} This cannot be undone. Bobo Learns Chess doesn\u2019t use accounts; to delete its anonymous data, see chess.bobolearns.com/privacy/.`,
   },
-};
+});
+/** Web and iOS wording (the default). */
+export const COPY = deleteCopy('web');
 
 export function resultText(scope: DeleteScope, r: DeleteResult): string {
   if (r.status === 'failed') return 'That did not go through, and nothing was deleted. Try again in a minute.';
@@ -64,15 +67,15 @@ export function DeleteAccount({ onBack }: { onBack: () => void }) {
           <div className="pf-group">
             {(['data', 'account'] as const).map((s) => (
               <div key={s}>
-                <button className="pf-row" disabled={working} onClick={() => setAsk(s)}>{COPY[s].button}</button>
-                <p className="pf-note" style={{ margin: 0 }}>{COPY[s].warn}</p>
+                <button className="pf-row" disabled={working} onClick={() => setAsk(s)}>{deleteCopy(nativePlatform())[s].button}</button>
+                <p className="pf-note" style={{ margin: 0 }}>{deleteCopy(nativePlatform())[s].warn}</p>
               </div>
             ))}
           </div>
         )}
         <button className="pf-link" onClick={onBack}>Back to Ridgeline</button>
       </div>
-      {ask && <ConfirmSheet title={COPY[ask].title} body={COPY[ask].warn} confirmLabel={COPY[ask].button} cancelLabel="Keep my account" danger onConfirm={() => run(ask)} onCancel={() => setAsk(null)} />}
+      {ask && <ConfirmSheet title={deleteCopy(nativePlatform())[ask].title} body={deleteCopy(nativePlatform())[ask].warn} confirmLabel={deleteCopy(nativePlatform())[ask].button} cancelLabel="Keep my account" danger onConfirm={() => run(ask)} onCancel={() => setAsk(null)} />}
     </div>
   );
 }

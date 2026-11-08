@@ -21,11 +21,13 @@ export interface GuestPromptProps {
   /** A hike is being recorded or navigated: never show. */
   hikeActive?: boolean;
   tone?: 'light' | 'dark';
+  /** Sits in a page list: the card carries its own margin, so nothing is left behind when it is not shown. */
+  inList?: boolean;
   enabled?: boolean;
 }
 
 /** A soft card, not a modal: it never blocks the map or the share button. Renders nothing while accounts are off. */
-export function GuestPrompt({ kinds, trigger, hikeActive = false, tone = 'light', enabled = features.accounts }: GuestPromptProps) {
+export function GuestPrompt({ kinds, trigger, hikeActive = false, tone = 'light', inList = false, enabled = features.accounts }: GuestPromptProps) {
   const acct = useAccount(enabled);
   const [open, setOpen] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -47,7 +49,7 @@ export function GuestPrompt({ kinds, trigger, hikeActive = false, tone = 'light'
   const go = async (p: 'apple' | 'google') => { const r = await signIn(p, enabled); if (!r.ok && r.reason === 'failed') setFailed(true); };
 
   return (
-    <section className={`gp gp-${tone}`} aria-labelledby="gp-h">
+    <section className={`gp gp-${tone}${inList ? ' gp-in-list' : ''}`} aria-labelledby="gp-h">
       <h2 id="gp-h">{headlineFor(kinds)}</h2>
       <p>{PROMPT_BODY}</p>
       <div className="gp-btns">

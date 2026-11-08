@@ -61,7 +61,7 @@ export function Saved({ visible, version, onOpen, onChange, onFind, renderPrompt
         </div>
       )}
 
-      {renderPrompt && <div className="page-list" style={{ paddingBottom: 0 }}>{renderPrompt(!!items && items.length > 0)}</div>}
+      {renderPrompt?.(!!items && items.length > 0)}
 
       <div className="page-list">
         {items === null && <Placeholder title="Loading…" />}

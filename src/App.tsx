@@ -221,7 +221,7 @@ export function App() {
         <Find tpl={tpl} visible={tab === 'find'} savedIds={saved.marked} offlineIds={saved.offline} onOpen={openTrail} onOpenId={openId} onToggleSave={toggleSave} />
       </div>
       <div className="screen" hidden={tab !== 'saved'}>
-        <Saved visible={tab === 'saved'} version={saved.version} renderPrompt={(has) => <GuestPrompt kinds={['save']} trigger={has && tab === 'saved'} hikeActive={!!hike} />} onOpen={openTrail} onChange={refreshSaved} onFind={() => goTab('find')} />
+        <Saved visible={tab === 'saved'} version={saved.version} renderPrompt={(has) => <GuestPrompt kinds={['save']} trigger={has && tab === 'saved'} hikeActive={!!hike} inList />} onOpen={openTrail} onChange={refreshSaved} onFind={() => goTab('find')} />
       </div>
       <div className="screen" hidden={tab !== 'hike' || !!hike}>
         <Hike visible={tab === 'hike' && !hike} version={saved.version} onStart={startHike} onFind={() => goTab('find')} onResume={resumeHike} />

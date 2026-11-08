@@ -9,6 +9,9 @@ import { Celebrate } from '../../screens/Celebrate';
 import { features } from '../features';
 import { readFileSync } from 'node:fs';
 import { Profile, hikeDeleteText } from '../../screens/Profile';
+import { deleteCopy } from '../../screens/DeleteAccount';
+import { providerWords } from './copy';
+import { providersFor } from './auth';
 
 const ok: PromptContext = { accountsOn: true, signedIn: false, onboardingDone: true, hikeActive: false };
 const fresh = (): PromptState => ({ shown: {}, dismissals: 0 });
@@ -99,6 +102,34 @@ describe('final prompt copy', () => {
     expect(rule).toContain('min-height: 44px');
     expect(rule).toContain('font: 600');
     expect(css).toMatch(/gp-btn-apple\.gp-on-light \{ background: #000000; color: #FFFFFF/);
+  });
+});
+
+describe('Android copy says Google only; web and iOS keep Google or Apple', () => {
+  it('the helper words', () => {
+    expect(providerWords('android')).toBe('Google');
+    expect(providerWords('ios')).toBe('Google or Apple');
+    expect(providerWords('web')).toBe('Google or Apple');
+  });
+  it('the whole-account warning drops the Apple sentence on Android only', () => {
+    expect(deleteCopy('android').account.warn).not.toMatch(/Apple/);
+    expect(deleteCopy('ios').account.warn).toContain('On iPhone Apple sign-ins we also disconnect Ridgeline from your Apple ID');
+    expect(deleteCopy('web').account.warn).toContain('Apple ID settings');
+    expect(deleteCopy('android').account.warn).toContain('Bobo Learns Chess');   // the rest is the same
+  });
+  it('Android offers only the Google button', () => {
+    expect(providersFor('android')).toEqual(['google']);
+    expect(providersFor('ios')).toEqual(['apple', 'google']);
+  });
+});
+
+describe('the Saved tab leaves nothing behind when the prompt is not shown', () => {
+  it('the card has its own margin class and no wrapper element is rendered around the slot', () => {
+    const src = readFileSync('src/screens/Saved.tsx', 'utf8');
+    expect(src).toContain('{renderPrompt?.(');
+    expect(src).not.toMatch(/renderPrompt && <div/);
+    expect(readFileSync('src/components/guestPrompt.css', 'utf8')).toContain('.gp-in-list');
+    expect(renderToStaticMarkup(<GuestPrompt kinds={['save']} trigger={false} inList enabled />)).toBe('');
   });
 });
 
