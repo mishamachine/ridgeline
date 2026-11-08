@@ -89,21 +89,27 @@ describe('final prompt copy', () => {
     expect(PROMPT_HEADLINE).toEqual({ save: 'Keep your saved trails', hike: 'Keep this hike', badge: 'Keep your badges' });
     expect(PROMPT_BODY).toBe("Right now they're saved only on this phone. Sign in to keep them if you lose or switch phones.");
   });
-  it('Google uses its official artwork unmodified; Apple has its exact wording and mark; both are the same size', () => {
+  it('Google uses its official artwork unmodified; Apple is Apple\'s own control (never drawn by us); both say "Sign in with" and are the same size', () => {
     const apple = renderToStaticMarkup(<ProviderButton provider="apple" platform="web" onClick={() => {}} />);
     const google = renderToStaticMarkup(<ProviderButton provider="google" platform="web" onClick={() => {}} />);
-    expect(apple).toContain('Continue with Apple');
-    expect(apple).toContain('<svg');
+    expect(apple).toContain('id="appleid-signin"');
+    expect(apple).toContain('data-type="sign-in"');
+    expect(apple).toContain('data-width="180"');
+    expect(apple).toContain('data-height="40"');
+    expect(apple).not.toContain('<svg');                                      // no drawn Apple mark
+    expect(apple).toContain('aria-label="Sign in with Apple"');
     expect(google).toContain('<img');
     expect(google).toContain('aria-label="Sign in with Google"');
     expect(apple).toContain('width:180px;height:40px');
     expect(google).toContain('width:180px;height:40px');
-    expect(renderToStaticMarkup(<ProviderButton provider="apple" platform="ios" onClick={() => {}} />)).toContain('width:188px;height:44px');
+    const ios = renderToStaticMarkup(<ProviderButton provider="apple" platform="ios" onClick={() => {}} />);
+    expect(ios).toContain('data-apple-button="ios"');                         // the native system button is laid over this placeholder
+    expect(ios).toContain('width:188px;height:44px');
     expect(renderToStaticMarkup(<ProviderButton provider="google" platform="ios" onClick={() => {}} />)).toContain('width:188px;height:44px');
+    expect(renderToStaticMarkup(<ProviderButton provider="apple" platform="android" onClick={() => {}} />)).not.toContain('appleid-signin');
     expect(googleArtwork('android', 'light')).toMatchObject({ w: 180, h: 40 });
     expect(googleArtwork('ios', 'dark')).toMatchObject({ w: 188, h: 44 });
-    const css = readFileSync('src/components/guestPrompt.css', 'utf8');
-    expect(css).toMatch(/gp-btn-apple\.gp-on-light \{ background: #000000; color: #FFFFFF/);
+    expect(readFileSync('src/components/ProviderButton.tsx', 'utf8')).not.toMatch(/APPLE_PATH|<path/);   // no Apple mark anywhere in our code
   });
   it('the Google artwork in the repo is byte-identical to the recorded download (sha256 in docs/BRAND_ASSETS.md)', () => {
     const doc = readFileSync('docs/BRAND_ASSETS.md', 'utf8');
