@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { StaleEpochError, parkDelay, retryDelay, syncOnce, type Cursors, type Owner, type PushFailure, type Remote, type SyncOptions } from './engine';
 import { syncGate } from './gate';
 import { fitTrack, MAX_UPLOAD_POINTS } from './trim';
+import { FULL_NOTE, noteAccountFull, takeFullNote } from './fullNote';
 import type { LocalSource } from './local';
 import { winner, type Kind, type SyncRec } from './merge';
 import { activityToRow, fromRow, supabaseRemote, toRow } from './remote';
@@ -14,6 +15,7 @@ class Server {
   rows = new Map<string, SyncRec>(); clock = 10_000_000; dataEpoch = 0;
   rejectIds = new Set<string>();          // rows the database refuses for good (a constraint violation)
   flakyIds = new Set<string>();           // rows that fail for a passing reason (a timeout)
+  fullIds = new Set<string>();            // rows refused because the account is full (54000)
   pushes: { kind: Kind; ids: string[] }[] = [];
   deleteUserData() { this.rows.clear(); this.dataEpoch++; }
   remote(): Remote {
@@ -27,6 +29,7 @@ class Server {
         const failed: PushFailure[] = [];
         for (const r of recs) {
           if (this.rejectIds.has(r.id)) { failed.push({ id: r.id, permanent: true }); continue; }
+          if (this.fullIds.has(r.id)) { failed.push({ id: r.id, permanent: true, full: true }); continue; }
           if (this.flakyIds.has(r.id)) { failed.push({ id: r.id, permanent: false }); continue; }
           const k = kind + '/' + r.id, old = this.rows.get(k);
           if (old && r.updatedAt < old.updatedAt) continue;
@@ -501,5 +504,43 @@ describe('what goes to the server', () => {
     expect(t).toMatchObject({ trail_id: 'way/9', trail: null, deleted: true });
     expect(fromRow('activities', { id: 'x', updated_at: 'nonsense', synced_at: 'nonsense' })).toBeNull();
     expect(fromRow('activities', { id: 'x', updated_at: '2026-01-01T00:00:00Z', synced_at: '2026-01-01T00:00:00Z', stats: {}, started_at: '2026-01-01T00:00:00Z', track: [{ lon: 'bad' }] })).toBeNull();
+  });
+});
+
+describe('a full account never blocks or loses a hike', () => {
+  const mem = () => { const m = new Map<string, string>(); return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => { m.set(k, v); } }; };
+  it('at the cap a new hike still records and is kept on the phone; only the upload stops (parked, no retry storm); the note shows once', async () => {
+    const s = new Server(), a = new Phone(), store = mem();
+    a.put('activities', 'old-hike', 1); await a.syncAs(s, 'u1', 1_000_000);
+    s.fullIds.add('new-hike');                                       // the account is at its cap: the server refuses the next hike
+    a.put('activities', 'new-hike', 2, { n: 'recorded after the cap' });
+    const r = await a.syncAs(s, 'u1', 2_000_000);
+    expect(r).toMatchObject({ pushed: 0, failed: 1, full: true });
+    expect(a.recs.get('activities/new-hike')!.payload).toEqual({ n: 'recorded after the cap' });   // the hike is on the phone, untouched
+    expect(s.rows.has('activities/new-hike')).toBe(false);                                         // and not uploaded
+    if (r.full) noteAccountFull(store);
+    // Parked, so passes in the next hour do not send it again (no retry storm).
+    s.pushes.length = 0;
+    await a.syncAs(s, 'u1', 2_000_000 + 60_000); await a.syncAs(s, 'u1', 2_000_000 + 120_000);
+    expect(s.pushes.flatMap((p) => p.ids)).not.toContain('new-hike');
+    // More hikes while full: they record locally; more full signals do not bring the note back.
+    s.fullIds.add('another'); a.put('activities', 'another', 3);
+    const r2 = await a.syncAs(s, 'u1', 2_000_000 + 180_000);
+    if (r2.full) noteAccountFull(store);
+    expect(a.recs.has('activities/another')).toBe(true);
+    expect(takeFullNote(store)).toBe(true);                          // shown once...
+    expect(takeFullNote(store)).toBe(false);
+    noteAccountFull(store);                                          // ...and never comes back
+    expect(takeFullNote(store)).toBe(false);
+  });
+  it('the note says exactly what was asked', () => { expect(FULL_NOTE).toBe('Your account is full. New hikes are saved on this phone only.'); });
+  it('a phone with only unedited settings does not count as holding another account\'s data', async () => {
+    const s = new Server(), a = new Phone();
+    a.ownerId = 'user-A';
+    a.recs.set('settings/settings', { kind: 'settings', id: 'settings', updatedAt: 0, editedAt: 0, deleted: false, payload: {} });   // the default settings record every phone has
+    expect((await a.syncAs(s, 'user-B', 10)).ownerMismatch).toBe(false);
+    const b = new Phone(); b.ownerId = 'user-A';
+    b.recs.set('settings/settings', { kind: 'settings', id: 'settings', updatedAt: 5, editedAt: 5, deleted: false, payload: { units: 'metric' } });   // edited here
+    expect((await b.syncAs(s, 'user-B', 10)).ownerMismatch).toBe(true);
   });
 });

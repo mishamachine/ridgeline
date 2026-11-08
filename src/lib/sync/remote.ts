@@ -107,7 +107,7 @@ export function supabaseRemote(c: SupabaseClient, userId: string, keepTracksLoca
         const code = (error as { code?: string } | null)?.code;
         if (code === 'RL001') throw new StaleEpochError();
         if (code === 'RL002') throw new PausedError();
-        return error ? { permanent: PERMANENT.has(String(code)) } : null;
+        return error ? { permanent: PERMANENT.has(String(code)), full: code === '54000' } : null;
       };
       for (let i = 0; i < recs.length; i += CHUNK) {
         const batch = recs.slice(i, i + CHUNK);
@@ -115,7 +115,7 @@ export function supabaseRemote(c: SupabaseClient, userId: string, keepTracksLoca
         const ok = await sendGroups(rows, send);
         if (ok) continue;
         // The batch failed: try the rows one by one so a single bad row cannot hold up the others.
-        for (let j = 0; j < rows.length; j++) { const e = await send([rows[j]]); if (e) failed.push({ id: batch[j].id, permanent: e.permanent }); }
+        for (let j = 0; j < rows.length; j++) { const e = await send([rows[j]]); if (e) failed.push({ id: batch[j].id, permanent: e.permanent, full: e.full }); }
       }
       return { failed };
     },
