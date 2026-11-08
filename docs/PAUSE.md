@@ -5,7 +5,7 @@ Pausing is two small changes, in two places. Together they stop accounts without
 ## What pausing does
 
 1. **`flags.json` says `{"accounts": false}`.** Every phone and browser reads this file from our own host (`https://hike.bbprojectfactory.com/flags.json`) when the app starts and when it comes back to the front, at most once an hour. While it says false, the app hides sign-in, shows only "Sign-in is paused for now. Your hikes are safe on this phone.", starts no sync, and leaves the copy on the phone alone. If a phone cannot reach the file it keeps the last value it saw; a new install that has never read it shows nothing about accounts.
-2. **The config row `accounts_paused` is `true`.** The database then refuses every write to the synced tables (error code `RL002`), so even an old app version that has not read the flag cannot sync. **Deleting keeps working while paused**, so people can always delete their data or their account.
+2. **The config row `accounts_paused` is `true`.** The database then refuses every write to the synced tables (error code `RL002`), so even an old app version that has not read the flag cannot sync. **Deleting keeps working while paused**, so people can always delete their data or their account: Profile › Account still shows "Delete my Ridgeline data" and "Delete my whole account" to anyone who has a session on the phone, and `/account/delete/` stays reachable (the page may load Apple's sign-in button even while paused, because signing in again is how a whole-account delete is confirmed).
 
 ## Who may pull it
 

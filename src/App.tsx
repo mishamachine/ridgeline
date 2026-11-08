@@ -24,11 +24,11 @@ import type { HikeSummary } from './lib/hype';
 import { ConfirmSheet } from './components/ConfirmSheet';
 import { FindIcon, HikeIcon, ProfileIcon, SavedIcon } from './components/NavIcons';
 import { count } from './lib/counter';
-import { isCallbackPath, completeWebSignIn } from './lib/accounts/auth';
+import { isCallbackPath, completeWebSignIn, takeReturn } from './lib/accounts/auth';
 import { getClient } from './lib/accounts/client';
 import { useAccount } from './lib/accounts/useAccount';
 import { startFlagRefresh, useAccountsState } from './lib/accounts/flags';
-import { useSync, DELETED_ELSEWHERE_MESSAGE } from './lib/sync/useSync';
+import { useSync, DELETED_ELSEWHERE_MESSAGE, resolveOwnerMismatch } from './lib/sync/useSync';
 import { pruneTombstones, clearTombstones } from './lib/store';
 import { setHikeActive } from './lib/swUpdate';
 import { Toaster } from './components/Toaster';
@@ -76,7 +76,11 @@ export function App() {
   useEffect(() => {
     if (!isCallbackPath(location.pathname, base)) return;
     if (!features.accounts) return;
-    getClient(features.accounts)?.then(completeWebSignIn).finally(() => { history.replaceState(null, '', routePath({ kind: 'tab', tab: 'profile' }, base)); setRoute({ kind: 'tab', tab: 'profile' }); });
+    getClient(features.accounts)?.then(completeWebSignIn).finally(() => {
+      // Back to where the person was: the delete page if they signed in again to delete, else Profile.
+      const next: Route = takeReturn() === 'account-delete' ? { kind: 'account-delete' } : { kind: 'tab', tab: 'profile' };
+      history.replaceState(null, '', routePath(next, base)); setRoute(next);
+    });
   }, []);
   const [saved, setSaved] = useState<{ marked: Set<string>; offline: Set<string>; version: number }>({ marked: new Set(), offline: new Set(), version: 0 });
   const [removing, setRemoving] = useState<Trail | null>(null);
@@ -99,7 +103,8 @@ export function App() {
   const accountsLiveNow = useAccountsState() === 'live';
   const account = useAccount(accountsLiveNow);
   useEffect(() => startFlagRefresh(), []);   // read the runtime flag now and whenever the app returns to the front (no network while the build has no accounts)
-  useSync(account.userId, () => { refreshSaved(); setProfileVersion((v) => v + 1); }, () => toast(DELETED_ELSEWHERE_MESSAGE), accountsLiveNow);
+  useSync(account.userId, () => { refreshSaved(); setProfileVersion((v) => v + 1); }, () => toast(DELETED_ELSEWHERE_MESSAGE), accountsLiveNow, () => setOwnerAsk((a) => a ?? true));
+  const [ownerAsk, setOwnerAsk] = useState<boolean | null>(null);   // a different account signed in on a phone that kept another account's copy: ask before anything uploads
 
   useEffect(() => {
     // Tombstones only matter to sync: none are kept while accounts are off, and old ones are dropped when on.
@@ -310,6 +315,17 @@ export function App() {
       {removing && (
         <ConfirmSheet title="Remove from Saved?" body="This also deletes the offline map for this trail." confirmLabel="Remove" cancelLabel="Keep it" danger
           onConfirm={async () => { const t = removing; setRemoving(null); await unsave(t.id); refreshSaved(); }} onCancel={() => setRemoving(null)} />
+      )}
+      {ownerAsk && account.userId && (
+        <div className="sheet-wrap">
+          <div className="sheet" role="alertdialog" aria-modal="true" aria-labelledby="owner-title">
+            <h2 id="owner-title" className="sheet-title">Hikes from another account</h2>
+            <p className="sheet-body">This phone still has saved trails and hikes from another account. Add them to this account, or remove them from this phone?</p>
+            <button className="btn btn-primary" onClick={() => { const u = account.userId!; setOwnerAsk(null); resolveOwnerMismatch(u, 'add').then(refreshSaved); }}>Add them to this account</button>
+            <button className="btn btn-outline" onClick={() => { const u = account.userId!; setOwnerAsk(null); resolveOwnerMismatch(u, 'remove').then(() => { refreshSaved(); setProfileVersion((v) => v + 1); }); }}>Remove them from this phone</button>
+            <button className="btn btn-outline" onClick={() => setOwnerAsk(false)}>Not now (nothing is uploaded)</button>
+          </div>
+        </div>
       )}
       {onboarding && <Onboarding replay={onboarding === 'replay'} onDone={closeOnboarding} />}
       <Toaster />

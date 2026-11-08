@@ -23,7 +23,7 @@ export function googleArtwork(platform: 'ios' | 'android' | 'web', tone: 'light'
  * Google: its official artwork as the button face (its wording is part of the artwork).
  * Apple: Apple's own control, never our drawing: the system button on iOS, Apple's JS button on the web (see AppleButton).
  */
-export function ProviderButton({ provider, tone = 'light', onClick, platform = nativePlatform() }: { provider: Provider; tone?: 'light' | 'dark'; onClick: () => void; platform?: 'ios' | 'android' | 'web' }) {
+export function ProviderButton({ provider, tone = 'light', onClick, platform = nativePlatform(), visible = true, forDelete = false }: { provider: Provider; tone?: 'light' | 'dark'; onClick: () => void; platform?: 'ios' | 'android' | 'web'; visible?: boolean; forDelete?: boolean }) {
   const size = platform === 'ios' ? BUTTON_SIZE.ios : BUTTON_SIZE.web;
   if (provider === 'google') {
     const a = googleArtwork(platform, tone);
@@ -33,9 +33,5 @@ export function ProviderButton({ provider, tone = 'light', onClick, platform = n
       </button>
     );
   }
-  return (
-    <div className="gp-btn-apple-slot" style={{ width: size.w, height: size.h }} data-apple-button={platform}>
-      <AppleButton platform={platform} tone={tone} width={size.w} height={size.h} onClick={onClick} />
-    </div>
-  );
+  return <AppleButton platform={platform} tone={tone} width={size.w} height={size.h} onClick={onClick} visible={visible} forDelete={forDelete} />;
 }

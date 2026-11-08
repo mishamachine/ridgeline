@@ -3,6 +3,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { APPLE_JS_URL, loadAppleScript, resetAppleScriptForTests } from './appleWeb';
 import { accountsLive } from './flags';
+import { handleAppleKey, newToken, placeholderShowing } from '../../components/AppleButton';
 import { APPLE_PRIVACY_LINE, ACCOUNTS_SECTION_HTML } from './privacyAccounts';
 import { FLAGS_KEY } from './flags';
 
@@ -48,7 +49,7 @@ describe('nothing else can request it', () => {
     const callers = src.filter((f) => /loadAppleScript\(/.test(readFileSync(f, 'utf8')) && !f.endsWith('appleWeb.ts'));
     expect(callers).toEqual(['src/components/AppleButton.tsx']);
     const btn = readFileSync('src/components/AppleButton.tsx', 'utf8');
-    expect(btn.split('function WebButton')[1]).toContain('loadAppleScript()');
+    expect(btn.split('function WebButton')[1]).toContain('loadAppleScript(');
     expect(btn.split('function IosButton')[1].split('function WebButton')[0]).not.toContain('loadAppleScript');   // never in the native apps
   });
   it('the page and the app shell carry no Apple script tag', () => {
@@ -58,7 +59,7 @@ describe('nothing else can request it', () => {
 
 describe('the privacy line names the host the app really loads', () => {
   it('is the approved sentence with that host in it', () => {
-    expect(APPLE_PRIVACY_LINE).toBe("Apple, when you open the sign-in screen on the web: your browser loads Apple's Sign in with Apple button from Apple's servers (appleid.cdn-apple.com). Apple sees your IP address and browser details. If you choose Apple, it handles your sign-in under its own privacy policy.");
+    expect(APPLE_PRIVACY_LINE).toBe("Apple, when Ridgeline shows the Sign in with Apple button on the web: your browser loads Apple's Sign in with Apple button from Apple's servers (appleid.cdn-apple.com). Apple sees your IP address and browser details. If you choose Apple, it handles your sign-in under its own privacy policy.");
   });
   it('the host in the line equals the host of the script URL (if one changes, this fails)', () => {
     const host = new URL(APPLE_JS_URL).hostname;
@@ -74,5 +75,43 @@ describe('the iOS button is the system control, registered with the app', () => 
     expect(swift).toContain('registerPluginInstance(AppleButtonPlugin())');
     expect(swift).toContain('jsName = "RidgelineAppleButton"');
     expect(swift).not.toMatch(/\.continue|UIImage|appleLogo/);
+  });
+});
+
+describe('the web button is keyboard-operable and leaves no empty box', () => {
+  const key = (k: string) => { const calls: string[] = []; return { e: { key: k, stopPropagation: () => calls.push('stop'), preventDefault: () => calls.push('prevent') }, calls }; };
+  it('Enter and Space are caught before Apple\'s handler and call our sign-in; other keys are left alone', () => {
+    for (const k of ['Enter', ' ']) { let n = 0; const { e, calls } = key(k); expect(handleAppleKey(e, () => n++)).toBe(true); expect(n).toBe(1); expect(calls.sort()).toEqual(['prevent', 'stop']); }
+    let n = 0; const { e, calls } = key('Tab');
+    expect(handleAppleKey(e, () => n++)).toBe(false); expect(n).toBe(0); expect(calls).toEqual([]);
+  });
+  it('the component wires the key handler, one tab stop, Apple\'s inner elements are taken out of the tab order, and a failed load renders nothing', () => {
+    const src = readFileSync('src/components/AppleButton.tsx', 'utf8');
+    expect(src).toContain('onKeyDownCapture');
+    expect(src).toContain('tabIndex={0}');
+    expect(src).toContain("setAttribute('tabindex', '-1')");
+    expect(src).toContain('if (failed) return null;');
+  });
+});
+
+describe('the iOS button belongs to one screen at a time and hides when it is not visible', () => {
+  it('JS: hides whenever the placeholder is not really showing, with a token per screen, and sends page coordinates', () => {
+    const src = readFileSync('src/components/AppleButton.tsx', 'utf8');
+    expect(src).toContain('IntersectionObserver');
+    expect(src).toContain('offsetParent');
+    expect(src).toContain('elementFromPoint');
+    expect(src).toContain('visible = true');
+    expect(src).toContain('window.scrollX');
+    expect(src).toContain('NativeAppleButton.hide({ token })');
+  });
+  it('JS: two screens get different tokens, and a missing placeholder is never "showing"', () => {
+    expect(newToken()).not.toBe(newToken());
+    expect(placeholderShowing(null)).toBe(false);
+  });
+  it('Swift: only the owner can hide it, and page coordinates go through the scroll view (safe area and scroll offset)', () => {
+    const swift = readFileSync('ios/App/App/HikePlugin.swift', 'utf8');
+    expect(swift).toContain('token == self.owner');
+    expect(swift).toContain('web.scrollView.convert(');
+    expect(swift).toContain('self.owner = token');
   });
 });

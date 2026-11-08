@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useAccountsState } from '../lib/accounts/flags';
 import { signIn, signOutKeeping, providersFor, type Provider } from '../lib/accounts/auth';
-import { useAccount } from '../lib/accounts/useAccount';
+import { useAccount, type Account } from '../lib/accounts/useAccount';
 import { nativePlatform } from '../lib/native/platform';
 import { ProviderButton } from './ProviderButton';
 import './guestPrompt.css';
@@ -9,15 +9,25 @@ import './guestPrompt.css';
 /** Profile › Account: guest banner, sign in / out, and both delete options. Renders nothing while features.accounts is off. */
 export const PAUSED_NOTE = 'Sign-in is paused for now. Your hikes are safe on this phone.';
 
-export function AccountRow({ enabled, build, onOpenDelete }: { enabled?: boolean; build?: boolean; onOpenDelete?: () => void }) {
+export function AccountRow({ enabled, build, onOpenDelete, account }: { enabled?: boolean; build?: boolean; onOpenDelete?: () => void; /** Tests and previews: who is signed in. */ account?: Account }) {
   const state = useAccountsState(build, enabled);   // `enabled` forces on/off in tests and previews
   const live = state === 'live';
-  const acct = useAccount(live);
+  // While paused the session is still read (never synced), so the person can still delete their data or their account.
+  const read = useAccount(live || state === 'paused');
+  const acct = account ?? read;
   const [msg, setMsg] = useState('');
   const [leaving, setLeaving] = useState(false);
   const [choosing, setChoosing] = useState(false);
   if (state === 'off' || state === 'unknown') return null;
-  if (state === 'paused') return <p className="pf-note pf-static" role="status" style={{ margin: 0, paddingTop: 8 }}>{PAUSED_NOTE}</p>;
+  if (state === 'paused') {
+    return (
+      <div className="pf-static" aria-label="Account: sign-in paused">
+        <p className="pf-note pf-static" role="status" style={{ margin: 0, paddingTop: 8 }}>{PAUSED_NOTE}</p>
+        {acct.signedIn && onOpenDelete && <button className="pf-row" onClick={onOpenDelete}>Delete my Ridgeline data</button>}
+        {acct.signedIn && onOpenDelete && <button className="pf-row" onClick={onOpenDelete}>Delete my whole account</button>}
+      </div>
+    );
+  }
 
   const go = async (p: Provider) => {
     setMsg('');

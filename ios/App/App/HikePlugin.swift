@@ -174,13 +174,15 @@ public class AppleButtonPlugin: CAPPlugin, CAPBridgedPlugin {
 
     private var button: ASAuthorizationAppleIDButton?
     private var style: ASAuthorizationAppleIDButton.Style = .black
+    /// Each sign-in screen has its own token; only the screen that last showed the button may move or hide it.
+    private var owner: String?
 
-    /// x, y, width, height in page (CSS) pixels, which are points; `dark` is true on a dark background (the button is then white).
+    /// x, y, width, height are PAGE coordinates in points (the page adds its scroll position); `dark` is true on a dark background (the button is then white).
     @objc func show(_ call: CAPPluginCall) {
         let x = call.getDouble("x") ?? 0, y = call.getDouble("y") ?? 0
         let w = call.getDouble("width") ?? 0, h = call.getDouble("height") ?? 0
         let dark = call.getBool("dark") ?? false
-        guard w > 0, h > 0 else { call.reject("bad size"); return }
+        guard let token = call.getString("token"), w > 0, h > 0 else { call.reject("bad arguments"); return }
         DispatchQueue.main.async {
             guard let web = self.bridge?.webView, let host = web.superview else { call.reject("no web view"); return }
             let wanted: ASAuthorizationAppleIDButton.Style = dark ? .white : .black
@@ -193,18 +195,25 @@ public class AppleButtonPlugin: CAPPlugin, CAPBridgedPlugin {
                 self.button = b
                 self.style = wanted
             }
-            self.button?.frame = CGRect(x: web.frame.minX + x, y: web.frame.minY + y, width: w, height: h)
+            self.owner = token
+            // The scroll view turns page coordinates into the host view's, taking the safe-area inset and the scroll offset into account.
+            let origin = web.scrollView.convert(CGPoint(x: x, y: y), to: host)
+            self.button?.frame = CGRect(x: origin.x, y: origin.y, width: w, height: h)
             call.resolve()
         }
     }
 
     @objc func hide(_ call: CAPPluginCall) {
+        let token = call.getString("token")
         DispatchQueue.main.async {
-            self.button?.removeFromSuperview()
-            self.button = nil
+            if token == nil || token == self.owner {
+                self.button?.removeFromSuperview()
+                self.button = nil
+                self.owner = nil
+            }
             call.resolve()
         }
     }
 
-    @objc private func tapped() { notifyListeners("tap", data: [:]) }
+    @objc private func tapped() { notifyListeners("tap", data: ["token": owner ?? ""]) }
 }
