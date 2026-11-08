@@ -2,11 +2,13 @@ import UIKit
 import Capacitor
 import CoreLocation
 import UserNotifications
+import AuthenticationServices
 
 /// Registers the local plugin (it is not an npm package, so Capacitor does not find it by itself).
 class RidgelineViewController: CAPBridgeViewController {
     override open func capacitorDidLoad() {
         bridge?.registerPluginInstance(HikePlugin())
+        bridge?.registerPluginInstance(AppleButtonPlugin())
     }
 }
 
@@ -155,4 +157,54 @@ public class HikePlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManagerDelegate 
         let code = (error as? CLError)?.code == .denied ? 1 : 2
         notifyListeners("locationError", data: ["code": code, "message": error.localizedDescription])
     }
+}
+
+/// "RidgelineAppleButton": shows Apple's own system button (ASAuthorizationAppleIDButton, type "Sign in with Apple") over the web page at the
+/// rectangle the page gives it, so the button is Apple's control and no Apple artwork is stored in the app or the repo.
+/// The page measures a placeholder element and calls show() again when it scrolls or resizes; a tap comes back as the "tap" event.
+/// The sign-in itself is done by the social-login plugin, not here. NOT tested on a device or simulator: built in CI only.
+@objc(AppleButtonPlugin)
+public class AppleButtonPlugin: CAPPlugin, CAPBridgedPlugin {
+    public let identifier = "AppleButtonPlugin"
+    public let jsName = "RidgelineAppleButton"
+    public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "show", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "hide", returnType: CAPPluginReturnPromise)
+    ]
+
+    private var button: ASAuthorizationAppleIDButton?
+    private var style: ASAuthorizationAppleIDButton.Style = .black
+
+    /// x, y, width, height in page (CSS) pixels, which are points; `dark` is true on a dark background (the button is then white).
+    @objc func show(_ call: CAPPluginCall) {
+        let x = call.getDouble("x") ?? 0, y = call.getDouble("y") ?? 0
+        let w = call.getDouble("width") ?? 0, h = call.getDouble("height") ?? 0
+        let dark = call.getBool("dark") ?? false
+        guard w > 0, h > 0 else { call.reject("bad size"); return }
+        DispatchQueue.main.async {
+            guard let web = self.bridge?.webView, let host = web.superview else { call.reject("no web view"); return }
+            let wanted: ASAuthorizationAppleIDButton.Style = dark ? .white : .black
+            if self.button == nil || self.style != wanted {
+                self.button?.removeFromSuperview()
+                let b = ASAuthorizationAppleIDButton(authorizationButtonType: .signIn, authorizationButtonStyle: wanted)
+                b.cornerRadius = 4
+                b.addTarget(self, action: #selector(self.tapped), for: .touchUpInside)
+                host.addSubview(b)
+                self.button = b
+                self.style = wanted
+            }
+            self.button?.frame = CGRect(x: web.frame.minX + x, y: web.frame.minY + y, width: w, height: h)
+            call.resolve()
+        }
+    }
+
+    @objc func hide(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            self.button?.removeFromSuperview()
+            self.button = nil
+            call.resolve()
+        }
+    }
+
+    @objc private func tapped() { notifyListeners("tap", data: [:]) }
 }

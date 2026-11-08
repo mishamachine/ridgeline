@@ -66,3 +66,13 @@ describe('the privacy line names the host the app really loads', () => {
     expect(ACCOUNTS_SECTION_HTML).toContain(APPLE_PRIVACY_LINE);
   });
 });
+
+describe('the iOS button is the system control, registered with the app', () => {
+  const swift = readFileSync('ios/App/App/HikePlugin.swift', 'utf8');
+  it('uses ASAuthorizationAppleIDButton with the signIn type and is registered', () => {
+    expect(swift).toContain('ASAuthorizationAppleIDButton(authorizationButtonType: .signIn');
+    expect(swift).toContain('registerPluginInstance(AppleButtonPlugin())');
+    expect(swift).toContain('jsName = "RidgelineAppleButton"');
+    expect(swift).not.toMatch(/\.continue|UIImage|appleLogo/);
+  });
+});
