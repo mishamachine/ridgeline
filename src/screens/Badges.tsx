@@ -90,7 +90,7 @@ export function Badges({ onBack, preset }: { onBack?: () => void; preset?: { act
           </li>
         ))}
       </ul>
-      <p className="bd-foot">Badges are earned from hikes you record. Kept on your phone; no account.</p>
+      <p className="bd-foot">Badges are earned from hikes you record. Kept on your phone unless you sign in.</p>
     </div>
   );
 }

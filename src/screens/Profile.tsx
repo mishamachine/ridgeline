@@ -223,9 +223,9 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, version, p
           )}
 
           <details className="pf-row" style={{ display: 'block', padding: 0 }}>
-            <summary className="pf-row" style={{ borderBottom: 0, cursor: 'pointer', listStyle: 'none' }}><span>Location &amp; privacy</span><span className="val">Stays on your phone</span></summary>
+            <summary className="pf-row" style={{ borderBottom: 0, cursor: 'pointer', listStyle: 'none' }}><span>Location &amp; privacy</span><span className="val">Live location stays on your phone</span></summary>
             <div className="pf-credits">
-              <p>Ridgeline uses your location to centre the map when you open it or tap Locate, and your precise location while you navigate or record a hike. It stops when you finish. In the web version, location stops when your screen locks, so Ridgeline keeps the screen on. Your location is never sent to our servers.</p>
+              <p>Ridgeline uses your location to centre the map when you open it or tap Locate, and your precise location while you navigate or record a hike. It stops when you finish. In the web version, location stops when your screen locks, so Ridgeline keeps the screen on. Your live location is never sent to our servers. If you sign in, the route of a finished hike is saved to your account (minus the first and last 200 m), unless you turn on &lsquo;Keep hike tracks on this phone only&rsquo;.</p>
               <a className="pf-link" href={`${base}privacy/`}>Read the privacy policy</a>
             </div>
           </details>

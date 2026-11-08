@@ -45,7 +45,10 @@ Keep the file and passwords in your password manager, not in the repo.
 3. Create the API key and set the four iOS secrets above.
 4. Actions -> "iOS release" -> Run workflow. Set a new build number each time. The build appears in TestFlight after
    Apple processing (about 10-30 minutes). External testers also need the privacy policy URL and Beta App Review.
-5. App Privacy answers (must match the code): Location, collected = No (never leaves the device). No tracking, no analytics.
+5. App Privacy answers (must match the code): while sign-in is off, Location, collected = No (never leaves the device). No tracking, no analytics.
+   **At go-live (accounts on), in the same step as the flag flip and the privacy page:** change to Data Linked to You, purpose App Functionality, not used for tracking:
+   Contact Info > Name and Email Address; Location > Precise Location (finished-hike routes, minus the first and last 200 m; the live location is still never sent);
+   User Content > Other User Content (saved trails, hike history); Identifiers > User ID. Re-check against the final build.
 6. Location justification for review: location is used only during a hike the user starts, with the system
    background-location indicator shown; it is never sent anywhere. Safety line in the app and listing:
    "Directions are a guide; check conditions; not for emergency use."
@@ -66,7 +69,9 @@ fork." Also paste the "Safety line" above. Purpose string text is in `ios/App/Ap
 1. Play Console -> Create app: "Ridgeline", package `com.bbprojectfactory.ridgeline`. Use Play App Signing.
 2. Set the four Android secrets. Actions -> "Android release" -> Run workflow (new `version_code` each time).
 3. Download `android-release-aab`; Play Console -> Testing -> Internal testing -> Create release -> upload it.
-4. Data safety form: location, collected = No (processed on device only); no data shared; no ads.
+4. Data safety form: while sign-in is off, location, collected = No (processed on device only); no data shared; no ads.
+   **At go-live (accounts on), same step as the flag flip:** collected = Personal info (name, email), Location (precise; optional), App activity (in-app actions, i.e. hike history; optional),
+   User IDs. Not shared; encrypted in transit; users can request deletion (web URL: https://hike.bbprojectfactory.com/account/delete/). No "App info" (no crash or diagnostics SDK).
 5. Permissions declared: precise location (foreground), foreground service of type location, notifications.
    The app does not request background location (ACCESS_BACKGROUND_LOCATION); the foreground service with a
    visible notification keeps GPS running with the screen off, so no background-location declaration video is

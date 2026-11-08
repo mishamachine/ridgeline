@@ -9,7 +9,7 @@ Bold, simple trail maps that work offline. An installable web app (PWA) in the "
 - **Navigate:** live GPS with miles left, time left, climb ahead and an off-route alert. Also includes reverse direction and keep-screen-on.
 - **Record:** track any hike and export it as GPX.
 
-There are no accounts. Saved trails, recordings and your live GPS position stay on the device; place searches, trail data and map tiles are requested from third-party services (see the table below).
+Accounts are optional (Google or Apple sign-in). Without one, saved trails, recordings and your live GPS position stay on the device. If you sign in, saved trails, hike history and routes (minus the first and last 200 m) are also stored in your account; your live position is never sent. Place searches, trail data and map tiles are requested from third-party services (see the table below).
 
 ## Run locally
 

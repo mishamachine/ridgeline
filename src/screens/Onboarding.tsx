@@ -22,12 +22,12 @@ export function onboardingCards(f: { voice: boolean; screenOff: boolean; badges:
     { id: 'offline', tag: 'Offline', title: 'Works with no signal', body: 'Tap Save offline the night before. The map and route live on your phone.', art: offlineArt, alt: 'A phone with a saved map' },
     { id: 'forks', tag: f.voice ? 'Voice' : 'Directions', title: f.voice ? 'Bobo talks you through the forks' : 'Keep your eyes on the trail', body: forks, art: voiceArt, alt: 'Bobo at a fork in the trail' },
   ];
-  if (f.badges) cards.push({ id: 'badges', tag: 'Badges', title: 'Collect badges, share Ridgeline', body: 'Earn badges for classics, early starts and more. They stay on your phone. Share Ridgeline with a friend any time from Profile.', art: badgesArt, alt: 'Badges on a trail' });
+  if (f.badges) cards.push({ id: 'badges', tag: 'Badges', title: 'Collect badges, share Ridgeline', body: 'Earn badges for classics, early starts and more. They stay on your phone unless you sign in. Share Ridgeline with a friend any time from Profile.', art: badgesArt, alt: 'Badges on a trail' });
   if (withLocation) cards.push({ id: 'location', tag: 'Location', title: 'Let Ridgeline find you?', body: 'Your location makes Ridgeline work on the trail. It stops when you finish.', art: boboUrl, alt: 'Bobo with a bandana' });
   return cards;
 }
 
-const PERKS = ['Centre the map on you when you open it or tap Locate', 'Your precise location while you navigate or record a hike', 'Stays on your phone. Never sent to our servers.'];
+const PERKS = ['Centre the map on you when you open it or tap Locate', 'Your precise location while you navigate or record a hike', 'Your live location stays on your phone. Never sent to our servers.'];
 
 /**
  * First-run tour. `replay` hides the location card (replayed from Profile).
