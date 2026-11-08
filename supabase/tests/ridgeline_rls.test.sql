@@ -3,7 +3,7 @@
 -- Never run against the shared production project. Everything runs in one transaction and rolls back.
 begin;
 create extension if not exists pgtap;
-select plan(24);
+select plan(33);
 
 insert into auth.users (id) values ('00000000-0000-0000-0000-00000000000a'), ('00000000-0000-0000-0000-00000000000b');
 
@@ -67,6 +67,26 @@ select is((select count(*)::int from vault.secrets where name = 'ridgeline_apple
 -- Limits.
 select throws_ok($$insert into ridgeline.activities (user_id, id, started_at, track)
   values ('00000000-0000-0000-0000-00000000000b', 't', now(), (select jsonb_agg(i) from generate_series(1, 50001) i))$$, '23514', null, 'a track over 50,000 points is rejected');
+
+-- Every table in the schema is tied to auth.users with ON DELETE CASCADE.
+select is((select count(*)::int from pg_class c join pg_namespace n on n.oid = c.relnamespace
+           where n.nspname = 'ridgeline' and c.relkind = 'r'
+             and not exists (select 1 from pg_constraint k where k.conrelid = c.oid and k.contype = 'f' and k.confrelid = 'auth.users'::regclass and k.confdeltype = 'c')), 0,
+          'every ridgeline table has a user_id foreign key to auth.users ON DELETE CASCADE');
+
+-- Size caps.
+select throws_ok($$insert into ridgeline.shortlist (user_id, trail_id, trail) values ('00000000-0000-0000-0000-00000000000b', 'big', jsonb_build_object('x', repeat('a', 70000)))$$, '23514', null, 'a trail snapshot over 64 KB is rejected');
+select throws_ok($$insert into ridgeline.settings (user_id, data) values ('00000000-0000-0000-0000-00000000000b', jsonb_build_object('x', repeat('a', 70000)))$$, '23514', null, 'settings over 64 KB are rejected');
+
+-- Row limits: 2,000 saved trails. Upserts of existing rows pass, tombstones do not count, a new live row is refused.
+insert into ridgeline.saved (user_id, trail_id) select '00000000-0000-0000-0000-00000000000b', 't' || i from generate_series(1, 2000) i;
+select lives_ok($$insert into ridgeline.saved (user_id, trail_id, updated_at) values ('00000000-0000-0000-0000-00000000000b', 't1', now()) on conflict (user_id, trail_id) do update set updated_at = excluded.updated_at$$, 'updating an existing row at the limit is allowed');
+select throws_ok($$insert into ridgeline.saved (user_id, trail_id) values ('00000000-0000-0000-0000-00000000000b', 'one-too-many')$$, '54000', null, 'a new live row beyond the limit is refused');
+select lives_ok($$insert into ridgeline.saved (user_id, trail_id, deleted) values ('00000000-0000-0000-0000-00000000000b', 'gone', true)$$, 'a tombstone is accepted at the limit (it is not a live row)');
+select throws_ok($$update ridgeline.saved set deleted = false where trail_id = 'gone'$$, '54000', null, 'reviving a tombstone beyond the limit is refused');
+update ridgeline.saved set deleted = true where trail_id = 't2';
+select lives_ok($$update ridgeline.saved set deleted = false where trail_id = 'gone'$$, 'after a delete frees a slot the revive works');
+select is((select count(*)::int from ridgeline.saved where user_id = '00000000-0000-0000-0000-00000000000b' and not deleted), 2000, 'live count stays at the limit');
 
 -- Deleting the auth user removes the Ridgeline rows.
 delete from auth.users where id = '00000000-0000-0000-0000-00000000000a';
