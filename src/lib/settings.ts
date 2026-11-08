@@ -17,6 +17,8 @@ export const DEFAULT_SETTINGS: Settings = { voice: true, units: 'imperial', with
 export const SETTINGS_KEY = 'ridgeline:settings';
 /** When the synced settings last changed (ms), for last-write-wins. */
 export const SETTINGS_STAMP_KEY = 'ridgeline:settings:updatedAt';
+/** Local edit stamp for the synced settings: rises on edits made on this phone only (never set by sync). */
+export const SETTINGS_EDIT_KEY = 'ridgeline:settings:editedAt';
 /** The settings that follow the person across devices. onboardingSeen and keepTracksLocal stay on this phone. */
 export const SYNCED_SETTING_KEYS = ['voice', 'units', 'withDogDefault'] as const;
 
@@ -71,7 +73,13 @@ export function updateSettings(patch: Partial<Settings>, stamp = true) {
   const before = current;
   current = sanitize({ ...current, ...patch });
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(current)); } catch { /* private mode or full: keep in memory */ }
-  if (stamp && SYNCED_SETTING_KEYS.some((k) => before[k] !== current[k])) { try { localStorage.setItem(SETTINGS_STAMP_KEY, String(Date.now())); } catch { /* ignore */ } }
+  if (stamp && SYNCED_SETTING_KEYS.some((k) => before[k] !== current[k])) {
+    try {
+      const now = Date.now();
+      localStorage.setItem(SETTINGS_STAMP_KEY, String(now));
+      localStorage.setItem(SETTINGS_EDIT_KEY, String(Math.max(now, (Number(localStorage.getItem(SETTINGS_EDIT_KEY)) || 0) + 1)));
+    } catch { /* ignore */ }
+  }
   listeners.forEach((l) => l());
 }
 

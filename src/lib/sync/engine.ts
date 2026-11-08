@@ -23,23 +23,26 @@ const key = (userId: string, kind: Kind, dir: 'pull' | 'push') => `sync:${userId
 export async function syncOnce(userId: string, local: LocalSource, remote: Remote, cursors: Cursors, kinds: Kind[] = KINDS): Promise<SyncResult> {
   let pulled = 0, pushed = 0;
   for (const kind of kinds) {
-    const applied = new Map<string, number>();
     // 1. Pull and merge.
     const since = await cursors.get(key(userId, kind, 'pull'));
     const incoming = await remote.pull(kind, Math.max(0, since - PULL_OVERLAP_MS));
     if (incoming.length) {
       const here = new Map((await local.readAll(kind)).map((r) => [r.id, r]));
       for (const r of incoming) {
-        if (winner(here.get(r.id), r) === 'remote') { await local.apply(r); applied.set(r.id, r.updatedAt); pulled++; }
+        if (winner(here.get(r.id), r) === 'remote') { await local.apply(r); pulled++; }
       }
       await cursors.set(key(userId, kind, 'pull'), Math.max(since, ...incoming.map((r) => r.syncedAt ?? 0)));
     }
-    // 2. Push what changed here since the last push. The first pass after signing in pushes everything (the guest merge).
+    // 2. Push what was edited on this phone since the last push. The first pass after signing in pushes everything (the guest merge).
+    // "Edited here" is the local edit stamp, never a server time: a record taken from the server has editedAt 0, so a server clock that
+    // runs ahead can neither echo records back nor push the cursor past edits made here later.
     const mark = await cursors.get(key(userId, kind, 'push'));
-    const all = (await local.readAll(kind)).filter((r) => r.updatedAt > mark);
-    const changed = all.filter((r) => applied.get(r.id) !== r.updatedAt); // do not echo back what the server just sent
-    if (changed.length) { await remote.push(kind, changed); pushed += changed.length; }
-    if (all.length) await cursors.set(key(userId, kind, 'push'), Math.max(mark, ...all.map((r) => r.updatedAt)));
+    const changed = (await local.readAll(kind)).filter((r) => r.editedAt > mark);
+    if (changed.length) {
+      await remote.push(kind, changed);
+      await cursors.set(key(userId, kind, 'push'), Math.max(mark, ...changed.map((r) => r.editedAt)));
+      pushed += changed.length;
+    }
   }
   return { pulled, pushed };
 }

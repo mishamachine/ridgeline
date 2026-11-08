@@ -7,6 +7,8 @@ export interface SyncRec {
   /** ms since epoch; the clock of the device that made the change. */
   updatedAt: number;
   deleted: boolean;
+  /** Local edit stamp: rises on edits made on THIS phone, 0 for anything that came from the server. Decides what to upload; never compared with server times. */
+  editedAt: number;
   /** Server write time (ms), set by the server. Only on records that came from it; the pull cursor follows it. */
   syncedAt?: number;
   /** Null for a tombstone. */

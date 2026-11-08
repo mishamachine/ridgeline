@@ -30,3 +30,17 @@ begin
   end loop;
 end $$;
 revoke execute on function ridgeline.sync_guard() from public, anon, authenticated;
+
+-- "Delete my Ridgeline data" in ONE transaction (a function body is atomic): either every Ridgeline row of the person is gone or none is.
+-- The Apple token row is left to the account step, which needs it for the revoke. Service role only.
+create function ridgeline.delete_user_data(uid uuid) returns void
+language plpgsql security definer set search_path = '' as $$
+begin
+  delete from ridgeline.activities where user_id = uid;
+  delete from ridgeline.saved      where user_id = uid;
+  delete from ridgeline.shortlist  where user_id = uid;
+  delete from ridgeline.settings   where user_id = uid;
+  delete from ridgeline.profiles   where user_id = uid;
+end $$;
+revoke execute on function ridgeline.delete_user_data(uuid) from public, anon, authenticated;
+grant  execute on function ridgeline.delete_user_data(uuid) to service_role;

@@ -1,16 +1,18 @@
-// The two delete paths, with every side effect injected so the order can be tested.
-//   data    -> remove this person's Ridgeline rows only. The shared B&B account stays.
-//   account -> Apple revoke (if they signed in with Apple), delete the Vault secret, delete Ridgeline rows, delete the auth user.
-// Apple revoke happens FIRST: if Apple refuses, nothing is deleted and the person can retry.
+// The two delete paths, with every side effect injected so each failure point can be tested.
+//   data    -> remove this person's Ridgeline rows only (ONE SQL transaction). The shared B&B account stays.
+//   account -> the same data step, then Apple revoke (Apple users), the Vault secret, and last the auth user.
+// Honesty rule: 'failed' means nothing was deleted (the data step is one transaction). Once the data step has run, any later
+// failure is 'partial': the Ridgeline data is gone but the account is not closed, and the person is told so and can retry.
 
 export type Scope = 'data' | 'account';
 
 export interface DeleteDeps {
   hasAppleIdentity: boolean;
+  /** ridgeline.delete_user_data(uid): all Ridgeline rows in one transaction. */
+  deleteUserData(): Promise<void>;
   readAppleToken(): Promise<string | null>;
   revokeApple(token: string): Promise<void>;
   deleteAppleToken(): Promise<void>;
-  deleteRidgelineRows(): Promise<void>;
   deleteAuthUser(): Promise<void>;
   /** Event names only. Never a token, code, email or id. */
   log(event: string): void;
@@ -18,32 +20,24 @@ export interface DeleteDeps {
 
 /** apple: 'revoked' (we disconnected Apple), 'manual' (an Apple user we could not revoke for: tell them how), 'none' (not an Apple user). */
 export type AppleResult = 'revoked' | 'manual' | 'none';
-/** partial: the Ridgeline rows are gone but the auth user could not be deleted. Never report that as success. */
 export type DeleteOutcome =
   | { status: 'ok'; apple: AppleResult }
   | { status: 'partial'; apple: AppleResult }
-  | { status: 'failed'; reason: 'apple_revoke_failed' };
+  | { status: 'failed' };
 
 export async function deleteAccount(scope: Scope, d: DeleteDeps): Promise<DeleteOutcome> {
-  if (scope === 'data') {
-    await d.deleteRidgelineRows();
-    return { status: 'ok', apple: 'none' };
-  }
+  try { await d.deleteUserData(); } catch { d.log('data_delete_failed'); return { status: 'failed' }; }
+  if (scope === 'data') return { status: 'ok', apple: 'none' };
+
   let apple: AppleResult = 'none';
   if (d.hasAppleIdentity) {
-    const token = await d.readAppleToken();
-    if (token) {
-      try { await d.revokeApple(token); } catch { d.log('apple_revoke_failed'); return { status: 'failed', reason: 'apple_revoke_failed' }; }
-      d.log('apple_revoked');
-      apple = 'revoked';
-    } else {
-      // An Apple user from before token capture, or from the web flow: we hold nothing to revoke with.
-      d.log('apple_revoke_skipped_no_token');
-      apple = 'manual';
-    }
+    try {
+      const token = await d.readAppleToken();
+      if (token) { await d.revokeApple(token); d.log('apple_revoked'); apple = 'revoked'; }
+      else { d.log('apple_revoke_skipped_no_token'); apple = 'manual'; } // an Apple user from before token capture, or from the web flow
+    } catch { d.log('apple_revoke_failed'); return { status: 'partial', apple: 'manual' }; }
   }
-  await d.deleteAppleToken();
-  await d.deleteRidgelineRows();
-  try { await d.deleteAuthUser(); } catch { d.log('auth_delete_failed_after_rows'); return { status: 'partial', apple }; }
+  try { await d.deleteAppleToken(); } catch { d.log('vault_delete_failed'); return { status: 'partial', apple }; }
+  try { await d.deleteAuthUser(); } catch { d.log('auth_delete_failed'); return { status: 'partial', apple }; }
   return { status: 'ok', apple };
 }

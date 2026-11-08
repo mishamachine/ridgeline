@@ -9,3 +9,4 @@ begin
   end loop;
 end $$;
 drop function if exists ridgeline.sync_guard();
+drop function if exists ridgeline.delete_user_data(uuid);

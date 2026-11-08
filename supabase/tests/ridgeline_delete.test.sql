@@ -6,7 +6,7 @@
 -- Run on a throwaway database (see README) and, before go-live, on a Supabase branch of the shared project, where it also covers the other apps' tables.
 begin;
 create extension if not exists pgtap;
-select plan(4);
+select plan(5);
 
 insert into auth.users (id) values ('00000000-0000-0000-0000-0000000000d1');
 
@@ -40,15 +40,16 @@ set local role service_role;
 select ridgeline.store_apple_token('00000000-0000-0000-0000-0000000000d1', 'refresh-token');
 reset role;
 
--- The delete function's steps, in its order: the Vault secret, the Ridgeline rows, the auth user.
+-- Only the service role may run the data step.
+set local role authenticated;
+select throws_ok($$select ridgeline.delete_user_data('00000000-0000-0000-0000-0000000000d1')$$, '42501', null, 'a signed-in user cannot call delete_user_data (it would let anyone delete anyone)');
+reset role;
+
+-- The delete function's steps, in its order: the data step (one transaction), then the Vault secret, then the auth user.
 set local role service_role;
+select ridgeline.delete_user_data('00000000-0000-0000-0000-0000000000d1');
 select ridgeline.delete_apple_token('00000000-0000-0000-0000-0000000000d1');
 reset role;
-delete from ridgeline.activities where user_id = '00000000-0000-0000-0000-0000000000d1';
-delete from ridgeline.saved      where user_id = '00000000-0000-0000-0000-0000000000d1';
-delete from ridgeline.shortlist  where user_id = '00000000-0000-0000-0000-0000000000d1';
-delete from ridgeline.settings   where user_id = '00000000-0000-0000-0000-0000000000d1';
-delete from ridgeline.profiles   where user_id = '00000000-0000-0000-0000-0000000000d1';
 delete from auth.users where id = '00000000-0000-0000-0000-0000000000d1';
 
 create function pg_temp.leftovers(uid uuid) returns text language plpgsql as $$

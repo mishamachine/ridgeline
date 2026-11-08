@@ -36,7 +36,7 @@ export function toRow(userId: string, r: SyncRec, keepTracksLocal: boolean): Row
 export function fromRow(kind: Kind, row: Row): SyncRec | null {
   const updatedAt = Date.parse(String(row.updated_at)), syncedAt = Date.parse(String(row.synced_at));
   if (!Number.isFinite(updatedAt) || !Number.isFinite(syncedAt)) return null;
-  const base = { kind, updatedAt, syncedAt };
+  const base = { kind, updatedAt, syncedAt, editedAt: 0 };
   if (kind === 'settings') return { ...base, id: 'settings', deleted: false, payload: row.data ?? {} };
   const deleted = row.deleted === true;
   if (kind === 'activities') {
