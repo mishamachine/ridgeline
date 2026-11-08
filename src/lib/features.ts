@@ -9,4 +9,7 @@ export const features = {
   celebrate: true,
   // Flip only after Florence confirms /v is live AND Nizam's privacy line is added to public/privacy (Usage counts).
   counter: false,
+  // Google/Apple sign-in. OFF until the owner has finished the Apple, Google and Supabase setup, applied the migration and approved go-live;
+  // flip together with the privacy text and store labels. While false nothing in src/lib/accounts runs or loads.
+  accounts: false,
 };

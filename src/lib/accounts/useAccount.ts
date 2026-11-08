@@ -1,0 +1,26 @@
+import { useEffect, useState } from 'react';
+import { features } from '../features';
+import { getClient } from './client';
+
+export interface Account { signedIn: boolean; email: string | null; provider: 'google' | 'apple' | null; userId: string | null }
+const GUEST: Account = { signedIn: false, email: null, provider: null, userId: null };
+
+/** Who is signed in. A permanent guest, with no network and no import, while features.accounts is off. */
+export function useAccount(enabled: boolean = features.accounts): Account {
+  const [acct, setAcct] = useState<Account>(GUEST);
+  useEffect(() => {
+    const p = getClient(enabled);
+    if (!p) return;
+    let off = () => {};
+    let live = true;
+    p.then((c) => {
+      const set = (u: { id: string; email?: string; app_metadata?: { provider?: string } } | undefined) =>
+        live && setAcct(u ? { signedIn: true, userId: u.id, email: u.email ?? null, provider: u.app_metadata?.provider === 'apple' ? 'apple' : 'google' } : GUEST);
+      c.auth.getSession().then(({ data }) => set(data.session?.user));
+      const { data } = c.auth.onAuthStateChange((_e, s) => set(s?.user));
+      off = () => data.subscription.unsubscribe();
+    }).catch(() => {});
+    return () => { live = false; off(); };
+  }, [enabled]);
+  return acct;
+}
