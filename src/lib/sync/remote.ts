@@ -5,7 +5,7 @@ import type { Activity } from '../store';
 import { activityClimb } from '../badges';
 import { trackDistance } from '../tracker';
 import { APP_DATA_SCHEMA } from '../accounts/config';
-import { StaleEpochError, type Remote } from './engine';
+import { PausedError, StaleEpochError, type Remote } from './engine';
 import type { Kind, SyncRec } from './merge';
 import { fitTrack, trimTrack } from './trim';
 
@@ -103,6 +103,7 @@ export function supabaseRemote(c: SupabaseClient, userId: string, keepTracksLoca
       const send = async (rows: Row[]) => {
         const { error } = await t(kind).upsert(rows, { onConflict: conflict });
         if (error && (error as { code?: string }).code === 'RL001') throw new StaleEpochError();
+        if (error && (error as { code?: string }).code === 'RL002') throw new PausedError();
         return error;
       };
       for (let i = 0; i < recs.length; i += CHUNK) {

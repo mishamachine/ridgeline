@@ -15,6 +15,7 @@ import { ChevronIcon } from '../components/Icons';
 import { PageHead } from '../components/PageHead';
 import { AccountRow } from '../components/AccountRow';
 import { useAccount } from '../lib/accounts/useAccount';
+import { useAccountsState } from '../lib/accounts/flags';
 import { BadgeMedal } from './Badges';
 import './profile.css';
 
@@ -50,6 +51,7 @@ function Switch({ on, onChange, label }: { on: boolean; onChange: (v: boolean) =
 export function Profile({ onOpenBadges, onReplayTour, onOpenDeleteAccount, onOpenActivity, version, preset }: ProfileProps) {
   const { activities, trails, reload } = useHikes(preset);
   const [settings, setSettings] = useSettings();
+  const accountsState = useAccountsState();   // off (not built in), unknown (flag not read yet), paused, or live
   const signedIn = useAccount().signedIn;
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [storage, setStorage] = useState<{ used: number; quota: number } | null>(null);
@@ -193,7 +195,7 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenDeleteAccount, onOpe
 
         <h2 className="pf-h">Settings</h2>
         <div className="pf-group">
-          {features.accounts ? <AccountRow onOpenDelete={onOpenDeleteAccount} /> : (
+          {accountsState !== 'off' ? <AccountRow onOpenDelete={onOpenDeleteAccount} /> : (
             <>
               <div className="pf-row pf-static" aria-label="Account: not signed in, optional">
                 <span>Account</span><span className="val">Not signed in · optional</span>
@@ -202,7 +204,7 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenDeleteAccount, onOpe
             </>
           )}
 
-          {features.accounts && (
+          {accountsState === 'live' && (
             <>
               <div className="pf-row">
                 <span>Keep hike tracks on this phone only</span>

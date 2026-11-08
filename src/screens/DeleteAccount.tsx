@@ -6,6 +6,7 @@ import { useAccount } from '../lib/accounts/useAccount';
 import { nativePlatform } from '../lib/native/platform';
 import { appleDisconnectSentence, type Platform } from '../lib/accounts/copy';
 import { ConfirmSheet } from '../components/ConfirmSheet';
+import { features } from '../lib/features';
 import { ProviderButton } from '../components/ProviderButton';
 import '../components/guestPrompt.css';
 
@@ -40,15 +41,15 @@ export function resultText(scope: DeleteScope, r: DeleteResult): string {
 
 /** /account/delete/ and (next PR) Profile › Account. Two choices, each with a confirm. */
 export function DeleteAccount({ onBack }: { onBack: () => void }) {
-  const acct = useAccount();
+  const acct = useAccount(features.accounts);   // deleting works while sign-in is paused, so this follows the build, not the pause flag
   const [ask, setAsk] = useState<DeleteScope | null>(null);
   const [result, setResult] = useState<{ scope: DeleteScope; r: DeleteResult } | null>(null);
   const [working, setWorking] = useState(false);
 
   const run = async (scope: DeleteScope) => {
     setAsk(null); setWorking(true);
-    const c = await getClient();
-    const r: DeleteResult = c ? await deleteMyAccount(scope, await c) : { status: 'failed' };
+    const c = getClient(features.accounts);
+    const r: DeleteResult = c ? await deleteMyAccount(scope, await c) : { status: 'unconfirmed' };
     setResult({ scope, r }); setWorking(false);
   };
   const finished = result?.r.status === 'ok';
@@ -62,7 +63,7 @@ export function DeleteAccount({ onBack }: { onBack: () => void }) {
         {needsSignIn && !finished && (
           <>
             <p className="pf-note">Sign in to the account you want to delete.</p>
-            <div className="gp-btns" style={{ padding: '4px 14px' }}>{providersFor(nativePlatform()).map((p) => <ProviderButton key={p} provider={p} onClick={() => signIn(p)} />)}</div>
+            <div className="gp-btns" style={{ padding: '4px 14px' }}>{providersFor(nativePlatform()).map((p) => <ProviderButton key={p} provider={p} onClick={() => signIn(p, features.accounts)} />)}</div>
           </>
         )}
         {acct.signedIn && !finished && result?.r.status !== 'reauth' && (

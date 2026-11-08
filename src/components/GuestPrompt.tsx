@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { features } from '../lib/features';
+import { useAccountsState } from '../lib/accounts/flags';
 import { getSettings } from '../lib/settings';
 import { signIn, providersFor } from '../lib/accounts/auth';
 import { useAccount } from '../lib/accounts/useAccount';
@@ -27,8 +27,9 @@ export interface GuestPromptProps {
 }
 
 /** A soft card, not a modal: it never blocks the map or the share button. Renders nothing while accounts are off. */
-export function GuestPrompt({ kinds, trigger, hikeActive = false, tone = 'light', inList = false, enabled = features.accounts }: GuestPromptProps) {
-  const acct = useAccount(enabled);
+export function GuestPrompt({ kinds, trigger, hikeActive = false, tone = 'light', inList = false, enabled }: GuestPromptProps) {
+  const live = useAccountsState(undefined, enabled) === 'live';   // paused or unknown: the card never shows
+  const acct = useAccount(live);
   const [open, setOpen] = useState(false);
   const [failed, setFailed] = useState(false);
 
@@ -38,15 +39,15 @@ export function GuestPrompt({ kinds, trigger, hikeActive = false, tone = 'light'
     try { st = localStorage; } catch { /* blocked */ }
     if (!st) return;
     const state = loadPromptState(st);
-    if (!canShow(kinds, state, { accountsOn: enabled, signedIn: acct.signedIn, onboardingDone: getSettings().onboardingSeen, hikeActive })) return;
+    if (!canShow(kinds, state, { accountsOn: live, signedIn: acct.signedIn, onboardingDone: getSettings().onboardingSeen, hikeActive })) return;
     savePromptState(st, markShown(state, kinds));
     setOpen(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trigger]);
 
-  if (!enabled || !open || acct.signedIn || hikeActive) return null;
+  if (!live || !open || acct.signedIn || hikeActive) return null;
   const notNow = () => { try { savePromptState(localStorage, dismiss(loadPromptState(localStorage))); } catch { /* ignore */ } setOpen(false); };
-  const go = async (p: 'apple' | 'google') => { const r = await signIn(p, enabled); if (!r.ok && r.reason === 'failed') setFailed(true); };
+  const go = async (p: 'apple' | 'google') => { const r = await signIn(p, live); if (!r.ok && r.reason === 'failed') setFailed(true); };
 
   return (
     <section className={`gp gp-${tone}${inList ? ' gp-in-list' : ''}`} aria-labelledby="gp-h">

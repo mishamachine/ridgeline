@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { features } from '../lib/features';
+import { useAccountsState } from '../lib/accounts/flags';
 import { signIn, signOutKeeping, providersFor, type Provider } from '../lib/accounts/auth';
 import { useAccount } from '../lib/accounts/useAccount';
 import { nativePlatform } from '../lib/native/platform';
@@ -7,16 +7,21 @@ import { ProviderButton } from './ProviderButton';
 import './guestPrompt.css';
 
 /** Profile › Account: guest banner, sign in / out, and both delete options. Renders nothing while features.accounts is off. */
-export function AccountRow({ enabled = features.accounts, onOpenDelete }: { enabled?: boolean; onOpenDelete?: () => void }) {
-  const acct = useAccount(enabled);
+export const PAUSED_NOTE = 'Sign-in is paused for now. Your hikes are safe on this phone.';
+
+export function AccountRow({ enabled, onOpenDelete }: { enabled?: boolean; onOpenDelete?: () => void }) {
+  const state = useAccountsState(undefined, enabled);   // `enabled` forces on/off in tests and previews
+  const live = state === 'live';
+  const acct = useAccount(live);
   const [msg, setMsg] = useState('');
   const [leaving, setLeaving] = useState(false);
   const [choosing, setChoosing] = useState(false);
-  if (!enabled) return null;
+  if (state === 'off' || state === 'unknown') return null;
+  if (state === 'paused') return <p className="pf-note pf-static" role="status" style={{ margin: 0, paddingTop: 8 }}>{PAUSED_NOTE}</p>;
 
   const go = async (p: Provider) => {
     setMsg('');
-    const r = await signIn(p, enabled);
+    const r = await signIn(p, live);
     if (!r.ok && r.reason === 'failed') setMsg('Sign-in did not work. You can keep using Ridgeline without an account.');
   };
 
@@ -24,8 +29,8 @@ export function AccountRow({ enabled = features.accounts, onOpenDelete }: { enab
     return (
       <div className="pf-static" role="group" aria-label="Sign out">
         <p className="pf-note" style={{ margin: 0 }}>Keep a copy of your hikes on this phone?</p>
-        <button className="pf-row" onClick={() => signOutKeeping(true, enabled)}>Keep a copy</button>
-        <button className="pf-row" onClick={() => signOutKeeping(false, enabled)}>Remove from this phone</button>
+        <button className="pf-row" onClick={() => signOutKeeping(true, live)}>Keep a copy</button>
+        <button className="pf-row" onClick={() => signOutKeeping(false, live)}>Remove from this phone</button>
         <button className="pf-link" onClick={() => setLeaving(false)}>Stay signed in</button>
       </div>
     );

@@ -27,6 +27,7 @@ import { count } from './lib/counter';
 import { isCallbackPath, completeWebSignIn } from './lib/accounts/auth';
 import { getClient } from './lib/accounts/client';
 import { useAccount } from './lib/accounts/useAccount';
+import { startFlagRefresh, useAccountsState } from './lib/accounts/flags';
 import { useSync, DELETED_ELSEWHERE_MESSAGE } from './lib/sync/useSync';
 import { pruneTombstones, clearTombstones } from './lib/store';
 import { setHikeActive } from './lib/swUpdate';
@@ -73,8 +74,9 @@ export function App() {
   useEffect(() => { count('session'); }, []);
   // Web sign-in lands on /auth/callback: finish the session, then go to Profile. Off (and a no-op) while features.accounts is false.
   useEffect(() => {
-    if (!features.accounts || !isCallbackPath(location.pathname, base)) return;
-    getClient()?.then(completeWebSignIn).finally(() => { history.replaceState(null, '', routePath({ kind: 'tab', tab: 'profile' }, base)); setRoute({ kind: 'tab', tab: 'profile' }); });
+    if (!isCallbackPath(location.pathname, base)) return;
+    if (!features.accounts) return;
+    getClient(features.accounts)?.then(completeWebSignIn).finally(() => { history.replaceState(null, '', routePath({ kind: 'tab', tab: 'profile' }, base)); setRoute({ kind: 'tab', tab: 'profile' }); });
   }, []);
   const [saved, setSaved] = useState<{ marked: Set<string>; offline: Set<string>; version: number }>({ marked: new Set(), offline: new Set(), version: 0 });
   const [removing, setRemoving] = useState<Trail | null>(null);
@@ -94,8 +96,10 @@ export function App() {
     }));
   }, []);
 
-  const account = useAccount();
-  useSync(account.userId, () => { refreshSaved(); setProfileVersion((v) => v + 1); }, () => toast(DELETED_ELSEWHERE_MESSAGE));
+  const accountsLiveNow = useAccountsState() === 'live';
+  const account = useAccount(accountsLiveNow);
+  useEffect(() => startFlagRefresh(), []);   // read the runtime flag now and whenever the app returns to the front (no network while the build has no accounts)
+  useSync(account.userId, () => { refreshSaved(); setProfileVersion((v) => v + 1); }, () => toast(DELETED_ELSEWHERE_MESSAGE), accountsLiveNow);
 
   useEffect(() => {
     // Tombstones only matter to sync: none are kept while accounts are off, and old ones are dropped when on.

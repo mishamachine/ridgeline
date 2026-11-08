@@ -22,7 +22,7 @@ AddType application/json .json
 
 <IfModule mod_headers.c>
   # Always check for app updates
-  <FilesMatch "^(sw\.js|registerSW\.js|index\.html|manifest\.webmanifest)$">
+  <FilesMatch "^(sw\.js|registerSW\.js|index\.html|manifest\.webmanifest|flags\.json)$">
     Header set Cache-Control "no-cache"
   </FilesMatch>
   # Trail data (the only .json files served) is public: the native apps may read it from their WebView origin
