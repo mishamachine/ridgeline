@@ -3,7 +3,7 @@
 -- Never run against the shared production project. Everything runs in one transaction and rolls back.
 begin;
 create extension if not exists pgtap;
-select plan(49);
+select plan(58);
 
 insert into auth.users (id) values ('00000000-0000-0000-0000-00000000000a'), ('00000000-0000-0000-0000-00000000000b');
 
@@ -114,15 +114,30 @@ select is((select count(*)::int from vault.secrets where name like '%00000000-00
 select is((select count(*)::int from vault.decrypted_secrets where decrypted_secret = 'refresh-token-2'), 0, 'fallback: the token value is gone');
 select is((select count(*)::int from ridgeline.apple_tokens where user_id = '00000000-0000-0000-0000-00000000000b'), 0, 'fallback: the reference row is gone');
 
+select is((select n_rows from ridgeline.usage where user_id = '00000000-0000-0000-0000-00000000000b' and tbl = 'saved'), (select count(*)::int from ridgeline.saved where user_id = '00000000-0000-0000-0000-00000000000b'), 'usage row counts match the real saved table (4,000 rows with tombstones)');
+select is((select n_live from ridgeline.usage where user_id = '00000000-0000-0000-0000-00000000000b' and tbl = 'saved'), (select count(*)::int from ridgeline.saved where user_id = '00000000-0000-0000-0000-00000000000b' and not deleted), 'and the live count matches');
 -- M1: identifier length, tombstone trail_id, route size, per-user advisory lock, and the byte cap.
 select throws_ok($$insert into ridgeline.activities (user_id, id, started_at, trail_id) values ('00000000-0000-0000-0000-00000000000b', 'long-trail', now(), repeat('x', 201))$$, '23514', null, 'a hike trail_id over 200 characters is rejected');
 select throws_ok($$insert into ridgeline.activities (user_id, id, started_at, trail_id, deleted) values ('00000000-0000-0000-0000-00000000000b', 'dead-trail', now(), 'way/1', true)$$, '23514', null, 'a hike tombstone must have a null trail_id');
 select ok((select count(*) from pg_locks where locktype = 'advisory' and pid = pg_backend_pid()) >= 1, 'inserts take a per-user advisory lock (so two requests cannot both pass the count)');
-create table ridgeline.zz_cap_test (user_id uuid not null, id text not null, deleted boolean not null default false, payload text, primary key (user_id, id));
-create trigger zz_limit before insert or update of deleted on ridgeline.zz_cap_test for each row execute function ridgeline.enforce_row_limit(1000, 'id', 3000);
+create table ridgeline.zz_cap_test (user_id uuid not null references auth.users (id) on delete cascade, id text not null, deleted boolean not null default false, payload text, primary key (user_id, id));
+create trigger zz_limit before insert or update on ridgeline.zz_cap_test for each row execute function ridgeline.enforce_row_limit(1000, 'id', 3000);
+create trigger zz_usage after insert or update or delete on ridgeline.zz_cap_test for each row execute function ridgeline.track_usage();
 insert into ridgeline.zz_cap_test (user_id, id, payload) values ('00000000-0000-0000-0000-00000000000b', 'a', repeat('x', 1000)), ('00000000-0000-0000-0000-00000000000b', 'b', repeat('x', 1000));
 select throws_ok($$insert into ridgeline.zz_cap_test (user_id, id, payload) values ('00000000-0000-0000-0000-00000000000b', 'c', repeat('x', 1500))$$, '54000', null, 'a row that would push the user over the byte cap is refused');
 select lives_ok($$insert into ridgeline.zz_cap_test (user_id, id, payload) values ('00000000-0000-0000-0000-00000000000b', 'd', repeat('x', 100))$$, 'a small row under the byte cap is accepted');
+-- H1: growing a row by UPDATE (or an upsert) counts against the cap too.
+select throws_ok($$update ridgeline.zz_cap_test set payload = repeat('y', 2500) where id = 'a'$$, '54000', null, 'growing a row by UPDATE past the byte cap is refused');
+select throws_ok($$insert into ridgeline.zz_cap_test (user_id, id, payload) values ('00000000-0000-0000-0000-00000000000b', 'a', repeat('y', 2500)) on conflict (user_id, id) do update set payload = excluded.payload$$, '54000', null, 'and so is growing it by upsert');
+select lives_ok($$update ridgeline.zz_cap_test set payload = repeat('z', 200) where id = 'a'$$, 'shrinking a row is fine');
+select lives_ok($$update ridgeline.zz_cap_test set payload = repeat('z', 900) where id = 'a'$$, 'a small growth that still fits is fine');
+-- M1: usage is kept by deltas and matches the table, with no scan and no client access.
+select is((select bytes from ridgeline.usage where user_id = '00000000-0000-0000-0000-00000000000b' and tbl = 'zz_cap_test'), (select sum(pg_column_size(t))::bigint from ridgeline.zz_cap_test t where user_id = '00000000-0000-0000-0000-00000000000b'), 'the usage row equals the real size after inserts, refused writes, shrinks and growth');
+delete from ridgeline.zz_cap_test where id = 'd';
+select is((select n_rows from ridgeline.usage where user_id = '00000000-0000-0000-0000-00000000000b' and tbl = 'zz_cap_test'), 2, 'a delete moves usage back');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+select throws_ok($$select * from ridgeline.usage$$, '42501', null, 'a signed-in user cannot read the usage table');
+reset role;
 
 -- Deleting the auth user removes the Ridgeline rows.
 delete from auth.users where id = '00000000-0000-0000-0000-00000000000a';
