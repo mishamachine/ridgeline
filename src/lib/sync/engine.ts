@@ -11,6 +11,9 @@ export const KINDS: Kind[] = ['shortlist', 'saved', 'activities', 'settings'];
 /** The server refused a write because the data was deleted from another device after this one last looked. */
 export class StaleEpochError extends Error { constructor() { super('stale data epoch'); } }
 
+/** The server refuses writes while sign-in is paused (the pause switch). Not an error to show: sync simply waits. */
+export class PausedError extends Error { constructor() { super('sign-in is paused'); } }
+
 export interface Remote {
   /** The person's data epoch (goes up when "Delete my Ridgeline data" runs). 0 when they have no profile yet. */
   epoch(): Promise<number>;

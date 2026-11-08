@@ -70,7 +70,7 @@ select throws_ok($$insert into ridgeline.activities (user_id, id, started_at, tr
 
 -- Every table in the schema is tied to auth.users with ON DELETE CASCADE.
 select is((select count(*)::int from pg_class c join pg_namespace n on n.oid = c.relnamespace
-           where n.nspname = 'ridgeline' and c.relkind = 'r'
+           where n.nspname = 'ridgeline' and c.relkind = 'r' and c.relname <> 'config'   -- config is a settings table, not user data
              and not exists (select 1 from pg_constraint k where k.conrelid = c.oid and k.contype = 'f' and k.confrelid = 'auth.users'::regclass and k.confdeltype = 'c')), 0,
           'every ridgeline table has a user_id foreign key to auth.users ON DELETE CASCADE');
 

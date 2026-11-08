@@ -4,8 +4,9 @@ import { getClient } from '../lib/accounts/client';
 import { deleteMyAccount, signIn, providersFor, type DeleteResult, type DeleteScope } from '../lib/accounts/auth';
 import { useAccount } from '../lib/accounts/useAccount';
 import { nativePlatform } from '../lib/native/platform';
-import { appleDisconnectSentence, type Platform } from '../lib/accounts/copy';
+import { appleDisconnectSentence, DELETION_TIMING, type Platform } from '../lib/accounts/copy';
 import { ConfirmSheet } from '../components/ConfirmSheet';
+import { features } from '../lib/features';
 import { ProviderButton } from '../components/ProviderButton';
 import '../components/guestPrompt.css';
 
@@ -15,12 +16,12 @@ export const deleteCopy = (platform: Platform): Record<DeleteScope, { title: str
   data: {
     title: 'Delete my Ridgeline data',
     button: 'Delete my Ridgeline data',
-    warn: 'This removes your saved trails, hike history, routes and settings from our servers. This phone is signed out and its copies are removed. Other phones that are still signed in should be signed out too, or they may upload their copies again. Your sign-in stays, so your other B&B apps keep working.',
+    warn: `This removes your saved trails, hike history, routes and settings from our servers. This phone is signed out and its copies are removed. Other phones that are still signed in should be signed out too, or they may upload their copies again. Your sign-in stays, so your other B&B apps keep working. ${DELETION_TIMING}`,
   },
   account: {
     title: 'Delete my whole account',
     button: 'Delete my whole account',
-    warn: `This removes your sign-in and your data in Ridgeline, our language app (woof.bobolearns.com), the BoboLearns Hub sign-in, and any other B&B app you\u2019ve signed in to.${appleDisconnectSentence(platform)} This cannot be undone. Bobo Learns Chess doesn\u2019t use accounts; to delete its anonymous data, see chess.bobolearns.com/privacy/.`,
+    warn: `This removes your sign-in and your data in Ridgeline, our language app (woof.bobolearns.com), the BoboLearns Hub sign-in, and any other B&B app you\u2019ve signed in to.${appleDisconnectSentence(platform)} This cannot be undone. Bobo Learns Chess doesn\u2019t use accounts; to delete its anonymous data, see chess.bobolearns.com/privacy/. ${DELETION_TIMING}`,
   },
 });
 /** Web and iOS wording (the default). */
@@ -31,8 +32,8 @@ export function resultText(scope: DeleteScope, r: DeleteResult): string {
   if (r.status === 'unconfirmed') return 'We couldn\u2019t confirm the delete. Try again.';
   if (r.status === 'reauth') return 'Sign in again to delete your account, then try again.';
   if (r.status === 'partial') return 'Your Ridgeline data was deleted, but we couldn\u2019t close your account. Try again.';
-  if (scope === 'data') return 'Your Ridgeline data was deleted from our servers, and this phone is signed out with its copies removed. Sign out your other phones too, or they may upload their copies again.';
-  const base = 'Your account is deleted. Your data is removed from our live systems straight away; backup copies are erased within 7 days, when backups roll over.';
+  if (scope === 'data') return `Your Ridgeline data was deleted from our servers, and this phone is signed out with its copies removed. Sign out your other phones too, or they may upload their copies again. ${DELETION_TIMING}`;
+  const base = `Your account is deleted. ${DELETION_TIMING}`;
   if (r.apple === 'revoked') return base + ' We also disconnected Ridgeline from your Apple ID.';
   if (r.apple === 'manual') return base + ' ' + APPLE_MANUAL_LINE;
   return base;
@@ -40,15 +41,15 @@ export function resultText(scope: DeleteScope, r: DeleteResult): string {
 
 /** /account/delete/ and (next PR) Profile › Account. Two choices, each with a confirm. */
 export function DeleteAccount({ onBack }: { onBack: () => void }) {
-  const acct = useAccount();
+  const acct = useAccount(features.accounts);   // deleting works while sign-in is paused, so this follows the build, not the pause flag
   const [ask, setAsk] = useState<DeleteScope | null>(null);
   const [result, setResult] = useState<{ scope: DeleteScope; r: DeleteResult } | null>(null);
   const [working, setWorking] = useState(false);
 
   const run = async (scope: DeleteScope) => {
     setAsk(null); setWorking(true);
-    const c = await getClient();
-    const r: DeleteResult = c ? await deleteMyAccount(scope, await c) : { status: 'failed' };
+    const c = getClient(features.accounts);
+    const r: DeleteResult = c ? await deleteMyAccount(scope, await c) : { status: 'unconfirmed' };
     setResult({ scope, r }); setWorking(false);
   };
   const finished = result?.r.status === 'ok';
@@ -62,7 +63,7 @@ export function DeleteAccount({ onBack }: { onBack: () => void }) {
         {needsSignIn && !finished && (
           <>
             <p className="pf-note">Sign in to the account you want to delete.</p>
-            <div className="gp-btns" style={{ padding: '4px 14px' }}>{providersFor(nativePlatform()).map((p) => <ProviderButton key={p} provider={p} onClick={() => signIn(p)} />)}</div>
+            <div className="gp-btns" style={{ padding: '4px 14px' }}>{providersFor(nativePlatform()).map((p) => <ProviderButton key={p} provider={p} onClick={() => signIn(p, features.accounts)} />)}</div>
           </>
         )}
         {acct.signedIn && !finished && result?.r.status !== 'reauth' && (

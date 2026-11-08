@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { get, set } from 'idb-keyval';
-import { features } from '../features';
+import { accountsLive } from '../accounts/flags';
 import { getClient } from '../accounts/client';
 import { getSettings } from '../settings';
 import { syncOnce, StaleEpochError, type Cursors } from './engine';
@@ -15,6 +15,7 @@ export interface PassOutcome { pulled: number; deletedElsewhere: boolean }
 /** One sync pass for the signed-in user, under the delete gate. Never throws; a failure just means "try again later". */
 export async function runSync(userId: string): Promise<PassOutcome> {
   const none: PassOutcome = { pulled: 0, deletedElsewhere: false };
+  if (!accountsLive()) return none;   // paused or not built in: no sync, no network, the local copy stays as it is
   const out = await syncGate.run(async () => {
     try {
       const c = await getClient();
@@ -24,6 +25,7 @@ export async function runSync(userId: string): Promise<PassOutcome> {
     } catch (e) {
       // A refused write means the data was deleted elsewhere while this pass ran: the next pass will see the new epoch and clear this phone.
       if (e instanceof StaleEpochError) return { ...none, retrySoon: true } as PassOutcome;
+      // PausedError (the server refuses writes while sign-in is paused): quiet, retried at the next pass.
       return none;
     }
   });
@@ -33,7 +35,7 @@ export async function runSync(userId: string): Promise<PassOutcome> {
 export const DELETED_ELSEWHERE_MESSAGE = 'Your Ridgeline data was deleted on another device.';
 
 /** Syncs when the person signs in, when the app comes back to the front or the network returns, and every 2 minutes. Nothing runs while accounts are off, signed out, or a delete is in progress. */
-export function useSync(userId: string | null, onPulled: () => void, onDeletedElsewhere: () => void = () => {}, enabled: boolean = features.accounts) {
+export function useSync(userId: string | null, onPulled: () => void, onDeletedElsewhere: () => void = () => {}, enabled: boolean = accountsLive()) {
   const cb = useRef(onPulled), cbDel = useRef(onDeletedElsewhere);
   cb.current = onPulled; cbDel.current = onDeletedElsewhere;
   useEffect(() => {
