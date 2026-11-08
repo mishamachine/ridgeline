@@ -64,7 +64,7 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenDeleteAccount, onOpe
   const badges = computeBadges(activities, trails);
   const next = nextBadge(badges);
   const earned = badges.filter((b) => b.earned).length;
-  const recorded = activities.filter((a) => a.points.length >= 2);
+  const recorded = activities.filter((a) => a.points.length >= 2 || !!a.summary); // a hike with no route here but a summary came from another phone
   const first = recorded.length ? new Date(Math.min(...recorded.map((a) => a.startedAt))) : null;
 
   async function remove(id: string) {
@@ -143,11 +143,15 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenDeleteAccount, onOpe
         <div className="pf-group">
           {recorded.length === 0 && <p className="pf-empty">No hikes yet. Start one from a trail and it is saved here, on your phone.</p>}
           {recorded.map((a) => {
-            const canOpen = !!onOpenActivity && !!a.trailId;
+            const summaryOnly = a.points.length < 2 && !!a.summary;
+            const canOpen = !!onOpenActivity && !!a.trailId && !summaryOnly;
+            const distM = summaryOnly ? a.summary!.distanceM : trackDistance(a.points);
+            const mins = summaryOnly ? a.summary!.durationMs / 60000 : ((a.endedAt ?? a.startedAt) - a.startedAt) / 60000;
             const info = (
               <>
                 <b>{a.name}</b>
-                <small>{distanceValue(trackDistance(a.points), u)} {distanceUnit(u)} · {duration(((a.endedAt ?? a.startedAt) - a.startedAt) / 60000)} · {new Date(a.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{a.unfinished ? ' · Unfinished' : ''}</small>
+                <small>{distanceValue(distM, u)} {distanceUnit(u)} · {duration(mins)}{summaryOnly ? ` · ${climbValue(a.summary!.climbM, u)} ${climbUnit(u)} climbed` : ''} · {new Date(a.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{a.unfinished ? ' · Unfinished' : ''}</small>
+                {summaryOnly && <small>Route kept on your other phone</small>}
               </>
             );
             return (

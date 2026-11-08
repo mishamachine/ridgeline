@@ -7,6 +7,7 @@ import { AccountRow } from '../../components/AccountRow';
 import { Celebrate } from '../../screens/Celebrate';
 import { features } from '../features';
 import { readFileSync } from 'node:fs';
+import { Profile } from '../../screens/Profile';
 
 const ok: PromptContext = { accountsOn: true, signedIn: false, onboardingDone: true, hikeActive: false };
 const fresh = (): PromptState => ({ shown: {}, dismissals: 0 });
@@ -77,6 +78,24 @@ describe('the card (preview with the flag on)', () => {
   });
 });
 
+describe('Profile shows a hike whose route lives on another phone', () => {
+  const trail = { id: 'osm-r1', name: 'Ledge', coords: [], lengthM: 1, loop: false, partial: false, osmUrl: '', tags: {} };
+  const a = { id: 'h2', name: 'Rattlesnake Ledge', trailId: 'osm-r1', startedAt: Date.UTC(2026, 10, 1, 17), endedAt: Date.UTC(2026, 10, 1, 20), points: [], summary: { distanceM: 6115, durationMs: 3 * 3_600_000, climbM: 470 } };
+  it('as a summary row with the date, distance, time and climb and the note', () => {
+    const h = renderToStaticMarkup(<Profile onOpenBadges={() => {}} onReplayTour={() => {}} preset={{ activities: [a as never], trails: [trail as never] }} />);
+    expect(h).toContain('Rattlesnake Ledge');
+    expect(h).toContain('Route kept on your other phone');
+    expect(h).toContain('3.8 mi');
+    expect(h).toContain('3 h 0 min');
+    expect(h).toContain('climbed');
+    expect(h).toContain('Nov 1, 2026');
+  });
+  it('a hike with neither route nor summary is still not listed', () => {
+    const h = renderToStaticMarkup(<Profile onOpenBadges={() => {}} onReplayTour={() => {}} preset={{ activities: [{ ...a, summary: undefined } as never], trails: [trail as never] }} />);
+    expect(h).not.toContain('Rattlesnake Ledge');
+  });
+});
+
 describe('privacy page', () => {
   const page = readFileSync('public/privacy/index.html', 'utf8');
   it('is unchanged while the flag is off, so the text is never ahead of the feature', () => {
@@ -93,6 +112,20 @@ describe('privacy page', () => {
       'Signing in to Ridgeline doesn\'t share your hikes with those apps', 'Usage counts are never linked to your account', 'we also tell Apple to disconnect Ridgeline', 'the name and profile picture Google or Apple share with us'])
       expect(ACCOUNTS_SECTION_HTML).toContain(s);
     expect(ACCOUNTS_SECTION_HTML).not.toMatch(/Babar|\[N\]|TODO/);
+  });
+  it('does not add the section twice when the rewritten page already has it', () => {
+    const rewritten = injectAccountsSection(page, true);
+    expect(injectAccountsSection(rewritten, true)).toBe(rewritten);
+  });
+  it('the Apple promise is conditional and carries the manual line', () => {
+    expect(ACCOUNTS_SECTION_HTML).toContain('If you signed in with Apple on an iPhone, we also tell Apple to disconnect Ridgeline.');
+    expect(ACCOUNTS_SECTION_HTML).toContain('to fully disconnect, also remove Ridgeline in your Apple ID settings &rsaquo; Sign in with Apple (appleid.apple.com)');
+    expect(ACCOUNTS_SECTION_HTML).not.toContain('If you used Sign in with Apple, we also tell Apple');
+  });
+  it('the service worker does not precache the sign-in library', () => {
+    const cfg = readFileSync('vite.config.ts', 'utf8');
+    expect(cfg).toMatch(/globIgnores:\s*\[[^\]]*supabase-/);
+    expect(cfg).toMatch(/name:\s*'supabase'/);
   });
   it('reads the flag from features.ts text', () => {
     expect(accountsFlagOn('  accounts: true,')).toBe(true);

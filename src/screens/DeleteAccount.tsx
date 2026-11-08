@@ -25,7 +25,7 @@ export function resultText(scope: DeleteScope, r: DeleteResult): string {
   if (r.status === 'failed') return 'That did not go through, and nothing was deleted. Try again in a minute.';
   if (r.status === 'partial') return 'Your Ridgeline data was deleted, but we couldn\u2019t close your account. Try again.';
   if (scope === 'data') return 'Your Ridgeline data was deleted from our servers and removed from this phone. You are signed out.';
-  const base = 'Your account is deleted. Backup copies are erased within 7 days.';
+  const base = 'Your account is deleted. Your data is removed from our live systems straight away; backup copies are erased within 7 days, when backups roll over.';
   if (r.apple === 'revoked') return base + ' We also disconnected Ridgeline from your Apple ID.';
   if (r.apple === 'manual') return base + ' ' + APPLE_MANUAL_LINE;
   return base;

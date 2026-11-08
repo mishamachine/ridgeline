@@ -53,6 +53,9 @@ export default defineConfig(({ mode }) => ({
   base,
   test: { exclude: ['node_modules/**', 'dist/**', 'e2e/**', 'test-results/**'] }, // e2e/ is Playwright's (npm run e2e)
   // Dev only: set TRAILS_PROXY=https://<host> to read hosted trail cells from a live site.
+  // supabase-js only loads after someone signs in, so it gets its own named chunk and stays out of the service-worker precache
+  // (see globIgnores below): the PWA's first install does not download it.
+  build: { rolldownOptions: { output: { codeSplitting: { groups: [{ name: 'supabase', test: /node_modules[\\/]@supabase[\\/]/ }] } } } },
   server: process.env.TRAILS_PROXY ? { proxy: { '/trails': { target: process.env.TRAILS_PROXY, changeOrigin: true } } } : {},
   plugins: [
     react(),
@@ -75,6 +78,7 @@ export default defineConfig(({ mode }) => ({
       injectRegister: false, // registration lives in src/lib/swUpdate.ts
       injectManifest: {
         globPatterns: ['**/*.{js,mjs,css,html,svg,png,woff2,webmanifest}'],
+        globIgnores: ['**/supabase-*.js'],
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
       },
       manifest: {

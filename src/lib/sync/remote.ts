@@ -2,6 +2,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { cleanActivity } from '../backup';
 import type { Activity } from '../store';
+import { activityClimb } from '../badges';
+import { trackDistance } from '../tracker';
 import { APP_DATA_SCHEMA } from '../accounts/config';
 import type { Remote } from './engine';
 import type { Kind, SyncRec } from './merge';
@@ -12,17 +14,23 @@ const PAGE = 500, CHUNK = 25;
 const iso = (ms: number) => new Date(ms).toISOString();
 type Row = Record<string, unknown>;
 
-/** Hike fields that go in `stats`. The route is separate (`track`). Never add body or health fields here. */
+const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/**
+ * Hike fields that go in `stats`. The route is separate (`track`). Never add body or health fields here.
+ * `summary` (distance, time, climb) lets another phone list the hike when the route is not uploaded.
+ * The `track` column is only sent when this phone actually holds a route to upload: with "phone only" on, or on a phone that
+ * only has the summary, the column is left out so an upsert never blanks a route that is already on the server.
+ */
 export function activityToRow(userId: string, r: SyncRec, keepTracksLocal: boolean): Row {
   if (r.deleted || !r.payload) return { user_id: userId, id: r.id, started_at: iso(0), stats: {}, track: null, updated_at: iso(r.updatedAt), deleted: true };
   const a = r.payload as Activity;
-  const { id, trailId, startedAt, points, updatedAt: _u, ...stats } = a;
-  void id; void _u;
-  return {
-    user_id: userId, id: a.id, trail_id: trailId ?? null, started_at: iso(startedAt), stats,
-    track: keepTracksLocal ? null : trimTrack(points), // first and last 200 m removed; null when "phone only" or nothing is left
-    updated_at: iso(r.updatedAt), deleted: false,
-  };
+  const { id, trailId, startedAt, points, updatedAt: _u, summary: _s, ...rest } = a;
+  void id; void _u; void _s;
+  const stats = { ...rest, summary: points.length >= 2 ? { distanceM: trackDistance(points), durationMs: (a.endedAt ?? startedAt) - startedAt, climbM: activityClimb(a, a.snapshot).m } : a.summary };
+  const row: Row = { user_id: userId, id: a.id, trail_id: trailId ?? null, started_at: iso(startedAt), stats, updated_at: iso(r.updatedAt), deleted: false };
+  if (!keepTracksLocal && points.length >= 2) row.track = trimTrack(points); // first and last 200 m removed; null when nothing is left
+  return row;
 }
 
 export function toRow(userId: string, r: SyncRec, keepTracksLocal: boolean): Row {
@@ -46,6 +54,8 @@ export function fromRow(kind: Kind, row: Row): SyncRec | null {
     const a = cleanActivity({ ...s, id, name: typeof s.name === 'string' ? s.name : 'Hike', trailId: row.trail_id ?? undefined, startedAt: Date.parse(String(row.started_at)), points: Array.isArray(row.track) ? row.track : [] });
     if (!a) return null;
     if (typeof s.pausedMs === 'number') a.pausedMs = s.pausedMs;
+    const sm = s.summary as Record<string, unknown> | undefined;
+    if (sm && num(sm.distanceM) && num(sm.durationMs) && num(sm.climbM)) a.summary = { distanceM: sm.distanceM, durationMs: sm.durationMs, climbM: sm.climbM };
     return { ...base, id, deleted: false, payload: a };
   }
   const id = String(row.trail_id ?? '');
@@ -76,8 +86,13 @@ export function supabaseRemote(c: SupabaseClient, userId: string, keepTracksLoca
       const conflict = kind === 'settings' ? 'user_id' : kind === 'activities' ? 'user_id,id' : 'user_id,trail_id';
       for (let i = 0; i < recs.length; i += CHUNK) {
         const rows = recs.slice(i, i + CHUNK).map((r) => toRow(userId, r, keepTracksLocal()));
-        const { error } = await t(kind).upsert(rows, { onConflict: conflict });
-        if (error) throw new Error('sync push: ' + error.message);
+        // One request per set of columns: PostgREST fills a missing column with null on conflict, which would blank a stored route.
+        const groups = new Map<string, Row[]>();
+        for (const row of rows) { const sig = Object.keys(row).sort().join(','); groups.set(sig, [...(groups.get(sig) ?? []), row]); }
+        for (const g of groups.values()) {
+          const { error } = await t(kind).upsert(g, { onConflict: conflict });
+          if (error) throw new Error('sync push: ' + error.message);
+        }
       }
     },
   };

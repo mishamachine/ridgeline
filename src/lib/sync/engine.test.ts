@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { syncOnce, type Cursors, type Remote } from './engine';
 import type { LocalSource } from './local';
 import { winner, type Kind, type SyncRec } from './merge';
-import { activityToRow, fromRow, toRow } from './remote';
+import { activityToRow, fromRow, supabaseRemote, toRow } from './remote';
 import type { Activity } from '../store';
 
 // A fake server with the same rules as the SQL: synced_at set on every write, stale writes ignored, future clocks clamped.
@@ -102,6 +102,40 @@ describe('two-device sync', () => {
   });
 });
 
+describe('phone only never blanks a route that is already uploaded', () => {
+  const act: Activity = { id: 'h1', name: 'Ledge', startedAt: 1_700_000_000_000, endedAt: 1_700_003_600_000, updatedAt: 1_700_003_700_000,
+    points: Array.from({ length: 41 }, (_, i) => ({ lon: -121.8, lat: 47.4 + i * 0.00045, alt: 300, acc: 5, t: i * 1000 })) };
+  const stub: Activity = { ...act, id: 'h2', points: [], summary: { distanceM: 2000, durationMs: 3_600_000, climbM: 100 } };
+  const rec = (a: Activity): SyncRec => ({ kind: 'activities', id: a.id, updatedAt: a.updatedAt!, deleted: false, payload: a });
+  it('a phone that holds only the summary leaves the route column alone, and keeps the summary', () => {
+    const row = activityToRow('u1', rec(stub), false) as { track?: unknown; stats: { summary: unknown } };
+    expect('track' in row).toBe(false);
+    expect(row.stats.summary).toEqual(stub.summary);
+  });
+  it('rows with and without a route are sent in separate requests', async () => {
+    const sent: Record<string, unknown>[][] = [];
+    const c = { schema: () => ({ from: () => ({ upsert: async (rows: Record<string, unknown>[]) => { sent.push(rows); return { error: null }; } }) }) };
+    await supabaseRemote(c as never, 'u1', () => false).push('activities', [rec(act), rec(stub)]);
+    expect(sent).toHaveLength(2);
+    expect(sent.find((g) => 'track' in g[0])!.map((r) => r.id)).toEqual(['h1']);
+    expect(sent.find((g) => !('track' in g[0]))!.map((r) => r.id)).toEqual(['h2']);
+  });
+  it('turning the setting on changes no hike (nothing is re-stamped, so nothing is re-pushed)', async () => {
+    const { updateSettings, SETTINGS_STAMP_KEY } = await import('../settings');
+    const mem = new Map<string, string>();
+    const real = globalThis.localStorage;
+    Object.defineProperty(globalThis, 'localStorage', { value: { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => { mem.set(k, v); }, removeItem: (k: string) => { mem.delete(k); } }, configurable: true });
+    try { updateSettings({ keepTracksLocal: true }); expect(mem.has(SETTINGS_STAMP_KEY)).toBe(false); }
+    finally { Object.defineProperty(globalThis, 'localStorage', { value: real, configurable: true }); }
+  });
+  it('a summary-only hike round-trips through a server row', () => {
+    const row = { ...activityToRow('u1', rec(act), true), synced_at: '2026-11-07T10:00:00.000Z' };
+    const a = fromRow('activities', row)!.payload as Activity;
+    expect(a.points).toEqual([]);
+    expect(a.summary).toMatchObject({ durationMs: 3_600_000 });
+  });
+});
+
 describe('pull overlap', () => {
   it('catches a row that was committed late, with a synced_at older than one the phone already saw', async () => {
     const s = new Server(), a = new Phone(), b = new Phone();
@@ -133,15 +167,17 @@ describe('what goes to the server', () => {
     expect(row.track.length).toBeGreaterThan(0);
     expect(row.track.length).toBeLessThan(act.points.length);
   });
-  it('"keep tracks on this phone only" uploads no route at all, but still the hike summary', () => {
-    const row = activityToRow('u1', rec(act), true) as { track: unknown; stats: Record<string, unknown>; trail_id: string };
-    expect(row.track).toBeNull();
+  it('"keep tracks on this phone only" sends no route column at all (so a route already on the server is not blanked), but still the hike summary', () => {
+    const row = activityToRow('u1', rec(act), true) as { track?: unknown; stats: Record<string, unknown>; trail_id: string };
+    expect('track' in row).toBe(false);
     expect(row.stats).toMatchObject({ name: 'Rattlesnake Ledge', withDog: true, pausedMs: 5000 });
+    expect(row.stats.summary).toMatchObject({ distanceM: expect.any(Number), durationMs: 3_600_000, climbM: expect.any(Number) });
     expect(row.trail_id).toBe('way/1');
   });
   it('carries no name, email or user fields besides user_id, and the server never sees the raw points object', () => {
     const row = activityToRow('u1', rec(act), false);
     expect(Object.keys(row).sort()).toEqual(['id', 'started_at', 'stats', 'track', 'trail_id', 'updated_at', 'deleted', 'user_id'].sort());
+    expect(Object.keys(row.stats as object)).not.toEqual(expect.arrayContaining(['calories', 'heartRate']));
     expect(JSON.stringify(row.stats)).not.toContain('points');
   });
   it('round-trips a hike through a server row, and a trimmed route does not replace nothing', () => {

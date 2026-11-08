@@ -40,6 +40,8 @@ export interface Activity {
   pausedMs?: number;
   /** Last change, ms. Used by sync (last write wins). */
   updatedAt?: number;
+  /** Totals kept with a hike whose route lives on another phone ("Keep hike tracks on this phone only"). Only read when there are no points. */
+  summary?: { distanceM: number; durationMs: number; climbM: number };
 }
 
 const T = 'trail:', A = 'act:', S = 'sl:';
