@@ -78,9 +78,12 @@ create table ridgeline.usage (
 -- Row limits mirror backup.ts (5,000 hikes, 2,000 saved trails; shortlist capped at 5,000). Three caps per user and table:
 --   live rows (not deleted) up to the limit; ALL rows, tombstones included, up to twice the limit; total stored bytes up to a cap.
 -- A route is at most 1 MB (about 8,000 points; the app thins longer ones before upload), so the byte cap is what bounds a user's storage:
--- 100 MB of hikes, 25 MB each of saved trails and shortlist. A write that GROWS a row (an update or an upsert) is checked against the cap too.
+-- 25 MB of hikes, 25 MB each of saved trails and shortlist. A write that GROWS a row (an update or an upsert) is checked against the cap too.
 -- Size of a row = the stored size of its big columns (read without fetching them) plus 200 bytes of overhead.
 -- Args: limit, name of the key column, byte cap. An upsert that updates an existing row is never blocked by the row counts.
+-- The BEFORE trigger is an early exit only: it sees the usage as it was at the START of the statement, so one statement writing many rows would pass it.
+-- The real enforcement is track_usage (AFTER each row, usage already moved): it raises 54000 when bytes, live rows or total rows went up and are over the
+-- cap, which aborts and rolls back the whole statement.
 create function ridgeline.enforce_row_limit() returns trigger
 language plpgsql security definer set search_path = '' as $$
 declare lim int := tg_argv[0]::int; keycol text := tg_argv[1]; maxbytes bigint := tg_argv[2]::bigint;
@@ -116,6 +119,7 @@ end $$;
 create function ridgeline.track_usage() returns trigger
 language plpgsql security definer set search_path = '' as $$
 declare uid uuid; nb bigint := 0; ob bigint := 0; d_rows int := 0; d_live int := 0;
+        lim int := tg_argv[0]::int; maxbytes bigint := tg_argv[1]::bigint; cur record;
 begin
   if tg_op <> 'DELETE' then
     uid := new.user_id;
@@ -140,16 +144,23 @@ begin
     return old;
   end if;
   insert into ridgeline.usage as u (user_id, tbl, bytes, n_rows, n_live) values (uid, tg_table_name, nb - ob, d_rows, d_live)
-    on conflict (user_id, tbl) do update set bytes = u.bytes + (nb - ob), n_rows = u.n_rows + d_rows, n_live = u.n_live + d_live;
+    on conflict (user_id, tbl) do update set bytes = u.bytes + (nb - ob), n_rows = u.n_rows + d_rows, n_live = u.n_live + d_live
+    returning u.bytes, u.n_rows, u.n_live into cur;
+  -- The real cap check: usage now includes every row written so far by this statement.
+  if nb - ob > 0 and cur.bytes > maxbytes then raise exception 'ridgeline: storage limit reached for %', tg_table_name using errcode = '54000'; end if;
+  if d_live > 0 and cur.n_live > lim then raise exception 'ridgeline: row limit (%) reached for %', lim, tg_table_name using errcode = '54000'; end if;
+  if d_rows > 0 and cur.n_rows > 2 * lim then raise exception 'ridgeline: total row limit (%) reached for %', 2 * lim, tg_table_name using errcode = '54000'; end if;
   return new;
 end $$;
 
-create trigger activities_limit before insert or update on ridgeline.activities for each row execute function ridgeline.enforce_row_limit(5000, 'id', 104857600);
-create trigger saved_limit      before insert or update on ridgeline.saved      for each row execute function ridgeline.enforce_row_limit(2000, 'trail_id', 26214400);
-create trigger shortlist_limit  before insert or update on ridgeline.shortlist  for each row execute function ridgeline.enforce_row_limit(5000, 'trail_id', 26214400);
-create trigger activities_usage after insert or update or delete on ridgeline.activities for each row execute function ridgeline.track_usage();
-create trigger saved_usage      after insert or update or delete on ridgeline.saved      for each row execute function ridgeline.track_usage();
-create trigger shortlist_usage  after insert or update or delete on ridgeline.shortlist  for each row execute function ridgeline.track_usage();
+-- Trigger names matter: BEFORE triggers run in name order, and the limit triggers must run AFTER <table>_sync_guard (migration 2). Then a forged user_id gets 42501
+-- before any cap check, and every writer takes its locks in the same order as delete_user_data (epoch, then usage), so the two cannot deadlock.
+create trigger activities_zz_limit before insert or update on ridgeline.activities for each row execute function ridgeline.enforce_row_limit(5000, 'id', 26214400);
+create trigger saved_zz_limit      before insert or update on ridgeline.saved      for each row execute function ridgeline.enforce_row_limit(2000, 'trail_id', 26214400);
+create trigger shortlist_zz_limit  before insert or update on ridgeline.shortlist  for each row execute function ridgeline.enforce_row_limit(5000, 'trail_id', 26214400);
+create trigger activities_usage after insert or update or delete on ridgeline.activities for each row execute function ridgeline.track_usage(5000, 26214400);
+create trigger saved_usage      after insert or update or delete on ridgeline.saved      for each row execute function ridgeline.track_usage(2000, 26214400);
+create trigger shortlist_usage  after insert or update or delete on ridgeline.shortlist  for each row execute function ridgeline.track_usage(5000, 26214400);
 
 -- RLS: owner only, signed-in users only. anon gets nothing.
 do $$
@@ -195,11 +206,12 @@ $$;
 -- The grant is made only if the owner does not already have the right, and the schema comment records that WE made it, so the rollback
 -- takes back only what this migration gave (never a platform default).
 do $$
+declare did_usage boolean := not has_schema_privilege('postgres', 'vault', 'USAGE'); did_delete boolean := not has_table_privilege('postgres', 'vault.secrets', 'DELETE');
 begin
-  if not has_table_privilege('postgres', 'vault.secrets', 'DELETE') then
-    grant usage on schema vault to postgres;
-    grant delete on vault.secrets to postgres;
-    comment on schema ridgeline is 'vault_delete_granted_by_migration';
+  if did_usage then grant usage on schema vault to postgres; end if;
+  if did_delete then grant delete on vault.secrets to postgres; end if;
+  if did_usage or did_delete then
+    execute format('comment on schema ridgeline is %L', 'vault_granted_by_migration:' || case when did_usage then 'usage,' else '' end || case when did_delete then 'delete' else '' end);
   end if;
 exception when others then
   raise notice 'ridgeline: vault grant skipped (%): verify delete_apple_token on a branch', sqlerrm;
