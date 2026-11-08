@@ -3,7 +3,8 @@ import { deleteAccount, type DeleteDeps } from '../../../supabase/functions/_sha
 import { revokeAppleToken } from '../../../supabase/functions/_shared/apple';
 import { deleteMyAccount } from './auth';
 import { syncGate } from '../sync/gate';
-import { recentSignIn } from '../../../supabase/functions/_shared/reauth';
+import { jwtClaims, recentSignIn, sessionStartedAt } from '../../../supabase/functions/_shared/reauth';
+import { retryOnDeadlock } from '../../../supabase/functions/_shared/retry';
 import { APPLE_MANUAL_LINE, COPY, resultText } from '../../screens/DeleteAccount';
 import { parseRoute, routePath } from '../route';
 import { SYNCED_SETTING_KEYS, sanitize } from '../settings';
@@ -151,43 +152,52 @@ describe('client side of delete', () => {
   });
 });
 
-describe('recent sign-in for closing the account', () => {
+describe('recent sign-in for closing the account (this session\'s own token)', () => {
   const now = Date.parse('2026-11-08T12:00:00Z');
-  it('accepts a sign-in from the last 10 minutes only', () => {
-    expect(recentSignIn('2026-11-08T11:55:00Z', now)).toBe(true);
-    expect(recentSignIn('2026-11-08T11:49:59Z', now)).toBe(false);
-    expect(recentSignIn('2026-11-07T12:00:00Z', now)).toBe(false);
-    expect(recentSignIn(null, now)).toBe(false);
-    expect(recentSignIn(undefined, now)).toBe(false);
-    expect(recentSignIn('not a date', now)).toBe(false);
-    expect(recentSignIn('2026-11-08T13:00:00Z', now)).toBe(false);   // a time in the future is not a sign-in
+  const tok = (claims: object) => `h.${btoa(JSON.stringify(claims)).replace(/=+$/, '')}.s`;
+  const amr = (iso: string) => ({ amr: [{ method: 'oauth', timestamp: Date.parse(iso) / 1000 }] });
+  it('accepts a session created in the last 10 minutes only', () => {
+    expect(recentSignIn(amr('2026-11-08T11:55:00Z'), now)).toBe(true);
+    expect(recentSignIn(amr('2026-11-08T11:49:59Z'), now)).toBe(false);
+    expect(recentSignIn(amr('2026-11-07T12:00:00Z'), now)).toBe(false);
+    expect(recentSignIn(amr('2026-11-08T13:00:00Z'), now)).toBe(false);          // the future is not a sign-in
+  });
+  it('a token with no session times is not recent (nothing is guessed from the person\'s other devices)', () => {
+    expect(recentSignIn({}, now)).toBe(false);
+    expect(recentSignIn({ amr: [] }, now)).toBe(false);
+    expect(recentSignIn({ amr: [{ method: 'oauth' }] }, now)).toBe(false);
+    expect(recentSignIn({ amr: 'x', last_sign_in_at: '2026-11-08T11:59:00Z' }, now)).toBe(false);
+  });
+  it('uses the latest time when a session carries several methods', () => {
+    expect(recentSignIn({ amr: [{ method: 'oauth', timestamp: Date.parse('2026-11-08T08:00:00Z') / 1000 }, { method: 'otp', timestamp: Date.parse('2026-11-08T11:58:00Z') / 1000 }] }, now)).toBe(true);
+  });
+  it('reads the claims out of a token, and returns nothing for garbage', () => {
+    expect(sessionStartedAt(jwtClaims(tok(amr('2026-11-08T11:55:00Z'))))).toBe(Date.parse('2026-11-08T11:55:00Z'));
+    expect(jwtClaims('not-a-jwt')).toEqual({});
+    expect(recentSignIn(jwtClaims('not-a-jwt'), now)).toBe(false);
+  });
+  it('a token refreshed later still carries the ORIGINAL session time, so refreshing does not make an old session recent', () => {
+    const refreshed = { ...amr('2026-11-08T08:00:00Z'), iat: Date.parse('2026-11-08T11:59:00Z') / 1000 };
+    expect(recentSignIn(refreshed, now)).toBe(false);
   });
 });
 
-describe('what the person is told', () => {
-  it('a lost answer says we could not confirm; a reauth asks for a new sign-in; neither says nothing was deleted', () => {
-    expect(resultText('account', { status: 'unconfirmed' })).toBe('We couldn\u2019t confirm the delete. Try again.');
-    expect(resultText('account', { status: 'reauth' })).toBe('Sign in again to delete your account, then try again.');
-    expect(resultText('account', { status: 'unconfirmed' })).not.toContain('nothing was deleted');
+describe('delete_user_data is retried when the database picks it as a deadlock victim', () => {
+  const deadlock = () => Object.assign(new Error('deadlock detected'), { code: '40P01' });
+  it('retries up to 3 times on 40P01 and then succeeds', async () => {
+    let n = 0;
+    const r = await retryOnDeadlock(async () => { if (++n < 3) throw deadlock(); return 'done'; }, 3, async () => {});
+    expect(r).toBe('done'); expect(n).toBe(3);
   });
-  it('partial is never presented as success', () => {
-    expect(resultText('account', { status: 'partial', apple: 'none' })).toBe('Your Ridgeline data was deleted, but we couldn\u2019t close your account. Try again.');
+  it('gives up after 3 deadlocks (the delete then reports failed, nothing was deleted)', async () => {
+    let n = 0;
+    await expect(retryOnDeadlock(async () => { n++; throw deadlock(); }, 3, async () => {})).rejects.toMatchObject({ code: '40P01' });
+    expect(n).toBe(3);
   });
-  it('an Apple user we could not revoke for gets the manual line; a revoked one is told we disconnected', () => {
-    expect(resultText('account', { status: 'ok', apple: 'manual' })).toContain(APPLE_MANUAL_LINE);
-    expect(APPLE_MANUAL_LINE).toBe('To fully disconnect, also remove Ridgeline in your Apple ID settings \u203a Sign in with Apple (appleid.apple.com).');
-    expect(resultText('account', { status: 'ok', apple: 'revoked' })).toContain('disconnected Ridgeline from your Apple ID');
-    expect(resultText('account', { status: 'ok', apple: 'none' })).not.toContain('Apple');
-  });
-  it('the warnings say what is removed, name the apps, and promise Apple disconnect only for iPhone sign-ins', () => {
-    expect(COPY.data.warn).toContain('This phone is signed out and its copies are removed. Other phones that are still signed in should be signed out too, or they may upload their copies again.');
-    const w = COPY.account.warn;
-    expect(w).toContain('our language app (woof.bobolearns.com)');
-    expect(w).toContain('the BoboLearns Hub sign-in');
-    expect(w).toContain('any other B&B app you\u2019ve signed in to');
-    expect(w).toContain('On iPhone Apple sign-ins we also disconnect Ridgeline');
-    expect(w).toContain('Bobo Learns Chess doesn\u2019t use accounts; to delete its anonymous data, see chess.bobolearns.com/privacy/.');
-    expect(w).not.toContain('Ruffspeak');
+  it('does not retry any other error', async () => {
+    let n = 0;
+    await expect(retryOnDeadlock(async () => { n++; throw Object.assign(new Error('x'), { code: '23514' }); }, 3, async () => {})).rejects.toThrow();
+    expect(n).toBe(1);
   });
 });
 

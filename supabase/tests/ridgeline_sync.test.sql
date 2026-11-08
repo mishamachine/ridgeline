@@ -1,7 +1,7 @@
 -- pgTAP tests for 20261107130000_ridgeline_sync.sql. Same rules as ridgeline_rls.test.sql: throwaway database only.
 begin;
 create extension if not exists pgtap;
-select plan(26);
+select plan(32);
 insert into auth.users (id) values ('00000000-0000-0000-0000-00000000000a');
 
 insert into ridgeline.shortlist (user_id, trail_id, updated_at) values ('00000000-0000-0000-0000-00000000000a', 'way/1', '2026-01-01T10:00:00Z');
@@ -76,5 +76,18 @@ set local role service_role;
 update ridgeline.config set value = 'false'::jsonb where key = 'accounts_paused';
 reset role;
 select lives_ok($$insert into ridgeline.shortlist (user_id, trail_id, epoch) values ('00000000-0000-0000-0000-00000000000f', 'after-resume', 1)$$, 'resumed: writes work again');
+
+-- L5: a signed-in caller cannot write another person's rows (42501, the same answer whether or not the victim has an epoch), and cannot forge an epoch.
+insert into auth.users (id) values ('00000000-0000-0000-0000-0000000000a1'), ('00000000-0000-0000-0000-0000000000a2');
+insert into ridgeline.profiles (user_id, data_epoch) values ('00000000-0000-0000-0000-0000000000a1', 0), ('00000000-0000-0000-0000-0000000000a2', 4);
+select set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-0000000000a1', 'role', 'authenticated')::text, true), set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000a1', true);
+set local role authenticated;
+select throws_ok($$insert into ridgeline.shortlist (user_id, trail_id, epoch) values ('00000000-0000-0000-0000-0000000000a2', 'x', 0)$$, '42501', null, 'forging a victim who has a newer epoch: 42501');
+select throws_ok($$insert into ridgeline.shortlist (user_id, trail_id, epoch) values ('00000000-0000-0000-0000-0000000000a2', 'x', 4)$$, '42501', null, 'forging a victim with the right epoch: the same 42501');
+select throws_ok($$insert into ridgeline.shortlist (user_id, trail_id, epoch) values ('00000000-0000-0000-0000-0000000000b0', 'x', 0)$$, '42501', null, 'forging someone with no profile: the same 42501');
+select throws_ok($$insert into ridgeline.shortlist (user_id, trail_id, epoch) values ('00000000-0000-0000-0000-0000000000a1', 'forged', 999999)$$, 'RL001', null, 'a forged higher epoch for yourself is refused');
+select lives_ok($$insert into ridgeline.shortlist (user_id, trail_id, epoch) values ('00000000-0000-0000-0000-0000000000a1', 'fine', 0)$$, 'your own row with your own epoch works');
+reset role;
+select is((select count(*)::int from ridgeline.shortlist where user_id = '00000000-0000-0000-0000-0000000000a1' and trail_id = 'forged'), 0, 'and nothing forged was stored');
 select * from finish();
 rollback;

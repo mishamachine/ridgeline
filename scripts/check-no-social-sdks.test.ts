@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
-const run = (mode: string, input = '', env: Record<string, string> = {}) => spawnSync('bash', ['scripts/check-no-social-sdks.sh', mode], { input, encoding: 'utf8', env: { ...process.env, ...env } });
+const run = (mode: string, input = '', env: Record<string, string> = {}) => spawnSync('bash', ['scripts/check-no-social-sdks.sh', mode], { input, encoding: 'utf8', env: { ...process.env, GUARD_SLEEP: '0', ...env } });
 
 describe('native SDK guard', () => {
   it('fails on the plugin manifest as it ships before the provider config is applied (Facebook SDK active)', () => {
@@ -40,6 +41,25 @@ describe('native SDK guard', () => {
     const ok = run('ios', '', { GUARD_XCODE_CMD: 'echo "GoogleSignIn-iOS @ 9.0.0"' });
     const plugin = readFileSync('node_modules/@capgo/capacitor-social-login/Package.swift', 'utf8');
     expect(ok.status).toBe(/^\s*\.package\(.*facebook/mi.test(plugin) ? 1 : 0);
+  });
+  it('a listing that fails twice and then works still passes (GitHub hiccups), one that always fails does not', () => {
+    const counter = `${tmpdir()}/rl-guard-${process.pid}`;
+    writeFileSync(counter, '0');
+    const flaky = `n=$(cat ${counter}); echo $((n+1)) > ${counter}; [ $n -ge 2 ] && echo "GoogleSignIn-iOS @ 9.0.0"`;
+    const ok = run('ios', '', { GUARD_XCODE_CMD: flaky, GUARD_SLEEP: '0' });
+    const plugin = readFileSync('node_modules/@capgo/capacitor-social-login/Package.swift', 'utf8');
+    expect(ok.status).toBe(/^\s*\.package\(.*facebook/mi.test(plugin) ? 1 : 0);
+    expect(run('ios', '', { GUARD_XCODE_CMD: 'exit 65', GUARD_SLEEP: '0' }).status).toBe(1);
+  });
+  it('frameworks mode scans a built archive, and fails when there is no archive', () => {
+    const dir = mkdtempSync(`${tmpdir()}/rl-arch-`);
+    mkdirSync(`${dir}/Products/App.app/Frameworks/Capacitor.framework`, { recursive: true });
+    expect(run('frameworks', '', {}).status).toBe(1);   // no directory given
+    const r = spawnSync('bash', ['scripts/check-no-social-sdks.sh', 'frameworks', dir], { encoding: 'utf8' });
+    expect(r.status).toBe(0);
+    mkdirSync(`${dir}/Products/App.app/Frameworks/FBSDKCoreKit.framework`, { recursive: true });
+    expect(spawnSync('bash', ['scripts/check-no-social-sdks.sh', 'frameworks', dir], { encoding: 'utf8' }).status).toBe(1);
+    expect(spawnSync('bash', ['scripts/check-no-social-sdks.sh', 'frameworks', `${dir}/missing`], { encoding: 'utf8' }).status).toBe(1);
   });
   it('capacitor.config.json turns Facebook and Twitter off', () => {
     const c = JSON.parse(readFileSync('capacitor.config.json', 'utf8'));

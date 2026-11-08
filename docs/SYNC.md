@@ -14,3 +14,8 @@ Ridgeline keeps its data on the phone (IndexedDB) and, when a person signs in, m
   Edits to different records never conflict. Two phones editing the same hike or setting within seconds of each other is the case to expect surprises in.
 - **Several phones during a delete.** Other phones that stay signed in are told on their next sync (the epoch) and clear their copy, but a phone that is offline keeps its copy until it reconnects.
 - **Routes.** The first and last 200 m (straight line from the start and end point) never leave the phone. A route over about 5,000 points is thinned before upload. A route taken from the server is never trimmed or uploaded again.
+
+## Failures, deletes and shared phones
+- **A row the database refuses for good** (over a size limit, a failed check) is parked: sync moves past it, retries it after 1 h, 2 h, 4 h ... up to 7 days, or at once if the person edits it. A passing failure (a timeout) holds the cursor and backs that kind off for 1 min, 2, 4 ... up to 15 min.
+- **A delete from another device while a hike is being recorded** waits: the phone is wiped only after the hike ends, and the hike recorded in the meantime is kept (it uploads under the new epoch).
+- **Signing out with "Keep a copy" and signing in as someone else:** the phone remembers whose copy it holds. A different account gets nothing uploaded until the person chooses to add the copy to the new account or remove it from the phone.
