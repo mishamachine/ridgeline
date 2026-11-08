@@ -6,6 +6,8 @@ import { useAccount } from '../lib/accounts/useAccount';
 import { nativePlatform } from '../lib/native/platform';
 import { appleDisconnectSentence, type Platform } from '../lib/accounts/copy';
 import { ConfirmSheet } from '../components/ConfirmSheet';
+import { ProviderButton } from '../components/ProviderButton';
+import '../components/guestPrompt.css';
 
 export const APPLE_MANUAL_LINE = 'To fully disconnect, also remove Ridgeline in your Apple ID settings › Sign in with Apple (appleid.apple.com).';
 
@@ -60,7 +62,7 @@ export function DeleteAccount({ onBack }: { onBack: () => void }) {
         {needsSignIn && !finished && (
           <>
             <p className="pf-note">Sign in to the account you want to delete.</p>
-            {providersFor(nativePlatform()).map((p) => <button key={p} className="pf-row" onClick={() => signIn(p)}>{p === 'apple' ? 'Continue with Apple' : 'Continue with Google'}</button>)}
+            <div className="gp-btns" style={{ padding: '4px 14px' }}>{providersFor(nativePlatform()).map((p) => <ProviderButton key={p} provider={p} onClick={() => signIn(p)} />)}</div>
           </>
         )}
         {acct.signedIn && !finished && result?.r.status !== 'reauth' && (

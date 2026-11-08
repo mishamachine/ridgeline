@@ -3,7 +3,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { canShow, dismiss, EMPTY_PROMPT_STATE, loadPromptState, markShown, savePromptState, MAX_DISMISSALS, PROMPT_KEY, type PromptContext, type PromptState } from './prompt';
 import { ACCOUNTS_SECTION_HTML, accountsFlagOn, injectAccountsSection } from './privacyAccounts';
 import { GuestPrompt, PROMPT_BODY, PROMPT_HEADLINE } from '../../components/GuestPrompt';
-import { ProviderButton } from '../../components/ProviderButton';
+import { ProviderButton, googleArtwork } from '../../components/ProviderButton';
+import { createHash } from 'node:crypto';
 import { AccountRow } from '../../components/AccountRow';
 import { Celebrate } from '../../screens/Celebrate';
 import { features } from '../features';
@@ -88,20 +89,30 @@ describe('final prompt copy', () => {
     expect(PROMPT_HEADLINE).toEqual({ save: 'Keep your saved trails', hike: 'Keep this hike', badge: 'Keep your badges' });
     expect(PROMPT_BODY).toBe("Right now they're saved only on this phone. Sign in to keep them if you lose or switch phones.");
   });
-  it('the two buttons are the same size and weight; Apple has its exact wording and mark, Google does not', () => {
-    const apple = renderToStaticMarkup(<ProviderButton provider="apple" onClick={() => {}} />);
-    const google = renderToStaticMarkup(<ProviderButton provider="google" onClick={() => {}} />);
+  it('Google uses its official artwork unmodified; Apple has its exact wording and mark; both are the same size', () => {
+    const apple = renderToStaticMarkup(<ProviderButton provider="apple" platform="web" onClick={() => {}} />);
+    const google = renderToStaticMarkup(<ProviderButton provider="google" platform="web" onClick={() => {}} />);
     expect(apple).toContain('Continue with Apple');
     expect(apple).toContain('<svg');
-    expect(google).toContain('Continue with Google');
-    expect(apple).toContain('class="gp-btn gp-btn-apple gp-on-light"');
-    expect(google).toContain('class="gp-btn gp-btn-google gp-on-light"');
+    expect(google).toContain('<img');
+    expect(google).toContain('aria-label="Sign in with Google"');
+    expect(apple).toContain('width:180px;height:40px');
+    expect(google).toContain('width:180px;height:40px');
+    expect(renderToStaticMarkup(<ProviderButton provider="apple" platform="ios" onClick={() => {}} />)).toContain('width:188px;height:44px');
+    expect(renderToStaticMarkup(<ProviderButton provider="google" platform="ios" onClick={() => {}} />)).toContain('width:188px;height:44px');
+    expect(googleArtwork('android', 'light')).toMatchObject({ w: 180, h: 40 });
+    expect(googleArtwork('ios', 'dark')).toMatchObject({ w: 188, h: 44 });
     const css = readFileSync('src/components/guestPrompt.css', 'utf8');
-    const rule = css.split('\n').find((l) => l.startsWith('.gp-btn {'))!; // one shared rule: same width, height, radius, weight
-    expect(rule).toContain('width: 100%');
-    expect(rule).toContain('min-height: 44px');
-    expect(rule).toContain('font: 600');
     expect(css).toMatch(/gp-btn-apple\.gp-on-light \{ background: #000000; color: #FFFFFF/);
+  });
+  it('the Google artwork in the repo is byte-identical to the recorded download (sha256 in docs/BRAND_ASSETS.md)', () => {
+    const doc = readFileSync('docs/BRAND_ASSETS.md', 'utf8');
+    for (const f of ['google-signin-light-web.svg', 'google-signin-dark-web.svg', 'google-signin-light-ios.svg', 'google-signin-dark-ios.svg']) {
+      const bytes = readFileSync(`src/assets/brand/${f}`);
+      const sha = createHash('sha256').update(bytes).digest('hex');
+      expect(doc, f).toContain(sha);
+      expect(bytes.toString('utf8')).not.toMatch(/<script|onload=|href="http/);
+    }
   });
 });
 
