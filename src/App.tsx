@@ -25,6 +25,8 @@ import { FindIcon, HikeIcon, ProfileIcon, SavedIcon } from './components/NavIcon
 import { count } from './lib/counter';
 import { isCallbackPath, completeWebSignIn } from './lib/accounts/auth';
 import { getClient } from './lib/accounts/client';
+import { useAccount } from './lib/accounts/useAccount';
+import { useSync } from './lib/sync/useSync';
 import { setHikeActive } from './lib/swUpdate';
 import { Toaster } from './components/Toaster';
 import { Later } from './components/ScreenBoundary';
@@ -39,6 +41,7 @@ const Detail = lazy(() => import('./screens/Detail').then((m) => ({ default: m.D
 const Navigate = lazy(() => import('./screens/Navigate').then((m) => ({ default: m.Navigate })));
 const SharedList = lazy(() => import('./screens/SharedList').then((m) => ({ default: m.SharedList })));
 const Profile = lazy(() => import('./screens/Profile').then((m) => ({ default: m.Profile })));
+const DeleteAccount = lazy(() => import('./screens/DeleteAccount').then((m) => ({ default: m.DeleteAccount })));
 const Badges = lazy(() => import('./screens/Badges').then((m) => ({ default: m.Badges })));
 const Celebrate = lazy(() => import('./screens/Celebrate').then((m) => ({ default: m.Celebrate })));
 const Landing = lazy(() => import('./screens/Landing').then((m) => ({ default: m.Landing })));
@@ -86,6 +89,9 @@ export function App() {
       version: s.version + 1,
     }));
   }, []);
+
+  const account = useAccount();
+  useSync(account.userId, () => { refreshSaved(); setProfileVersion((v) => v + 1); });
 
   useEffect(() => {
     closeAbandoned().catch(() => {}); // hikes left open for over 6 hours are closed as Unfinished
@@ -220,6 +226,10 @@ export function App() {
         <div className="screen" hidden={!hiking}>
           <Later><Navigate key={hike.id} tpl={tpl} trail={hike} resume={resume ?? undefined} saved={saved.offline.has(hike.id)} onEnd={() => { const t = hike; setHike(null); openTrail(t); }} onFinish={(sm, a) => finishHike(hike, sm, a)} /></Later>
         </div>
+      )}
+
+      {route.kind === 'account-delete' && (
+        <div className="screen overlay"><Later><DeleteAccount onBack={() => go({ kind: 'tab', tab: 'profile' })} /></Later></div>
       )}
 
       {onBadges && (

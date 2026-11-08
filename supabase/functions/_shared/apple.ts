@@ -45,3 +45,13 @@ export async function exchangeAppleCode(f: Fetch, clientId: string, clientSecret
   if (typeof sub !== 'string') throw new Error('apple token exchange: no sub');
   return { refreshToken: j.refresh_token, sub };
 }
+
+/** Tells Apple to disconnect the app from the person's Apple ID ("Apps using Apple ID" no longer lists it). */
+export async function revokeAppleToken(f: Fetch, clientId: string, clientSecret: string, token: string): Promise<void> {
+  const res = await f('https://appleid.apple.com/auth/revoke', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, token, token_type_hint: 'refresh_token' }),
+  });
+  if (!res.ok) throw new Error(`apple revoke failed: ${res.status}`);
+}

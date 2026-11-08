@@ -97,7 +97,7 @@ function cleanJunctions(v: unknown): Junction[] | undefined | null {
   return out;
 }
 
-function cleanTrail(t: unknown): Trail | null {
+export function cleanTrail(t: unknown): Trail | null {
   if (!isObj(t) || !str(t.id) || t.id === '' || !str(t.name) || !num(t.lengthM) || typeof t.loop !== 'boolean' || typeof t.partial !== 'boolean') return null;
   if (!str(t.osmUrl) || !t.osmUrl.startsWith(OSM_PREFIX)) return null;
   if (!Array.isArray(t.coords) || t.coords.length > MAX_POINTS) return null;

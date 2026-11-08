@@ -1,4 +1,4 @@
-// Local persistence (IndexedDB). Nothing leaves the device.
+// Local persistence (IndexedDB). Nothing leaves the device unless the person signs in (src/lib/sync).
 import { get, set, del, keys, getMany } from 'idb-keyval';
 import type { Trail } from './trails';
 
@@ -7,6 +7,8 @@ export interface SavedTrail {
   savedAt: number;
   tileKeys: string[];
   bytes: number;
+  /** Last change, ms. Used by sync (last write wins); absent on records made before sync existed. */
+  updatedAt?: number;
 }
 
 export interface TrackPoint { lon: number; lat: number; alt: number | null; acc: number; t: number }
@@ -36,13 +38,31 @@ export interface Activity {
   unfinished?: boolean;
   /** Time spent paused (or with the app closed, on a resumed hike) so far, ms. Kept so a hike resumed twice still counts the first session's pauses. */
   pausedMs?: number;
+  /** Last change, ms. Used by sync (last write wins). */
+  updatedAt?: number;
 }
 
 const T = 'trail:', A = 'act:', S = 'sl:';
 
+/** Deletions leave a tombstone so they can sync. Re-adding the same id removes it. Kind is 'saved' | 'activities' | 'shortlist'. */
+export type TombKind = 'saved' | 'activities' | 'shortlist';
+export interface Tombstone { kind: TombKind; id: string; deletedAt: number }
+const tombKey = (kind: TombKind, id: string) => `tomb:${kind}:${id}`;
+const tombstone = (kind: TombKind, id: string) => set(tombKey(kind, id), { kind, id, deletedAt: Date.now() } satisfies Tombstone);
+const untomb = (kind: TombKind, id: string) => del(tombKey(kind, id));
+export async function listTombstones(): Promise<Tombstone[]> {
+  const ks = (await keys()).filter((k) => String(k).startsWith('tomb:'));
+  return (await getMany<Tombstone | undefined>(ks)).filter((x): x is Tombstone => !!x);
+}
+export const clearTombstone = (kind: TombKind, id: string) => untomb(kind, id);
+export const clearTombstones = async () => { for (const k of (await keys()).filter((k) => String(k).startsWith('tomb:'))) await del(k); };
+
 export const getSaved = (id: string) => get<SavedTrail>(T + id);
-export const putSaved = (s: SavedTrail) => set(T + s.trail.id, s);
-export const deleteSaved = (id: string) => del(T + id);
+export const putSaved = async (s: SavedTrail) => { await set(T + s.trail.id, { ...s, updatedAt: Date.now() }); await untomb('saved', s.trail.id); };
+export const deleteSaved = async (id: string) => { await del(T + id); await tombstone('saved', id); };
+/** For sync only: store exactly what came from the server (no new timestamp, no tombstone). */
+export const putSavedRaw = (s: SavedTrail) => set(T + s.trail.id, s);
+export const deleteSavedRaw = (id: string) => del(T + id);
 
 export async function listSaved(): Promise<SavedTrail[]> {
   const ks = (await keys()).filter((k) => String(k).startsWith(T));
@@ -50,12 +70,15 @@ export async function listSaved(): Promise<SavedTrail[]> {
   return all.sort((a, b) => b.savedAt - a.savedAt);
 }
 
-export const putActivity = (a: Activity) => set(A + a.id, a);
+export const putActivity = async (a: Activity) => { await set(A + a.id, { ...a, updatedAt: Date.now() }); await untomb('activities', a.id); };
 export const patchActivity = async (id: string, patch: Partial<Pick<Activity, 'withDog' | 'rain'>>) => {
   const a = await get<Activity>(A + id);
-  if (a) await set(A + id, { ...a, ...patch });
+  if (a) await set(A + id, { ...a, ...patch, updatedAt: Date.now() });
 };
-export const deleteActivity = (id: string) => del(A + id);
+export const deleteActivity = async (id: string) => { await del(A + id); await tombstone('activities', id); };
+export const getActivity = (id: string) => get<Activity>(A + id);
+export const putActivityRaw = (a: Activity) => set(A + a.id, a);
+export const deleteActivityRaw = (id: string) => del(A + id);
 
 export async function listActivities(): Promise<Activity[]> {
   const ks = (await keys()).filter((k) => String(k).startsWith(A));
@@ -67,12 +90,14 @@ export const getSetting = <V>(k: string) => get<V>('set:' + k);
 export const putSetting = (k: string, v: unknown) => set('set:' + k, v);
 
 // Shortlist: trails the user bookmarked. A trail saved for offline use is also kept here.
-export interface Shortlisted { trail: Trail; addedAt: number }
+export interface Shortlisted { trail: Trail; addedAt: number; updatedAt?: number }
 export const getShortlisted = (id: string) => get<Shortlisted>(S + id);
-export const putShortlisted = (trail: Trail) => set(S + trail.id, { trail, addedAt: Date.now() } satisfies Shortlisted);
+export const putShortlisted = async (trail: Trail) => { const now = Date.now(); await set(S + trail.id, { trail, addedAt: now, updatedAt: now } satisfies Shortlisted); await untomb('shortlist', trail.id); };
 /** Used by restore, to keep the original date. */
-export const restoreShortlisted = (s: Shortlisted) => set(S + s.trail.id, s);
-export const deleteShortlisted = (id: string) => del(S + id);
+export const restoreShortlisted = async (s: Shortlisted) => { await set(S + s.trail.id, { ...s, updatedAt: Date.now() }); await untomb('shortlist', s.trail.id); };
+export const deleteShortlisted = async (id: string) => { await del(S + id); await tombstone('shortlist', id); };
+export const putShortlistedRaw = (s: Shortlisted) => set(S + s.trail.id, s);
+export const deleteShortlistedRaw = (id: string) => del(S + id);
 
 export async function listShortlisted(): Promise<Shortlisted[]> {
   const ks = (await keys()).filter((k) => String(k).startsWith(S));

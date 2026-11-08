@@ -1,6 +1,6 @@
 # Ridgeline SQL tests
 
-`ridgeline_rls.test.sql` is a pgTAP script. Run it only against a throwaway Postgres that has the Supabase roles, the `auth` and `vault` schemas
+`ridgeline_rls.test.sql` and `ridgeline_sync.test.sql` (run after the second migration) are pgTAP scripts. Run it only against a throwaway Postgres that has the Supabase roles, the `auth` and `vault` schemas
 (the `supabase/postgres` image or `supabase start`). Never run it on the shared project.
 
 ```bash

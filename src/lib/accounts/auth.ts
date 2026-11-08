@@ -98,3 +98,19 @@ export async function completeWebSignIn(c: SupabaseClient): Promise<boolean> {
 }
 
 export const isCallbackPath = (pathname: string, base = '/') => pathname.replace(/\/+$/, '') === (base.replace(/\/?$/, '/') + CALLBACK_PATH);
+
+export type DeleteScope = 'data' | 'account';
+
+/** Calls the delete-account Edge Function. 'data' keeps the shared account; 'account' removes it everywhere (Apple is disconnected first). */
+export async function deleteMyAccount(scope: DeleteScope, c: Pick<SupabaseClient, 'functions' | 'auth'>): Promise<boolean> {
+  const { error } = await c.functions.invoke('delete-account', { body: { scope } });
+  if (error) return false;
+  if (scope === 'account') { try { await c.auth.signOut({ scope: 'local' }); } catch { /* the user no longer exists */ } }
+  return true;
+}
+
+/** Sign out, then optionally forget the account's records on this phone. */
+export async function signOutKeeping(keepCopy: boolean, enabled?: boolean): Promise<void> {
+  await signOut(enabled);
+  if (!keepCopy) await (await import('../sync/local')).wipeLocalAccountData();
+}

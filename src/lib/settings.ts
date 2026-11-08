@@ -9,10 +9,16 @@ export interface Settings {
   /** New hikes start marked "with a dog". */
   withDogDefault: boolean;
   onboardingSeen: boolean;
+  /** Signed-in sync uploads hike summaries but never the GPS route. Device-only: never synced itself. */
+  keepTracksLocal: boolean;
 }
 
-export const DEFAULT_SETTINGS: Settings = { voice: true, units: 'imperial', withDogDefault: false, onboardingSeen: false };
+export const DEFAULT_SETTINGS: Settings = { voice: true, units: 'imperial', withDogDefault: false, onboardingSeen: false, keepTracksLocal: false };
 export const SETTINGS_KEY = 'ridgeline:settings';
+/** When the synced settings last changed (ms), for last-write-wins. */
+export const SETTINGS_STAMP_KEY = 'ridgeline:settings:updatedAt';
+/** The settings that follow the person across devices. onboardingSeen and keepTracksLocal stay on this phone. */
+export const SYNCED_SETTING_KEYS = ['voice', 'units', 'withDogDefault'] as const;
 
 /** Keeps only known keys of the right type, so a bad or old value cannot break the app. */
 export function sanitize(raw: unknown): Settings {
@@ -23,6 +29,7 @@ export function sanitize(raw: unknown): Settings {
     units: r.units === 'metric' || r.units === 'imperial' ? r.units : d.units,
     withDogDefault: typeof r.withDogDefault === 'boolean' ? r.withDogDefault : d.withDogDefault,
     onboardingSeen: typeof r.onboardingSeen === 'boolean' ? r.onboardingSeen : d.onboardingSeen,
+    keepTracksLocal: typeof r.keepTracksLocal === 'boolean' ? r.keepTracksLocal : d.keepTracksLocal,
   };
 }
 
@@ -60,9 +67,11 @@ const listeners = new Set<() => void>();
 
 export const getSettings = () => current;
 
-export function updateSettings(patch: Partial<Settings>) {
+export function updateSettings(patch: Partial<Settings>, stamp = true) {
+  const before = current;
   current = sanitize({ ...current, ...patch });
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(current)); } catch { /* private mode or full: keep in memory */ }
+  if (stamp && SYNCED_SETTING_KEYS.some((k) => before[k] !== current[k])) { try { localStorage.setItem(SETTINGS_STAMP_KEY, String(Date.now())); } catch { /* ignore */ } }
   listeners.forEach((l) => l());
 }
 
