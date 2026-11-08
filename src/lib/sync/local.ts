@@ -5,7 +5,7 @@ import {
   Activity, SavedTrail, Shortlisted, clearTombstone, deleteActivityRaw, deleteSavedRaw, deleteShortlistedRaw, getActivity, getShortlisted,
   getSaved, listActivities, listSaved, listShortlisted, listTombstones, putActivityRaw, putShortlistedRaw,
 } from '../store';
-import { SETTINGS_STAMP_KEY, SYNCED_SETTING_KEYS, getSettings, updateSettings } from '../settings';
+import { SETTINGS_EDIT_KEY, SETTINGS_STAMP_KEY, SYNCED_SETTING_KEYS, getSettings, updateSettings } from '../settings';
 import type { Trail } from '../trails';
 import type { Kind, SyncRec } from './merge';
 
@@ -14,24 +14,28 @@ export interface LocalSource {
   apply(rec: SyncRec): Promise<void>;
 }
 
-const rec = (kind: Kind, id: string, updatedAt: number, payload: unknown): SyncRec => ({ kind, id, updatedAt, deleted: false, payload });
+const rec = (kind: Kind, id: string, updatedAt: number, editedAt: number, payload: unknown): SyncRec => ({ kind, id, updatedAt, editedAt, deleted: false, payload });
 
 export function readStamp(): number {
   try { return Number(localStorage.getItem(SETTINGS_STAMP_KEY)) || 0; } catch { return 0; }
 }
 
+export function readEdit(): number {
+  try { return Number(localStorage.getItem(SETTINGS_EDIT_KEY)) || 0; } catch { return 0; }
+}
+
 export const idbLocal: LocalSource = {
   async readAll(kind) {
     const tombs = kind === 'settings' ? [] : (await listTombstones()).filter((t) => t.kind === kind)
-      .map((t): SyncRec => ({ kind, id: t.id, updatedAt: t.deletedAt, deleted: true, payload: null }));
-    if (kind === 'shortlist') return [...(await listShortlisted()).map((s) => rec(kind, s.trail.id, s.updatedAt ?? s.addedAt, { trail: s.trail, addedAt: s.addedAt })), ...tombs];
-    if (kind === 'saved') return [...(await listSaved()).map((s) => rec(kind, s.trail.id, s.updatedAt ?? s.savedAt, { trail: s.trail, addedAt: s.savedAt })), ...tombs];
+      .map((t): SyncRec => ({ kind, id: t.id, updatedAt: t.deletedAt, editedAt: t.editedAt ?? t.deletedAt, deleted: true, payload: null }));
+    if (kind === 'shortlist') return [...(await listShortlisted()).map((s) => rec(kind, s.trail.id, s.updatedAt ?? s.addedAt, s.editedAt ?? s.updatedAt ?? s.addedAt, { trail: s.trail, addedAt: s.addedAt })), ...tombs];
+    if (kind === 'saved') return [...(await listSaved()).map((s) => rec(kind, s.trail.id, s.updatedAt ?? s.savedAt, s.editedAt ?? s.updatedAt ?? s.savedAt, { trail: s.trail, addedAt: s.savedAt })), ...tombs];
     if (kind === 'activities') {
       const done = (await listActivities()).filter((a) => a.endedAt !== undefined || a.unfinished);
-      return [...done.map((a) => rec(kind, a.id, a.updatedAt ?? a.endedAt ?? a.startedAt, a)), ...tombs];
+      return [...done.map((a) => rec(kind, a.id, a.updatedAt ?? a.endedAt ?? a.startedAt, a.editedAt ?? a.updatedAt ?? a.endedAt ?? a.startedAt, a)), ...tombs];
     }
     const s = getSettings();
-    return [rec(kind, 'settings', readStamp(), Object.fromEntries(SYNCED_SETTING_KEYS.map((k) => [k, s[k]])))];
+    return [rec(kind, 'settings', readStamp(), readEdit(), Object.fromEntries(SYNCED_SETTING_KEYS.map((k) => [k, s[k]])))];
   },
 
   async apply(r) {
@@ -80,5 +84,5 @@ export async function wipeLocalAccountData(): Promise<void> {
   await clearTombstones();
   const { keys, del } = await import('idb-keyval');
   for (const k of (await keys()).filter((k) => String(k).startsWith('sync:'))) await del(k); // so signing in again pulls everything
-  try { localStorage.removeItem(SETTINGS_STAMP_KEY); } catch { /* ignore */ }
+  try { localStorage.removeItem(SETTINGS_STAMP_KEY); localStorage.removeItem(SETTINGS_EDIT_KEY); } catch { /* ignore */ }
 }

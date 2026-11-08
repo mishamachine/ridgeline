@@ -12,7 +12,7 @@ export const COPY: Record<DeleteScope, { title: string; button: string; warn: st
   data: {
     title: 'Delete my Ridgeline data',
     button: 'Delete my Ridgeline data',
-    warn: 'This removes your saved trails, hike history, routes and settings from our servers and from this phone, and signs you out so nothing is uploaded again. Your sign-in stays, so your other B&B apps keep working.',
+    warn: 'This removes your saved trails, hike history, routes and settings from our servers. This phone is signed out and its copies are removed. Other phones that are still signed in should be signed out too, or they may upload their copies again. Your sign-in stays, so your other B&B apps keep working.',
   },
   account: {
     title: 'Delete my whole account',
@@ -24,7 +24,7 @@ export const COPY: Record<DeleteScope, { title: string; button: string; warn: st
 export function resultText(scope: DeleteScope, r: DeleteResult): string {
   if (r.status === 'failed') return 'That did not go through, and nothing was deleted. Try again in a minute.';
   if (r.status === 'partial') return 'Your Ridgeline data was deleted, but we couldn\u2019t close your account. Try again.';
-  if (scope === 'data') return 'Your Ridgeline data was deleted from our servers and removed from this phone. You are signed out.';
+  if (scope === 'data') return 'Your Ridgeline data was deleted from our servers, and this phone is signed out with its copies removed. Sign out your other phones too, or they may upload their copies again.';
   const base = 'Your account is deleted. Your data is removed from our live systems straight away; backup copies are erased within 7 days, when backups roll over.';
   if (r.apple === 'revoked') return base + ' We also disconnected Ridgeline from your Apple ID.';
   if (r.apple === 'manual') return base + ' ' + APPLE_MANUAL_LINE;

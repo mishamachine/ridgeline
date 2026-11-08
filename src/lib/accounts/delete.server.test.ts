@@ -10,54 +10,74 @@ function deps(over: Partial<DeleteDeps> = {}) {
   const calls: string[] = [];
   const d: DeleteDeps = {
     hasAppleIdentity: true,
+    deleteUserData: async () => { calls.push('data'); },
     readAppleToken: async () => { calls.push('read'); return 'refresh-1'; },
     revokeApple: async () => { calls.push('revoke'); },
     deleteAppleToken: async () => { calls.push('delete-secret'); },
-    deleteRidgelineRows: async () => { calls.push('delete-rows'); },
     deleteAuthUser: async () => { calls.push('delete-user'); },
     log: (e) => calls.push('log:' + e),
     ...over,
   };
   return { d, calls };
 }
+const boom = (name: string) => async () => { throw new Error(name); };
 
 describe('delete: Ridgeline data only (path a)', () => {
-  it('removes the rows and nothing else: no Apple call, no secret, the auth user stays', async () => {
+  it('runs the one-transaction data step and nothing else: no Apple call, no secret, the auth user stays', async () => {
     const { d, calls } = deps();
     expect(await deleteAccount('data', d)).toEqual({ status: 'ok', apple: 'none' });
-    expect(calls).toEqual(['delete-rows']);
+    expect(calls).toEqual(['data']);
+  });
+  it('if the data step fails, nothing was deleted and it says failed', async () => {
+    const { d, calls } = deps({ deleteUserData: boom('db') });
+    expect(await deleteAccount('data', d)).toEqual({ status: 'failed' });
+    expect(calls).toEqual(['log:data_delete_failed']);
   });
 });
 
-describe('delete: whole account (path b)', () => {
-  it('Apple user with a token: revoke first, then the Vault secret, the rows, and last the auth user', async () => {
+describe('delete: whole account (path b), every failure point', () => {
+  it('Apple user with a token: data, then revoke, then the Vault secret, and last the auth user', async () => {
     const { d, calls } = deps();
     expect(await deleteAccount('account', d)).toEqual({ status: 'ok', apple: 'revoked' });
-    expect(calls).toEqual(['read', 'revoke', 'log:apple_revoked', 'delete-secret', 'delete-rows', 'delete-user']);
+    expect(calls).toEqual(['data', 'read', 'revoke', 'log:apple_revoked', 'delete-secret', 'delete-user']);
   });
-  it('if Apple refuses, nothing is deleted and the person can retry', async () => {
-    const { d, calls } = deps({ revokeApple: async () => { throw new Error('apple 400'); } });
-    expect(await deleteAccount('account', d)).toEqual({ status: 'failed', reason: 'apple_revoke_failed' });
-    expect(calls).toEqual(['read', 'log:apple_revoke_failed']);
+  it('data step fails: failed, and nothing after it ran (so "nothing was deleted" is true)', async () => {
+    const { d, calls } = deps({ deleteUserData: boom('db') });
+    expect(await deleteAccount('account', d)).toEqual({ status: 'failed' });
+    expect(calls).toEqual(['log:data_delete_failed']);
   });
-  it('Apple user with no stored token: logs the fallback and still deletes', async () => {
+  it('reading the Apple token fails after the data is gone: partial, the account is not closed', async () => {
+    const { d, calls } = deps({ readAppleToken: boom('vault') });
+    expect(await deleteAccount('account', d)).toEqual({ status: 'partial', apple: 'manual' });
+    expect(calls).toEqual(['data', 'log:apple_revoke_failed']);
+  });
+  it('Apple refuses the revoke after the data is gone: partial, the token is kept for a retry, the auth user stays', async () => {
+    const { d, calls } = deps({ revokeApple: boom('apple 400') });
+    expect(await deleteAccount('account', d)).toEqual({ status: 'partial', apple: 'manual' });
+    expect(calls).toEqual(['data', 'read', 'log:apple_revoke_failed']);
+  });
+  it('the Vault delete fails: partial, the auth user stays', async () => {
+    const { d, calls } = deps({ deleteAppleToken: boom('vault') });
+    expect(await deleteAccount('account', d)).toEqual({ status: 'partial', apple: 'revoked' });
+    expect(calls).toEqual(['data', 'read', 'revoke', 'log:apple_revoked', 'log:vault_delete_failed']);
+  });
+  it('the auth delete fails last: partial, never success', async () => {
+    const { d, calls } = deps({ deleteAuthUser: boom('auth down') });
+    expect(await deleteAccount('account', d)).toEqual({ status: 'partial', apple: 'revoked' });
+    expect(calls).toContain('log:auth_delete_failed');
+  });
+  it('Apple user with no stored token: logs the skipped revoke and still finishes', async () => {
     const { d, calls } = deps({ readAppleToken: async () => null });
     expect(await deleteAccount('account', d)).toEqual({ status: 'ok', apple: 'manual' });
-    expect(calls).toEqual(['log:apple_revoke_skipped_no_token', 'delete-secret', 'delete-rows', 'delete-user']);
-  });
-  it('rows gone but the auth delete failed: reported as partial, never as success', async () => {
-    const { d, calls } = deps({ deleteAuthUser: async () => { throw new Error('auth down'); } });
-    expect(await deleteAccount('account', d)).toEqual({ status: 'partial', apple: 'revoked' });
-    expect(calls).toContain('delete-rows');
-    expect(calls).toContain('log:auth_delete_failed_after_rows');
+    expect(calls).toEqual(['data', 'log:apple_revoke_skipped_no_token', 'delete-secret', 'delete-user']);
   });
   it('Google user: no Apple call at all', async () => {
     const { d, calls } = deps({ hasAppleIdentity: false });
-    await deleteAccount('account', d);
-    expect(calls).toEqual(['delete-secret', 'delete-rows', 'delete-user']);
+    expect(await deleteAccount('account', d)).toEqual({ status: 'ok', apple: 'none' });
+    expect(calls).toEqual(['data', 'delete-secret', 'delete-user']);
   });
   it('logs event names only', async () => {
-    const { d, calls } = deps();
+    const { d, calls } = deps({ deleteAuthUser: boom('x') });
     await deleteAccount('account', d);
     for (const c of calls.filter((c) => c.startsWith('log:'))) expect(c).toMatch(/^log:[a-z_]+$/);
   });
@@ -116,7 +136,7 @@ describe('what the person is told', () => {
     expect(resultText('account', { status: 'ok', apple: 'none' })).not.toContain('Apple');
   });
   it('the warnings say what is removed, name the apps, and promise Apple disconnect only for iPhone sign-ins', () => {
-    expect(COPY.data.warn).toContain('from this phone, and signs you out so nothing is uploaded again');
+    expect(COPY.data.warn).toContain('This phone is signed out and its copies are removed. Other phones that are still signed in should be signed out too, or they may upload their copies again.');
     const w = COPY.account.warn;
     expect(w).toContain('our language app (woof.bobolearns.com)');
     expect(w).toContain('the BoboLearns Hub sign-in');

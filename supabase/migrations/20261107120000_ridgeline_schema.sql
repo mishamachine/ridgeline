@@ -21,6 +21,7 @@ create table ridgeline.shortlist (
   added_at   timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   deleted    boolean not null default false,
+  check (not deleted or trail is null),                 -- a tombstone carries no payload
   primary key (user_id, trail_id)
 );
 
@@ -31,6 +32,7 @@ create table ridgeline.saved (
   added_at   timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   deleted    boolean not null default false,
+  check (not deleted or trail is null),                 -- a tombstone carries no payload
   primary key (user_id, trail_id)
 );
 
@@ -40,9 +42,10 @@ create table ridgeline.activities (
   trail_id   text,
   started_at timestamptz not null,
   stats      jsonb not null default '{}'::jsonb check (pg_column_size(stats) < 65536),   -- name, endedAt, withDog, rain, snapshot, unfinished, pausedMs. Never body data.
-  track      jsonb check (track is null or (jsonb_typeof(track) = 'array' and jsonb_array_length(track) <= 50000)),
+  track      jsonb check (track is null or (jsonb_typeof(track) = 'array' and jsonb_array_length(track) <= 50000 and pg_column_size(track) < 4194304)),
   updated_at timestamptz not null default now(),
   deleted    boolean not null default false,
+  check (not deleted or (stats = '{}'::jsonb and track is null)),   -- a tombstone carries no payload
   primary key (user_id, id)
 );
 
@@ -60,21 +63,26 @@ create table ridgeline.apple_tokens (
   created_at timestamptz not null default now()
 );
 
--- Row limits mirror backup.ts (5,000 hikes, 2,000 saved trails; shortlist capped at 5,000). Only live rows count.
--- Args: limit, name of the key column. An upsert that updates an existing row is never blocked, and a tombstone never counts.
+-- Row limits mirror backup.ts (5,000 hikes, 2,000 saved trails; shortlist capped at 5,000). Two caps per user and table:
+-- live rows (not deleted) up to the limit, and ALL rows, tombstones included, up to twice the limit, so deleted rows cannot pile up.
+-- Args: limit, name of the key column. An upsert that updates an existing row is never blocked.
 create function ridgeline.enforce_row_limit() returns trigger
 language plpgsql set search_path = '' as $$
-declare lim int := tg_argv[0]::int; keycol text := tg_argv[1]; n int; found boolean;
+declare lim int := tg_argv[0]::int; keycol text := tg_argv[1]; n int; found boolean; is_dead boolean := coalesce((to_jsonb(new)->>'deleted')::boolean, false);
 begin
-  if coalesce((to_jsonb(new)->>'deleted')::boolean, false) then return new; end if;                  -- a tombstone is not a live row
-  if tg_op = 'UPDATE' and not coalesce((to_jsonb(old)->>'deleted')::boolean, false) then return new; end if; -- already live: no growth
-  if tg_op = 'INSERT' then                                                                           -- the upsert path: row already there
+  if tg_op = 'UPDATE' then
+    if not (coalesce((to_jsonb(old)->>'deleted')::boolean, false) and not is_dead) then return new; end if;  -- only a revival adds a live row
+  else
     execute format('select exists(select 1 from %I.%I where user_id = $1 and %I::text = $2)', tg_table_schema, tg_table_name, keycol)
       into found using new.user_id, to_jsonb(new)->>keycol;
-    if found then return new; end if;
+    if found then return new; end if;                                                                       -- the upsert path: row already there
+    execute format('select count(*) from %I.%I where user_id = $1', tg_table_schema, tg_table_name) into n using new.user_id;
+    if n >= 2 * lim then raise exception 'ridgeline: total row limit (%) reached for %', 2 * lim, tg_table_name using errcode = '54000'; end if;
   end if;
-  execute format('select count(*) from %I.%I where user_id = $1 and not deleted', tg_table_schema, tg_table_name) into n using new.user_id;
-  if n >= lim then raise exception 'ridgeline: row limit (%) reached for %', lim, tg_table_name using errcode = '54000'; end if;
+  if not is_dead then
+    execute format('select count(*) from %I.%I where user_id = $1 and not deleted', tg_table_schema, tg_table_name) into n using new.user_id;
+    if n >= lim then raise exception 'ridgeline: row limit (%) reached for %', lim, tg_table_name using errcode = '54000'; end if;
+  end if;
   return new;
 end $$;
 create trigger activities_limit before insert or update of deleted on ridgeline.activities for each row execute function ridgeline.enforce_row_limit(5000, 'id');
@@ -139,7 +147,8 @@ begin
     begin
       delete from vault.secrets where id = sid;
     exception when insufficient_privilege then
-      perform vault.update_secret(sid, 'deleted');
+      -- Overwrite the value and rename it, so nothing readable and nothing carrying the person's id is left.
+      perform vault.update_secret(sid, 'deleted', 'ridgeline_deleted_' || gen_random_uuid()::text, 'deleted');
       raise warning 'ridgeline: vault delete refused; secret value overwritten instead';
     end;
     delete from ridgeline.apple_tokens where user_id = p_user;

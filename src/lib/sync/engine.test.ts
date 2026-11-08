@@ -25,16 +25,17 @@ class Server {
 class Phone implements LocalSource {
   recs = new Map<string, SyncRec>(); cursors = new Map<string, number>();
   cur: Cursors = { get: async (k) => this.cursors.get(k) ?? 0, set: async (k, v) => { this.cursors.set(k, v); } };
-  put(kind: Kind, id: string, updatedAt: number, payload: unknown = { n: id }) { this.recs.set(kind + '/' + id, { kind, id, updatedAt, deleted: false, payload }); }
-  del(kind: Kind, id: string, updatedAt: number) { this.recs.set(kind + '/' + id, { kind, id, updatedAt, deleted: true, payload: null }); }
+  seq = 0; // the local edit stamp: rises on edits made on this phone only
+  put(kind: Kind, id: string, updatedAt: number, payload: unknown = { n: id }) { this.recs.set(kind + '/' + id, { kind, id, updatedAt, editedAt: ++this.seq, deleted: false, payload }); }
+  del(kind: Kind, id: string, updatedAt: number) { this.recs.set(kind + '/' + id, { kind, id, updatedAt, editedAt: ++this.seq, deleted: true, payload: null }); }
   async readAll(kind: Kind) { return [...this.recs.values()].filter((r) => r.kind === kind); }
-  async apply(r: SyncRec) { this.recs.set(r.kind + '/' + r.id, { ...r }); }
+  async apply(r: SyncRec) { this.recs.set(r.kind + '/' + r.id, { ...r, editedAt: 0 }); } // a record taken from the server was not edited here
   live(kind: Kind) { return [...this.recs.values()].filter((r) => r.kind === kind && !r.deleted).map((r) => r.id).sort(); }
   sync(s: Server, user = 'u1') { return syncOnce(user, this, s.remote(), this.cur); }
 }
 
 describe('last write wins', () => {
-  const r = (updatedAt: number, deleted = false): SyncRec => ({ kind: 'saved', id: 'x', updatedAt, deleted, payload: null });
+  const r = (updatedAt: number, deleted = false): SyncRec => ({ kind: 'saved', id: 'x', updatedAt, editedAt: 0, deleted, payload: null });
   it('newer wins; a tie goes to the deletion, else stays local', () => {
     expect(winner(undefined, r(1))).toBe('remote');
     expect(winner(r(1), r(2))).toBe('remote');
@@ -102,11 +103,43 @@ describe('two-device sync', () => {
   });
 });
 
+describe('the push cursor follows local edits, not server times', () => {
+  it('a server clock running ahead cannot hide edits made here afterwards', async () => {
+    const s = new Server(), a = new Phone(), b = new Phone();
+    // Device B's clock is a day ahead: its record arrives with an updatedAt far in the future.
+    const FUTURE = 5_000_000_000;
+    s.rows.set('shortlist/from-b', { kind: 'shortlist', id: 'from-b', updatedAt: FUTURE, editedAt: 0, deleted: false, payload: { n: 'b' }, syncedAt: s.clock });
+    await a.sync(s);                                   // A applies it
+    a.put('shortlist', 'mine', 1_000);                 // A's own clock is behind the future record; the edit is real
+    expect(await a.sync(s)).toEqual({ pulled: 0, pushed: 1 });
+    expect(s.rows.has('shortlist/mine')).toBe(true);
+    await b.sync(s);
+    expect(b.live('shortlist')).toEqual(['from-b', 'mine']);
+  });
+  it('records taken from the server are never uploaded back', async () => {
+    const s = new Server(), a = new Phone(), b = new Phone();
+    a.put('activities', 'h1', 100);
+    await a.sync(s);
+    expect(await b.sync(s)).toEqual({ pulled: 1, pushed: 0 });
+    expect(b.recs.get('activities/h1')!.editedAt).toBe(0);
+  });
+  it('an edit made here after a pull is pushed once, then not again', async () => {
+    const s = new Server(), a = new Phone(), b = new Phone();
+    a.put('activities', 'h1', 100);
+    await a.sync(s); await b.sync(s);
+    b.put('activities', 'h1', 300, { n: 'edited' });
+    expect(await b.sync(s)).toEqual({ pulled: 0, pushed: 1 });
+    expect(await b.sync(s)).toEqual({ pulled: 0, pushed: 0 });
+    await a.sync(s);
+    expect((a.recs.get('activities/h1')!.payload as { n: string }).n).toBe('edited');
+  });
+});
+
 describe('phone only never blanks a route that is already uploaded', () => {
   const act: Activity = { id: 'h1', name: 'Ledge', startedAt: 1_700_000_000_000, endedAt: 1_700_003_600_000, updatedAt: 1_700_003_700_000,
     points: Array.from({ length: 41 }, (_, i) => ({ lon: -121.8, lat: 47.4 + i * 0.00045, alt: 300, acc: 5, t: i * 1000 })) };
   const stub: Activity = { ...act, id: 'h2', points: [], summary: { distanceM: 2000, durationMs: 3_600_000, climbM: 100 } };
-  const rec = (a: Activity): SyncRec => ({ kind: 'activities', id: a.id, updatedAt: a.updatedAt!, deleted: false, payload: a });
+  const rec = (a: Activity): SyncRec => ({ kind: 'activities', id: a.id, updatedAt: a.updatedAt!, editedAt: a.updatedAt!, deleted: false, payload: a });
   it('a phone that holds only the summary leaves the route column alone, and keeps the summary', () => {
     const row = activityToRow('u1', rec(stub), false) as { track?: unknown; stats: { summary: unknown } };
     expect('track' in row).toBe(false);
@@ -143,8 +176,8 @@ describe('pull overlap', () => {
     await a.sync(s); await b.sync(s);                       // B's cursor is now at the first row's synced_at
     const cursorBefore = [...b.cursors.values()].find((v) => v > 0)!;
     // A row from another device shows up with a synced_at slightly BEHIND B's cursor (commit order differs from clock order).
-    s.rows.set('shortlist/way/2', { kind: 'shortlist', id: 'way/2', updatedAt: 20, deleted: false, payload: { n: 'way/2' }, syncedAt: cursorBefore - 5 });
-    s.rows.set('shortlist/way/3', { kind: 'shortlist', id: 'way/3', updatedAt: 21, deleted: false, payload: { n: 'way/3' }, syncedAt: cursorBefore + 5 });
+    s.rows.set('shortlist/way/2', { kind: 'shortlist', id: 'way/2', updatedAt: 20, editedAt: 0, deleted: false, payload: { n: 'way/2' }, syncedAt: cursorBefore - 5 });
+    s.rows.set('shortlist/way/3', { kind: 'shortlist', id: 'way/3', updatedAt: 21, editedAt: 0, deleted: false, payload: { n: 'way/3' }, syncedAt: cursorBefore + 5 });
     await b.sync(s);
     expect(b.live('shortlist')).toEqual(['way/1', 'way/2', 'way/3']);
   });
@@ -160,7 +193,7 @@ describe('pull overlap', () => {
 describe('what goes to the server', () => {
   const act: Activity = { id: 'h1', name: 'Rattlesnake Ledge', trailId: 'way/1', startedAt: 1_700_000_000_000, endedAt: 1_700_003_600_000, withDog: true, rain: false, pausedMs: 5000, updatedAt: 1_700_003_700_000,
     points: Array.from({ length: 41 }, (_, i) => ({ lon: -121.8, lat: 47.4 + i * 0.00045, alt: 300, acc: 5, t: i * 1000 })) };
-  const rec = (a: Activity): SyncRec => ({ kind: 'activities', id: a.id, updatedAt: a.updatedAt!, deleted: false, payload: a });
+  const rec = (a: Activity): SyncRec => ({ kind: 'activities', id: a.id, updatedAt: a.updatedAt!, editedAt: a.updatedAt!, deleted: false, payload: a });
 
   it('the route is trimmed before upload', () => {
     const row = activityToRow('u1', rec(act), false) as { track: unknown[] };
@@ -189,7 +222,7 @@ describe('what goes to the server', () => {
     expect(a.points.length).toBeLessThan(act.points.length);
   });
   it('a tombstone is a row with deleted = true and no data; a bad row is skipped', () => {
-    const t = toRow('u1', { kind: 'shortlist', id: 'way/9', updatedAt: 5, deleted: true, payload: null }, false);
+    const t = toRow('u1', { kind: 'shortlist', id: 'way/9', updatedAt: 5, editedAt: 5, deleted: true, payload: null }, false);
     expect(t).toMatchObject({ trail_id: 'way/9', trail: null, deleted: true });
     expect(fromRow('activities', { id: 'x', updated_at: 'nonsense', synced_at: 'nonsense' })).toBeNull();
     expect(fromRow('activities', { id: 'x', updated_at: '2026-01-01T00:00:00Z', synced_at: '2026-01-01T00:00:00Z', stats: {}, started_at: '2026-01-01T00:00:00Z', track: [{ lon: 'bad' }] })).toBeNull();

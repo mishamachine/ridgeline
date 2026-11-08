@@ -1,13 +1,13 @@
 // Edge Function: the signed-in person deletes their Ridgeline data only ({scope:'data'}) or the whole shared account ({scope:'account'}).
 // Secrets (dashboard only): APPLE_TEAM_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY, APPLE_BUNDLE_ID. The platform provides the Supabase keys.
+// Steps: delete_user_data (one SQL transaction), Apple revoke, Vault secret, auth user. 'partial' = data gone, account not closed.
 // Deleting the auth user removes rows in every app that references it with ON DELETE CASCADE; this function touches only Ridgeline's own tables.
-import { createClient } from 'npm:@supabase/supabase-js@2.119.0';
+import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { appleClientSecret, revokeAppleToken } from '../_shared/apple.ts';
 import { deleteAccount, type Scope } from '../_shared/deleteAccount.ts';
 
 const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type, apikey, x-client-info', 'access-control-allow-methods': 'POST, OPTIONS' };
 const reply = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { ...cors, 'content-type': 'application/json' } });
-const TABLES = ['activities', 'saved', 'shortlist', 'settings', 'profiles'];
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: cors });
@@ -35,12 +35,12 @@ Deno.serve(async (req) => {
         await revokeAppleToken(fetch, clientId, secret, token);
       },
       async deleteAppleToken() { const { error: e } = await rl.rpc('delete_apple_token', { p_user: uid }); if (e) throw e; },
-      async deleteRidgelineRows() { for (const t of TABLES) { const { error: e } = await rl.from(t).delete().eq('user_id', uid); if (e) throw e; } },
+      async deleteUserData() { const { error: e } = await rl.rpc('delete_user_data', { uid }); if (e) throw e; }, // one transaction
       async deleteAuthUser() { const { error: e } = await admin.auth.admin.deleteUser(uid); if (e) throw e; },
       log: (ev) => console.log(JSON.stringify({ fn: 'delete-account', ev })),
     });
     // 200 for ok and partial (the body says which); 502 only when nothing was deleted.
-    return out.status === 'failed' ? reply(502, { status: 'failed', error: out.reason }) : reply(200, out);
+    return out.status === 'failed' ? reply(502, out) : reply(200, out);
   } catch (e) {
     console.error('delete-account failed', e instanceof Error ? e.message : 'unknown');
     return reply(500, { status: 'failed', error: 'delete failed' });
