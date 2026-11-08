@@ -32,7 +32,14 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build:android
-      - run: cd android && ./gradlew assembleDebug --no-daemon
+      - name: Build the debug APK
+        run: |
+          # The Gradle wrapper downloads from GitHub, which sometimes answers 5xx: retry up to 3 times.
+          for attempt in 1 2 3; do
+            (cd android && ./gradlew assembleDebug --no-daemon) && break
+            [ "$attempt" = 3 ] && { echo "::error::Android build failed after 3 attempts"; exit 1; }
+            echo "::warning::Android build attempt $attempt failed, retrying"; sleep 20
+          done
       - name: No Facebook or Twitter SDK in the Android app
         run: bash scripts/check-no-social-sdks.sh android
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -91,9 +98,14 @@ jobs:
       - name: Build for the iOS Simulator (no signing)
         run: |
           set -o pipefail
-          xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug \
-            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build | tail -40
+          # SwiftPM sometimes fails to fetch its binary packages from GitHub ("already exists in file system" / a 5xx): clear its artifact cache and try again, up to 3 times.
+          for attempt in 1 2 3; do
+            xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug \
+              -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+              -derivedDataPath build CODE_SIGNING_ALLOWED=NO build | tail -40 && break
+            [ "$attempt" = 3 ] && { echo "::error::iOS build failed after 3 attempts"; exit 1; }
+            echo "::warning::iOS build attempt $attempt failed, retrying"; rm -rf ~/Library/Caches/org.swift.swiftpm/artifacts; sleep 15
+          done
       - name: No Facebook or Twitter SDK in the iOS app
         run: bash scripts/check-no-social-sdks.sh ios
       - name: Launch and screenshot
