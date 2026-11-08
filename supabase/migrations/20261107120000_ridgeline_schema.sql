@@ -39,13 +39,13 @@ create table ridgeline.saved (
 create table ridgeline.activities (
   user_id    uuid not null references auth.users (id) on delete cascade,
   id         text not null check (length(id) between 1 and 200),
-  trail_id   text,
+  trail_id   text check (trail_id is null or length(trail_id) <= 200),
   started_at timestamptz not null,
   stats      jsonb not null default '{}'::jsonb check (pg_column_size(stats) < 65536),   -- name, endedAt, withDog, rain, snapshot, unfinished, pausedMs. Never body data.
-  track      jsonb check (track is null or (jsonb_typeof(track) = 'array' and jsonb_array_length(track) <= 50000 and pg_column_size(track) < 4194304)),
+  track      jsonb check (track is null or (jsonb_typeof(track) = 'array' and jsonb_array_length(track) <= 50000 and pg_column_size(track) < 1048576)),
   updated_at timestamptz not null default now(),
   deleted    boolean not null default false,
-  check (not deleted or (stats = '{}'::jsonb and track is null)),   -- a tombstone carries no payload
+  check (not deleted or (stats = '{}'::jsonb and track is null and trail_id is null)),   -- a tombstone carries no payload
   primary key (user_id, id)
 );
 
@@ -63,16 +63,19 @@ create table ridgeline.apple_tokens (
   created_at timestamptz not null default now()
 );
 
--- Row limits mirror backup.ts (5,000 hikes, 2,000 saved trails; shortlist capped at 5,000). Two caps per user and table:
--- live rows (not deleted) up to the limit, and ALL rows, tombstones included, up to twice the limit, so deleted rows cannot pile up.
--- Args: limit, name of the key column. An upsert that updates an existing row is never blocked.
+-- Row limits mirror backup.ts (5,000 hikes, 2,000 saved trails; shortlist capped at 5,000). Three caps per user and table:
+--   live rows (not deleted) up to the limit; ALL rows, tombstones included, up to twice the limit; total stored bytes up to a cap.
+-- A route is at most 1 MB (about 8,000 points; the app thins longer ones before upload), so the byte cap is what bounds a user's storage:
+-- 100 MB of hikes, 25 MB each of saved trails and shortlist. A per-user advisory lock serialises inserts so two requests cannot both pass the count.
+-- Args: limit, name of the key column, byte cap. An upsert that updates an existing row is never blocked.
 create function ridgeline.enforce_row_limit() returns trigger
 language plpgsql set search_path = '' as $$
-declare lim int := tg_argv[0]::int; keycol text := tg_argv[1]; n int; found boolean; is_dead boolean := coalesce((to_jsonb(new)->>'deleted')::boolean, false);
+declare lim int := tg_argv[0]::int; keycol text := tg_argv[1]; maxbytes bigint := tg_argv[2]::bigint; n bigint; found boolean;
+        is_dead boolean := coalesce((to_jsonb(new)->>'deleted')::boolean, false);
 begin
-  if tg_op = 'UPDATE' then
-    if not (coalesce((to_jsonb(old)->>'deleted')::boolean, false) and not is_dead) then return new; end if;  -- only a revival adds a live row
-  else
+  if tg_op = 'UPDATE' and not (coalesce((to_jsonb(old)->>'deleted')::boolean, false) and not is_dead) then return new; end if;  -- only a revival adds a live row
+  perform pg_advisory_xact_lock(hashtextextended(tg_table_name || ':' || new.user_id::text, 0));
+  if tg_op = 'INSERT' then
     execute format('select exists(select 1 from %I.%I where user_id = $1 and %I::text = $2)', tg_table_schema, tg_table_name, keycol)
       into found using new.user_id, to_jsonb(new)->>keycol;
     if found then return new; end if;                                                                       -- the upsert path: row already there
@@ -83,11 +86,13 @@ begin
     execute format('select count(*) from %I.%I where user_id = $1 and not deleted', tg_table_schema, tg_table_name) into n using new.user_id;
     if n >= lim then raise exception 'ridgeline: row limit (%) reached for %', lim, tg_table_name using errcode = '54000'; end if;
   end if;
+  execute format('select coalesce(sum(pg_column_size(t)), 0) from %I.%I t where user_id = $1', tg_table_schema, tg_table_name) into n using new.user_id;
+  if n + pg_column_size(new) > maxbytes then raise exception 'ridgeline: storage limit reached for %', tg_table_name using errcode = '54000'; end if;
   return new;
 end $$;
-create trigger activities_limit before insert or update of deleted on ridgeline.activities for each row execute function ridgeline.enforce_row_limit(5000, 'id');
-create trigger saved_limit      before insert or update of deleted on ridgeline.saved      for each row execute function ridgeline.enforce_row_limit(2000, 'trail_id');
-create trigger shortlist_limit  before insert or update of deleted on ridgeline.shortlist  for each row execute function ridgeline.enforce_row_limit(5000, 'trail_id');
+create trigger activities_limit before insert or update of deleted on ridgeline.activities for each row execute function ridgeline.enforce_row_limit(5000, 'id', 104857600);
+create trigger saved_limit      before insert or update of deleted on ridgeline.saved      for each row execute function ridgeline.enforce_row_limit(2000, 'trail_id', 26214400);
+create trigger shortlist_limit  before insert or update of deleted on ridgeline.shortlist  for each row execute function ridgeline.enforce_row_limit(5000, 'trail_id', 26214400);
 
 -- RLS: owner only, signed-in users only. anon gets nothing.
 do $$
@@ -130,10 +135,15 @@ $$;
 -- On hosted Supabase the function owner is `postgres`; the grant below gives it that right. If the grant is refused,
 -- or the delete is later refused, the secret's value is overwritten so no token stays readable. MUST be verified on a
 -- Supabase branch before go-live (see the PR).
+-- The grant is made only if the owner does not already have the right, and the schema comment records that WE made it, so the rollback
+-- takes back only what this migration gave (never a platform default).
 do $$
 begin
-  grant usage on schema vault to postgres;
-  grant delete on vault.secrets to postgres;
+  if not has_table_privilege('postgres', 'vault.secrets', 'DELETE') then
+    grant usage on schema vault to postgres;
+    grant delete on vault.secrets to postgres;
+    comment on schema ridgeline is 'vault_delete_granted_by_migration';
+  end if;
 exception when others then
   raise notice 'ridgeline: vault grant skipped (%): verify delete_apple_token on a branch', sqlerrm;
 end $$;
