@@ -12,3 +12,4 @@
 .gp .gp-fail { margin: 6px 0 0; }
 .gp-in-list { margin: 12px 16px 0; }
 .gp-btn-apple-slot { max-width: 100%; }
+.gp-signin { min-height: 44px; padding: 0 20px; border-radius: 10px; border: 2px solid currentColor; background: transparent; color: inherit; font: 600 15px var(--text); cursor: pointer; margin-right: 12px; }

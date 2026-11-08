@@ -26,6 +26,8 @@ export interface ProfileProps {
   onReplayTour: () => void;
   /** Opens the delete-account page (only used when accounts are on). */
   onOpenDeleteAccount?: () => void;
+  /** Opens the sign-in screen. */
+  onOpenSignIn?: () => void;
   onOpenActivity?: (a: Activity) => void;
   /** Changes when the screen should re-read the phone (a hike just finished, or the tab was opened). */
   version?: number;
@@ -48,7 +50,7 @@ function Switch({ on, onChange, label }: { on: boolean; onChange: (v: boolean) =
   );
 }
 
-export function Profile({ onOpenBadges, onReplayTour, onOpenDeleteAccount, onOpenActivity, version, preset }: ProfileProps) {
+export function Profile({ onOpenBadges, onReplayTour, onOpenDeleteAccount, onOpenSignIn, onOpenActivity, version, preset }: ProfileProps) {
   const { activities, trails, reload } = useHikes(preset);
   const [settings, setSettings] = useSettings();
   const accountsState = useAccountsState();   // off (not built in), unknown (flag not read yet), paused, or live
@@ -195,7 +197,7 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenDeleteAccount, onOpe
 
         <h2 className="pf-h">Settings</h2>
         <div className="pf-group">
-          {accountsState !== 'off' ? <AccountRow onOpenDelete={onOpenDeleteAccount} /> : (
+          {accountsState !== 'off' ? <AccountRow onOpenDelete={onOpenDeleteAccount} onSignIn={onOpenSignIn} /> : (
             <>
               <div className="pf-row pf-static" aria-label="Account: not signed in, optional">
                 <span>Account</span><span className="val">Not signed in · optional</span>

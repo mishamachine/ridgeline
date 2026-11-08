@@ -16,6 +16,6 @@ describe('the shipped privacy page carries the Accounts section exactly as the c
     expect(flagOn || true).toBe(true);
   });
   it('the final Apple line', () => {
-    expect(APPLE_PRIVACY_LINE).toBe("Apple, when Ridgeline shows the Sign in with Apple button on the web: your browser loads Apple's Sign in with Apple button from Apple's servers (appleid.cdn-apple.com). Apple sees your IP address and browser details. If you choose Apple, it handles your sign-in under its own privacy policy.");
+    expect(APPLE_PRIVACY_LINE).toBe("Apple, when you open the sign-in screen on the web: your browser loads Apple's Sign in with Apple button from Apple's servers (appleid.cdn-apple.com). Apple sees your IP address and browser details. If you choose Apple, it handles your sign-in under its own privacy policy.");
   });
 });

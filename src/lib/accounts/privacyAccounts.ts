@@ -1,7 +1,7 @@
 // The "Accounts" section of the privacy page. It is added to the built page ONLY when features.accounts is true
 // (see vite.config.ts), so the public text is never ahead of the behaviour it describes. Wording is the approved draft; do not paraphrase.
 /** The one line about Apple's web button. The host in it is tied to the script URL by a test. */
-export const APPLE_PRIVACY_LINE = "Apple, when Ridgeline shows the Sign in with Apple button on the web: your browser loads Apple's Sign in with Apple button from Apple's servers (appleid.cdn-apple.com). Apple sees your IP address and browser details. If you choose Apple, it handles your sign-in under its own privacy policy.";
+export const APPLE_PRIVACY_LINE = "Apple, when you open the sign-in screen on the web: your browser loads Apple's Sign in with Apple button from Apple's servers (appleid.cdn-apple.com). Apple sees your IP address and browser details. If you choose Apple, it handles your sign-in under its own privacy policy.";
 
 export const ACCOUNTS_SECTION_HTML = `<h2>Accounts (optional)</h2>
 <p><strong>Accounts (optional).</strong> You can use Ridgeline without an account. If you sign in with Google or Apple, we store:</p>

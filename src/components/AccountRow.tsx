@@ -1,23 +1,19 @@
 import { useState } from 'react';
 import { useAccountsState } from '../lib/accounts/flags';
-import { signIn, signOutKeeping, providersFor, type Provider } from '../lib/accounts/auth';
+import { signOutKeeping } from '../lib/accounts/auth';
 import { useAccount, type Account } from '../lib/accounts/useAccount';
-import { nativePlatform } from '../lib/native/platform';
-import { ProviderButton } from './ProviderButton';
 import './guestPrompt.css';
 
 /** Profile › Account: guest banner, sign in / out, and both delete options. Renders nothing while features.accounts is off. */
 export const PAUSED_NOTE = 'Sign-in is paused for now. Your hikes are safe on this phone.';
 
-export function AccountRow({ enabled, build, onOpenDelete, account }: { enabled?: boolean; build?: boolean; onOpenDelete?: () => void; /** Tests and previews: who is signed in. */ account?: Account }) {
+export function AccountRow({ enabled, build, onOpenDelete, onSignIn, account }: { enabled?: boolean; build?: boolean; onOpenDelete?: () => void; /** Opens the sign-in screen (the row has no provider buttons of its own). */ onSignIn?: () => void; /** Tests and previews: who is signed in. */ account?: Account }) {
   const state = useAccountsState(build, enabled);   // `enabled` forces on/off in tests and previews
   const live = state === 'live';
   // While paused the session is still read (never synced), so the person can still delete their data or their account.
   const read = useAccount(live || state === 'paused');
   const acct = account ?? read;
-  const [msg, setMsg] = useState('');
   const [leaving, setLeaving] = useState(false);
-  const [choosing, setChoosing] = useState(false);
   if (state === 'off' || state === 'unknown') return null;
   if (state === 'paused') {
     return (
@@ -28,12 +24,6 @@ export function AccountRow({ enabled, build, onOpenDelete, account }: { enabled?
       </div>
     );
   }
-
-  const go = async (p: Provider) => {
-    setMsg('');
-    const r = await signIn(p, live);
-    if (!r.ok && r.reason === 'failed') setMsg('Sign-in did not work. You can keep using Ridgeline without an account.');
-  };
 
   if (acct.signedIn && leaving) {
     return (
@@ -61,14 +51,8 @@ export function AccountRow({ enabled, build, onOpenDelete, account }: { enabled?
     <div className="pf-static" aria-label="Account: not signed in, optional">
       <div className="pf-row pf-static">
         <span>Not signed in. Your hikes are saved only on this phone.</span>
-        {!choosing && <button className="pf-link" onClick={() => setChoosing(true)}>Sign in</button>}
+        <button className="pf-link" onClick={onSignIn}>Sign in</button>
       </div>
-      {choosing && (
-        <div className="gp-btns" style={{ padding: '4px 14px 12px' }}>
-          {providersFor(nativePlatform()).map((p) => <ProviderButton key={p} provider={p} onClick={() => go(p)} />)}
-        </div>
-      )}
-      {msg && <p className="pf-note" role="status" style={{ margin: 0 }}>{msg}</p>}
     </div>
   );
 }
