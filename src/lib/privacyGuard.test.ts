@@ -28,6 +28,14 @@ describe('deletion timing on the privacy page', () => {
 describe('the Apple web button line', () => {
   const page = readFileSync('public/privacy/index.html', 'utf8');
   it('names the host the web button loads from, in the approved words', () => {
-    expect(page).toContain("Apple, when you open the sign-in screen on the web: your browser loads Apple's Sign in with Apple button from Apple's servers (appleid.cdn-apple.com). Apple sees your IP address and browser details. If you choose Apple, it handles your sign-in under its own privacy policy.");
+    expect(page).toContain("Apple, when Ridgeline shows the Sign in with Apple button on the web: your browser loads Apple's Sign in with Apple button from Apple's servers (appleid.cdn-apple.com). Apple sees your IP address and browser details. If you choose Apple, it handles your sign-in under its own privacy policy.");
+  });
+});
+
+describe('Apple on the privacy page', () => {
+  const page = readFileSync('public/privacy/index.html', 'utf8');
+  it('"tell Apple to disconnect" is promised only for deleting the whole account', () => {
+    expect(page).toContain('If you delete your whole account and you signed in with Apple on an iPhone, we also tell Apple to disconnect Ridgeline.');
+    expect(page).not.toContain('If you signed in with Apple on an iPhone, we also tell Apple');
   });
 });
