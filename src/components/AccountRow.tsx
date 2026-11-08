@@ -9,8 +9,8 @@ import './guestPrompt.css';
 /** Profile › Account: guest banner, sign in / out, and both delete options. Renders nothing while features.accounts is off. */
 export const PAUSED_NOTE = 'Sign-in is paused for now. Your hikes are safe on this phone.';
 
-export function AccountRow({ enabled, onOpenDelete }: { enabled?: boolean; onOpenDelete?: () => void }) {
-  const state = useAccountsState(undefined, enabled);   // `enabled` forces on/off in tests and previews
+export function AccountRow({ enabled, build, onOpenDelete }: { enabled?: boolean; build?: boolean; onOpenDelete?: () => void }) {
+  const state = useAccountsState(build, enabled);   // `enabled` forces on/off in tests and previews
   const live = state === 'live';
   const acct = useAccount(live);
   const [msg, setMsg] = useState('');
