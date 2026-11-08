@@ -12,3 +12,4 @@ end $$;
 drop function if exists ridgeline.sync_guard();
 drop function if exists ridgeline.delete_user_data(uuid);
 alter table ridgeline.profiles drop column if exists data_epoch;
+drop table if exists ridgeline.config;

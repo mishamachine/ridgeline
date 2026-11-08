@@ -1,7 +1,7 @@
 -- pgTAP tests for 20261107130000_ridgeline_sync.sql. Same rules as ridgeline_rls.test.sql: throwaway database only.
 begin;
 create extension if not exists pgtap;
-select plan(17);
+select plan(26);
 insert into auth.users (id) values ('00000000-0000-0000-0000-00000000000a');
 
 insert into ridgeline.shortlist (user_id, trail_id, updated_at) values ('00000000-0000-0000-0000-00000000000a', 'way/1', '2026-01-01T10:00:00Z');
@@ -54,5 +54,27 @@ select throws_ok($$delete from ridgeline.profiles$$, '42501', null, 'or delete t
 select is((select data_epoch from ridgeline.profiles), 2, 'but can read it');
 reset role;
 
+
+-- The pause switch: while paused, no write reaches the synced tables (even with a current epoch), but deleting works.
+insert into auth.users (id) values ('00000000-0000-0000-0000-00000000000f');
+insert into ridgeline.profiles (user_id) values ('00000000-0000-0000-0000-00000000000f');
+insert into ridgeline.shortlist (user_id, trail_id) values ('00000000-0000-0000-0000-00000000000f', 'before-pause');
+select is((select value from ridgeline.config where key = 'accounts_paused'), 'false'::jsonb, 'the pause row exists and starts off');
+set local role service_role;
+update ridgeline.config set value = 'true'::jsonb where key = 'accounts_paused';
+reset role;
+select throws_ok($$insert into ridgeline.shortlist (user_id, trail_id) values ('00000000-0000-0000-0000-00000000000f', 'during-pause')$$, 'RL002', null, 'paused: a new shortlist row is refused');
+select throws_ok($$update ridgeline.shortlist set deleted = true where trail_id = 'before-pause'$$, 'RL002', null, 'paused: an update is refused');
+select throws_ok($$insert into ridgeline.activities (user_id, id, started_at) values ('00000000-0000-0000-0000-00000000000f', 'h1', now())$$, 'RL002', null, 'paused: a hike is refused');
+select throws_ok($$insert into ridgeline.settings (user_id, data) values ('00000000-0000-0000-0000-00000000000f', '{}')$$, 'RL002', null, 'paused: settings are refused');
+select throws_ok($$insert into ridgeline.saved (user_id, trail_id) values ('00000000-0000-0000-0000-00000000000f', 's1')$$, 'RL002', null, 'paused: a saved trail is refused');
+set local role service_role;
+select lives_ok($$select ridgeline.delete_user_data('00000000-0000-0000-0000-00000000000f')$$, 'paused: delete_user_data still works');
+reset role;
+select is((select count(*)::int from ridgeline.shortlist where user_id = '00000000-0000-0000-0000-00000000000f'), 0, 'and it removed the data');
+set local role service_role;
+update ridgeline.config set value = 'false'::jsonb where key = 'accounts_paused';
+reset role;
+select lives_ok($$insert into ridgeline.shortlist (user_id, trail_id, epoch) values ('00000000-0000-0000-0000-00000000000f', 'after-resume', 1)$$, 'resumed: writes work again');
 select * from finish();
 rollback;
