@@ -3,9 +3,15 @@ import { features } from '../lib/features';
 import { getSettings } from '../lib/settings';
 import { signIn, providersFor } from '../lib/accounts/auth';
 import { useAccount } from '../lib/accounts/useAccount';
+import { ProviderButton } from './ProviderButton';
 import { canShow, dismiss, loadPromptState, markShown, savePromptState, type PromptKind } from '../lib/accounts/prompt';
 import { nativePlatform } from '../lib/native/platform';
 import './guestPrompt.css';
+
+/** Final copy. A shared card (first hike that also earns the first badge) uses the hike headline. */
+export const PROMPT_HEADLINE: Record<PromptKind, string> = { save: 'Keep your saved trails', hike: 'Keep this hike', badge: 'Keep your badges' };
+export const PROMPT_BODY = "Right now they're saved only on this phone. Sign in to keep them if you lose or switch phones.";
+const headlineFor = (kinds: PromptKind[]) => PROMPT_HEADLINE[kinds.includes('hike') ? 'hike' : kinds[0]];
 
 export interface GuestPromptProps {
   /** Which prompt kinds this card stands for. */
@@ -42,10 +48,10 @@ export function GuestPrompt({ kinds, trigger, hikeActive = false, tone = 'light'
 
   return (
     <section className={`gp gp-${tone}`} aria-labelledby="gp-h">
-      <h2 id="gp-h">Keep your hikes safe</h2>
-      <p>Right now your saved trails and hikes live only on this phone. Sign in to keep them if you lose or switch phones.</p>
+      <h2 id="gp-h">{headlineFor(kinds)}</h2>
+      <p>{PROMPT_BODY}</p>
       <div className="gp-btns">
-        {providersFor(nativePlatform()).map((p) => <button key={p} className="gp-btn" onClick={() => go(p)}>{p === 'apple' ? 'Continue with Apple' : 'Continue with Google'}</button>)}
+        {providersFor(nativePlatform()).map((p) => <ProviderButton key={p} provider={p} tone={tone} onClick={() => go(p)} />)}
       </div>
       {failed && <p role="status" className="gp-fail">Sign-in did not work. Your hikes are still safe on this phone.</p>}
       <button className="gp-later" onClick={notNow}>Not now</button>

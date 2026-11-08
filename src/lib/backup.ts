@@ -64,6 +64,9 @@ export function cleanActivity(a: unknown): Activity | null {
   if (a.rain !== undefined) out.rain = a.rain as boolean;
   if (a.unfinished !== undefined) out.unfinished = a.unfinished as boolean;
   if (a.snapshot !== undefined) { const sn = cleanSnapshot(a.snapshot); if (!sn) return null; out.snapshot = sn; }
+  if (a.trackOrigin === 'server') out.trackOrigin = 'server'; // a restored server route must still never be trimmed again
+  const sm = a.summary;
+  if (isObj(sm) && num(sm.distanceM) && num(sm.durationMs) && num(sm.climbM)) out.summary = { distanceM: sm.distanceM, durationMs: sm.durationMs, climbM: sm.climbM };
   return out;
 }
 

@@ -2,12 +2,13 @@ import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { canShow, dismiss, EMPTY_PROMPT_STATE, loadPromptState, markShown, savePromptState, MAX_DISMISSALS, PROMPT_KEY, type PromptContext, type PromptState } from './prompt';
 import { ACCOUNTS_SECTION_HTML, accountsFlagOn, injectAccountsSection } from './privacyAccounts';
-import { GuestPrompt } from '../../components/GuestPrompt';
+import { GuestPrompt, PROMPT_BODY, PROMPT_HEADLINE } from '../../components/GuestPrompt';
+import { ProviderButton } from '../../components/ProviderButton';
 import { AccountRow } from '../../components/AccountRow';
 import { Celebrate } from '../../screens/Celebrate';
 import { features } from '../features';
 import { readFileSync } from 'node:fs';
-import { Profile } from '../../screens/Profile';
+import { Profile, hikeDeleteText } from '../../screens/Profile';
 
 const ok: PromptContext = { accountsOn: true, signedIn: false, onboardingDone: true, hikeActive: false };
 const fresh = (): PromptState => ({ shown: {}, dismissals: 0 });
@@ -56,7 +57,7 @@ describe('flag OFF: no prompt and no account UI anywhere', () => {
     const a = renderToStaticMarkup(<Celebrate summary={summary} onDone={() => {}} onShareApp={() => {}} />);
     const b = renderToStaticMarkup(<Celebrate summary={summary} onDone={() => {}} onShareApp={() => {}} guestPrompt={<GuestPrompt kinds={['hike']} trigger />} />);
     expect(b).toBe(a);
-    expect(a).not.toContain('Keep your hikes safe');
+    expect(a).not.toContain('Keep this hike');
   });
   it('the flag is off in the shipped code', () => { expect(features.accounts).toBe(false); });
 });
@@ -67,14 +68,44 @@ describe('the card (preview with the flag on)', () => {
   });
   it('the celebration shows the card under Share when given one', () => {
     const summary = { trail: { id: 'osm-r1', name: 'Ledge', highlights: [] }, distanceM: 6000, climbFt: 1500, movingMs: 9_000_000, startedAt: 1, endedAt: 2, highlightsHit: [], completedFraction: 1, track: [] };
-    const h = renderToStaticMarkup(<Celebrate summary={summary} onDone={() => {}} onShareApp={() => {}} guestPrompt={<section className="gp">Keep your hikes safe</section>} />);
-    expect(h.indexOf('Share my hike')).toBeLessThan(h.indexOf('Keep your hikes safe'));
-    expect(h.indexOf('Keep your hikes safe')).toBeLessThan(h.indexOf('>Done<'));
+    const h = renderToStaticMarkup(<Celebrate summary={summary} onDone={() => {}} onShareApp={() => {}} guestPrompt={<section className="gp">Keep this hike</section>} />);
+    expect(h.indexOf('Share my hike')).toBeLessThan(h.indexOf('Keep this hike'));
+    expect(h.indexOf('Keep this hike')).toBeLessThan(h.indexOf('>Done<'));
   });
-  it('Profile › Account for a guest shows the banner and both providers', () => {
+  it('Profile › Account for a guest shows the final banner with a Sign in link; the providers appear after tapping it', () => {
     const h = renderToStaticMarkup(<AccountRow enabled />);
-    expect(h).toContain('Signed out: your hikes live only on this phone.');
-    expect(h).toContain('Continue with Apple');
+    expect(h).toContain('Not signed in. Your hikes are saved only on this phone.');
+    expect(h).toContain('>Sign in<');
+    expect(h).not.toContain('Continue with Apple');
+  });
+});
+
+describe('final prompt copy', () => {
+  it('headlines and body are verbatim', () => {
+    expect(PROMPT_HEADLINE).toEqual({ save: 'Keep your saved trails', hike: 'Keep this hike', badge: 'Keep your badges' });
+    expect(PROMPT_BODY).toBe("Right now they're saved only on this phone. Sign in to keep them if you lose or switch phones.");
+  });
+  it('the two buttons are the same size and weight; Apple has its exact wording and mark, Google does not', () => {
+    const apple = renderToStaticMarkup(<ProviderButton provider="apple" onClick={() => {}} />);
+    const google = renderToStaticMarkup(<ProviderButton provider="google" onClick={() => {}} />);
+    expect(apple).toContain('Continue with Apple');
+    expect(apple).toContain('<svg');
+    expect(google).toContain('Continue with Google');
+    expect(apple).toContain('class="gp-btn gp-btn-apple gp-on-light"');
+    expect(google).toContain('class="gp-btn gp-btn-google gp-on-light"');
+    const css = readFileSync('src/components/guestPrompt.css', 'utf8');
+    const rule = css.split('\n').find((l) => l.startsWith('.gp-btn {'))!; // one shared rule: same width, height, radius, weight
+    expect(rule).toContain('width: 100%');
+    expect(rule).toContain('min-height: 44px');
+    expect(rule).toContain('font: 600');
+    expect(css).toMatch(/gp-btn-apple\.gp-on-light \{ background: #000000; color: #FFFFFF/);
+  });
+});
+
+describe('deleting a hike while signed in', () => {
+  it('says it is deleted everywhere, on all signed-in phones', () => {
+    expect(hikeDeleteText(true)).toBe('Delete this hike everywhere? It is removed from your account and from every phone you are signed in on. This cannot be undone.');
+    expect(hikeDeleteText(false)).toBe('Delete this hike from your phone? This cannot be undone.');
   });
 });
 
@@ -112,6 +143,13 @@ describe('privacy page', () => {
       'Signing in to Ridgeline doesn\'t share your hikes with those apps', 'Usage counts are never linked to your account', 'we also tell Apple to disconnect Ridgeline', 'the name and profile picture Google or Apple share with us'])
       expect(ACCOUNTS_SECTION_HTML).toContain(s);
     expect(ACCOUNTS_SECTION_HTML).not.toMatch(/Babar|\[N\]|TODO/);
+  });
+  it('a page that carries the Accounts section only ships with the flag ON (fails if the privacy rewrite lands with the flag off)', () => {
+    const hasSection = page.includes('Accounts (optional)');
+    const flagOn = accountsFlagOn(readFileSync('src/lib/features.ts', 'utf8'));
+    if (hasSection) expect(flagOn, 'public/privacy/index.html describes accounts but features.accounts is false: flip the flag in the same change, or drop the rewrite').toBe(true);
+    // And the other way round: with the flag on, the built page always gets the section (from the source or the build step).
+    expect(injectAccountsSection(page, flagOn).includes('Accounts (optional)')).toBe(flagOn || hasSection);
   });
   it('does not add the section twice when the rewritten page already has it', () => {
     const rewritten = injectAccountsSection(page, true);

@@ -14,6 +14,7 @@ import { features } from '../lib/features';
 import { ChevronIcon } from '../components/Icons';
 import { PageHead } from '../components/PageHead';
 import { AccountRow } from '../components/AccountRow';
+import { useAccount } from '../lib/accounts/useAccount';
 import { BadgeMedal } from './Badges';
 import './profile.css';
 
@@ -31,6 +32,11 @@ export interface ProfileProps {
   preset?: { activities: Activity[]; trails: BadgeTrail[] };
 }
 
+/** The delete-hike question. Signed in, the hike is removed everywhere, so the question says so. */
+export const hikeDeleteText = (signedIn: boolean) => signedIn
+  ? 'Delete this hike everywhere? It is removed from your account and from every phone you are signed in on. This cannot be undone.'
+  : 'Delete this hike from your phone? This cannot be undone.';
+
 const trailCount = (b: Backup) => new Set([...b.saved.map((x) => x.trail.id), ...b.shortlist.map((x) => x.trail.id)]).size;
 
 function Switch({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: string }) {
@@ -44,6 +50,7 @@ function Switch({ on, onChange, label }: { on: boolean; onChange: (v: boolean) =
 export function Profile({ onOpenBadges, onReplayTour, onOpenDeleteAccount, onOpenActivity, version, preset }: ProfileProps) {
   const { activities, trails, reload } = useHikes(preset);
   const [settings, setSettings] = useSettings();
+  const signedIn = useAccount().signedIn;
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [storage, setStorage] = useState<{ used: number; quota: number } | null>(null);
   const [savedCount, setSavedCount] = useState(0);
@@ -172,7 +179,7 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenDeleteAccount, onOpe
                 )}
                 {confirmDelete === a.id && (
                   <div className="pf-confirm" role="alertdialog" aria-label={`Delete ${a.name}?`}>
-                    <p>Delete this hike from your phone? This cannot be undone.</p>
+                    <p>{hikeDeleteText(signedIn)}</p>
                     <div className="pf-actions" style={{ padding: 0 }}>
                       <button className="pf-btn danger" onClick={() => remove(a.id)}>Delete hike</button>
                       <button className="pf-btn" onClick={() => setConfirmDelete(null)}>Keep it</button>

@@ -25,11 +25,12 @@ const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinit
 export function activityToRow(userId: string, r: SyncRec, keepTracksLocal: boolean): Row {
   if (r.deleted || !r.payload) return { user_id: userId, id: r.id, started_at: iso(0), stats: {}, track: null, updated_at: iso(r.updatedAt), deleted: true };
   const a = r.payload as Activity;
-  const { id, trailId, startedAt, points, updatedAt: _u, summary: _s, ...rest } = a;
-  void id; void _u; void _s;
+  const { id, trailId, startedAt, points, updatedAt: _u, editedAt: _e, trackOrigin: _t, summary: _s, ...rest } = a;
+  void id; void _u; void _e; void _t; void _s;
   const stats = { ...rest, summary: points.length >= 2 ? { distanceM: trackDistance(points), durationMs: (a.endedAt ?? startedAt) - startedAt, climbM: activityClimb(a, a.snapshot).m } : a.summary };
   const row: Row = { user_id: userId, id: a.id, trail_id: trailId ?? null, started_at: iso(startedAt), stats, updated_at: iso(r.updatedAt), deleted: false };
-  if (!keepTracksLocal && points.length >= 2) row.track = trimTrack(points); // first and last 200 m removed; null when nothing is left
+  // Only a route recorded on this phone is uploaded, once, trimmed. A route that came from the server is already trimmed: sending it again would cut 200 m off each end per edit.
+  if (!keepTracksLocal && points.length >= 2 && a.trackOrigin !== 'server') row.track = trimTrack(points); // null when nothing is left
   return row;
 }
 

@@ -4,6 +4,7 @@ import type { LocalSource } from './local';
 import { winner, type Kind, type SyncRec } from './merge';
 import { activityToRow, fromRow, supabaseRemote, toRow } from './remote';
 import type { Activity } from '../store';
+import { mergeRemoteActivity } from './local';
 
 // A fake server with the same rules as the SQL: synced_at set on every write, stale writes ignored, future clocks clamped.
 class Server {
@@ -166,6 +167,43 @@ describe('phone only never blanks a route that is already uploaded', () => {
     const a = fromRow('activities', row)!.payload as Activity;
     expect(a.points).toEqual([]);
     expect(a.summary).toMatchObject({ durationMs: 3_600_000 });
+  });
+});
+
+describe('a route that came from the server is never trimmed or uploaded again', () => {
+  const full: Activity = { id: 'h1', name: 'Ledge', startedAt: 1_700_000_000_000, endedAt: 1_700_003_600_000, updatedAt: 1_700_003_700_000,
+    points: Array.from({ length: 81 }, (_, i) => ({ lon: -121.8, lat: 47.4 + i * 0.00045, alt: 300, acc: 5, t: i * 1000 })) }; // about 4 km
+  const rec = (a: Activity, edited = a.updatedAt!): SyncRec => ({ kind: 'activities', id: a.id, updatedAt: a.updatedAt!, editedAt: edited, deleted: false, payload: a });
+  // A server table that behaves like PostgREST upsert: only the columns sent are written.
+  const table = new Map<string, Record<string, unknown>>();
+  const client = { schema: () => ({ from: () => ({ upsert: async (rows: Record<string, unknown>[]) => { for (const r of rows) table.set(String(r.id), { ...table.get(String(r.id)), ...r }); return { error: null }; } }) }) };
+
+  it('an edit on a second phone does not shrink the route on the server', async () => {
+    await supabaseRemote(client as never, 'u1', () => false).push('activities', [rec(full)]);           // phone A uploads once, trimmed
+    const uploaded = (table.get('h1')!.track as unknown[]).length;
+    expect(uploaded).toBeGreaterThan(0);
+    expect(uploaded).toBeLessThan(full.points.length);
+    // Phone B pulls it and edits (marks the hike "with dog"), several times.
+    let b = mergeRemoteActivity(undefined, fromRow('activities', { ...table.get('h1'), synced_at: '2026-11-08T10:00:00Z' })!.payload as Activity, 1);
+    expect(b.trackOrigin).toBe('server');
+    for (let i = 0; i < 3; i++) {
+      b = { ...b, withDog: i % 2 === 0, updatedAt: 2 + i };
+      await supabaseRemote(client as never, 'u1', () => false).push('activities', [rec(b, 10 + i)]);
+    }
+    expect((table.get('h1')!.track as unknown[]).length).toBe(uploaded);                                  // unchanged after three edits
+    expect((table.get('h1')!.stats as { withDog: boolean }).withDog).toBe(true);                          // the edit itself did sync
+  });
+  it('a route recorded on this phone still uploads (trimmed once)', () => {
+    expect('track' in activityToRow('u1', rec(full), false)).toBe(true);
+    expect('track' in activityToRow('u1', rec({ ...full, trackOrigin: 'server' }), false)).toBe(false);
+  });
+  it('merging: the server route is marked, a longer local route is kept and keeps its own mark', () => {
+    const fromServer = { ...full, points: full.points.slice(5, 70) };
+    expect(mergeRemoteActivity(undefined, fromServer, 9).trackOrigin).toBe('server');
+    const kept = mergeRemoteActivity(full, fromServer, 9);
+    expect(kept.points).toHaveLength(81);
+    expect(kept.trackOrigin).toBeUndefined();
+    expect(mergeRemoteActivity({ ...full, points: [], summary: { distanceM: 1, durationMs: 1, climbM: 1 } }, { ...full, points: [] }, 9).trackOrigin).toBeUndefined();
   });
 });
 

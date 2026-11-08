@@ -3,14 +3,15 @@ import { features } from '../lib/features';
 import { signIn, signOutKeeping, providersFor, type Provider } from '../lib/accounts/auth';
 import { useAccount } from '../lib/accounts/useAccount';
 import { nativePlatform } from '../lib/native/platform';
-
-const LABEL: Record<Provider, string> = { apple: 'Continue with Apple', google: 'Continue with Google' };
+import { ProviderButton } from './ProviderButton';
+import './guestPrompt.css';
 
 /** Profile › Account: guest banner, sign in / out, and both delete options. Renders nothing while features.accounts is off. */
 export function AccountRow({ enabled = features.accounts, onOpenDelete }: { enabled?: boolean; onOpenDelete?: () => void }) {
   const acct = useAccount(enabled);
   const [msg, setMsg] = useState('');
   const [leaving, setLeaving] = useState(false);
+  const [choosing, setChoosing] = useState(false);
   if (!enabled) return null;
 
   const go = async (p: Provider) => {
@@ -43,11 +44,15 @@ export function AccountRow({ enabled = features.accounts, onOpenDelete }: { enab
   }
   return (
     <div className="pf-static" aria-label="Account: not signed in, optional">
-      <div className="pf-row pf-static"><span>Account</span><span className="val">Not signed in · optional</span></div>
-      <p className="pf-note pf-static" style={{ margin: 0, paddingTop: 8 }}>Signed out: your hikes live only on this phone.</p>
-      {providersFor(nativePlatform()).map((p) => (
-        <button key={p} className="pf-row" onClick={() => go(p)}>{LABEL[p]}</button>
-      ))}
+      <div className="pf-row pf-static">
+        <span>Not signed in. Your hikes are saved only on this phone.</span>
+        {!choosing && <button className="pf-link" onClick={() => setChoosing(true)}>Sign in</button>}
+      </div>
+      {choosing && (
+        <div className="gp-btns" style={{ padding: '4px 14px 12px' }}>
+          {providersFor(nativePlatform()).map((p) => <ProviderButton key={p} provider={p} onClick={() => go(p)} />)}
+        </div>
+      )}
       {msg && <p className="pf-note" role="status" style={{ margin: 0 }}>{msg}</p>}
     </div>
   );

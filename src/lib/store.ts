@@ -44,6 +44,8 @@ export interface Activity {
   updatedAt?: number;
   /** Totals kept with a hike whose route lives on another phone ("Keep hike tracks on this phone only"). Only read when there are no points. */
   summary?: { distanceM: number; durationMs: number; climbM: number };
+  /** 'server' when `points` is the (already trimmed) route taken from the server. Such a route is never trimmed again or uploaded again. */
+  trackOrigin?: 'server';
   /** Local edit stamp (see SavedTrail). */
   editedAt?: number;
 }

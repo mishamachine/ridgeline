@@ -24,6 +24,19 @@ export function readEdit(): number {
   try { return Number(localStorage.getItem(SETTINGS_EDIT_KEY)) || 0; } catch { return 0; }
 }
 
+/**
+ * A hike that won from the server. The server holds a trimmed route (or none): a longer route kept on this phone is never replaced by it,
+ * and a route that did come from the server is marked, so it is never trimmed or uploaded again.
+ */
+export function mergeRemoteActivity(local: Activity | undefined, remote: Activity, updatedAt: number): Activity {
+  const keepLocal = !!local && local.points.length >= remote.points.length;
+  const points = keepLocal ? local!.points : remote.points;
+  const trackOrigin: Activity['trackOrigin'] = keepLocal ? local!.trackOrigin : remote.points.length ? 'server' : undefined;
+  const out: Activity = { ...remote, points, updatedAt };
+  if (trackOrigin) out.trackOrigin = trackOrigin; else delete out.trackOrigin;
+  return out;
+}
+
 export const idbLocal: LocalSource = {
   async readAll(kind) {
     const tombs = kind === 'settings' ? [] : (await listTombstones()).filter((t) => t.kind === kind)
@@ -56,9 +69,7 @@ export const idbLocal: LocalSource = {
     if (kind === 'activities') {
       const a = p as Activity | null;
       if (!a) return;
-      const local = await getActivity(r.id);
-      // The server holds a trimmed route (or none). Never replace a full local route with it.
-      await putActivityRaw({ ...a, points: local && local.points.length >= a.points.length ? local.points : a.points, updatedAt: r.updatedAt });
+      await putActivityRaw(mergeRemoteActivity(await getActivity(r.id), a, r.updatedAt));
       return;
     }
     const trail = cleanTrail((p as { trail?: unknown } | null)?.trail) as Trail | null;

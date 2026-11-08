@@ -110,10 +110,8 @@ describe('accounts flag OFF (the shipped state): the app behaves as before', () 
   });
   it('the Profile account row renders nothing', () => { expect(renderToStaticMarkup(<AccountRow />)).toBe(''); });
   it('with the flag on (preview only) it offers sign-in', () => {
-    // hooks need a render; check the server render of the component
     const h = renderToStaticMarkup(<AccountRow enabled />);
-    expect(h).toContain('Continue with Apple');
-    expect(h).toContain('Continue with Google');
-    expect(h).toContain('optional');
+    expect(h).toContain('Not signed in. Your hikes are saved only on this phone.');
+    expect(h).toContain('>Sign in<');
   });
 });
