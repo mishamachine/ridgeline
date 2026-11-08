@@ -18,9 +18,20 @@ begin
   end loop;
 end $$;
 
+-- The pause switch: one row in ridgeline.config. While 'accounts_paused' is true, every write to the four synced tables is refused (RL002), so even an
+-- old client cannot sync. Deleting still works: delete_user_data only deletes (no trigger on delete) and bumps the profile. Service role sets the row.
+create table ridgeline.config (key text primary key, value jsonb not null);
+alter table ridgeline.config enable row level security;
+revoke all on ridgeline.config from public, anon, authenticated;
+grant select, insert, update, delete on ridgeline.config to service_role;
+insert into ridgeline.config (key, value) values ('accounts_paused', 'false'::jsonb);
+
 create function ridgeline.sync_guard() returns trigger
-language plpgsql set search_path = '' as $$
+language plpgsql security definer set search_path = '' as $$
 begin
+  if coalesce((select c.value from ridgeline.config c where c.key = 'accounts_paused'), 'false'::jsonb) = 'true'::jsonb then
+    raise exception 'ridgeline: sign-in is paused' using errcode = 'RL002';
+  end if;
   -- Shared lock: delete_user_data takes the exclusive one, so a write is either seen by the delete or refused after it.
   perform pg_advisory_xact_lock_shared(hashtextextended('ridgeline:epoch:' || new.user_id::text, 0));
   if new.epoch < coalesce((select p.data_epoch from ridgeline.profiles p where p.user_id = new.user_id), 0) then
