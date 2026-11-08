@@ -1,9 +1,10 @@
 /// <reference types="vitest/config" />
-import { copyFileSync, existsSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { accountsFlagOn, injectAccountsSection } from './src/lib/accounts/privacyAccounts';
 
 // BASE_PATH is set at deploy time for GitHub Pages (e.g. "/ridgeline/").
 const base = process.env.BASE_PATH ?? '/';
@@ -17,6 +18,20 @@ const spaFallback: Plugin = {
   closeBundle() {
     const dir = outDir;
     if (existsSync(join(dir, 'index.html'))) copyFileSync(join(dir, 'index.html'), join(dir, '404.html'));
+  },
+};
+
+// The privacy page gets its "Accounts" section only when features.accounts is true: the text ships with the behaviour, never before it.
+let privacyOut = 'dist';
+const privacyAccounts: Plugin = {
+  name: 'privacy-accounts',
+  apply: 'build',
+  configResolved(config) { privacyOut = join(config.root, config.build.outDir); },
+  closeBundle() {
+    const f = join(privacyOut, 'privacy', 'index.html');
+    if (!existsSync(f)) return;
+    const on = accountsFlagOn(readFileSync(join('src', 'lib', 'features.ts'), 'utf8'));
+    writeFileSync(f, injectAccountsSection(readFileSync(f, 'utf8'), on));
   },
 };
 
@@ -41,6 +56,7 @@ export default defineConfig(({ mode }) => ({
   server: process.env.TRAILS_PROXY ? { proxy: { '/trails': { target: process.env.TRAILS_PROXY, changeOrigin: true } } } : {},
   plugins: [
     react(),
+    privacyAccounts,
     {
       // The GitHub Pages copy (BASE_PATH other than "/") must not compete with the canonical host.
       name: 'noindex-pages-copy',

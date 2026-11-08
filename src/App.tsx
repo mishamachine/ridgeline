@@ -16,6 +16,7 @@ import { features } from './lib/features';
 import { closeAbandoned } from './lib/abandoned';
 import { getSettings, shouldShowOnboarding } from './lib/settings';
 import { shareApp } from './lib/share';
+import { isFinished } from './lib/hype';
 import { toast } from './lib/toast';
 import { detectPlatform } from './lib/maps';
 import { toCelebrateSummary } from './components/nav/summary';
@@ -34,6 +35,8 @@ import { Find } from './screens/Find';
 import { Hike } from './screens/Hike';
 import { Saved } from './screens/Saved';
 import { Onboarding } from './screens/Onboarding';
+import { GuestPrompt } from './components/GuestPrompt';
+import type { PromptKind } from './lib/accounts/prompt';
 
 // Screens people reach later load on demand (Find, Saved, Hike and the first-run tour stay in the first download);
 // each shows the static Bobo loading state for the moment it takes. Navigate and the maps carry MapLibre.
@@ -75,7 +78,7 @@ export function App() {
   const [saved, setSaved] = useState<{ marked: Set<string>; offline: Set<string>; version: number }>({ marked: new Set(), offline: new Set(), version: 0 });
   const [removing, setRemoving] = useState<Trail | null>(null);
   const [onboarding, setOnboarding] = useState<null | 'first' | 'replay'>(() => (shouldShowOnboarding() ? (getSettings().onboardingSeen ? 'replay' : 'first') : null));
-  const [done, setDone] = useState<{ summary: HikeSummary; newBadges: Badge[]; badgeCount: number } | null>(null); // the celebration, once features.celebrate is on
+  const [done, setDone] = useState<{ summary: HikeSummary; newBadges: Badge[]; badgeCount: number; promptKinds: PromptKind[] } | null>(null); // the celebration, once features.celebrate is on
   const [landing, setLanding] = useState<{ id: string; name: string | null } | null>(null);
   const [profileVersion, setProfileVersion] = useState(0);
   useEffect(() => { setHikeActive(!!hike || !!done); }, [hike, done]); // an update never reloads under a hike or its celebration
@@ -169,15 +172,19 @@ export function App() {
 
   const finishHike = useCallback(async (t: Trail, summary: Parameters<typeof toCelebrateSummary>[0], activity: Activity) => {
     let newBadges: Badge[] = [], badgeCount = 0;
+    const promptKinds: PromptKind[] = []; // which guest prompts this finish stands for (the first finished hike, its first badge)
     try {
       const [others, savedTrails] = await Promise.all([listActivities(), listSaved()]);
       const trails = [t, ...savedTrails.map((x) => x.trail).filter((x) => x.id !== t.id)];
       newBadges = newBadgesFor(activity, others, trails);
+      const firstFinished = isFinished(summary.completedFraction) && !others.some((o) => o.id !== activity.id && o.endedAt !== undefined && !o.unfinished);
+      if (firstFinished) promptKinds.push('hike');
       badgeCount = computeBadges([...others.filter((o) => o.id !== activity.id), activity], trails).filter((b) => b.earned).length;
+      if (newBadges.length > 0 && badgeCount === newBadges.length) promptKinds.push('badge');
     } catch { /* storage unavailable: no badge line */ }
     setHike(null);
     setProfileVersion((v) => v + 1);
-    if (features.celebrate) setDone({ summary: toCelebrateSummary(summary), newBadges, badgeCount });
+    if (features.celebrate) setDone({ summary: toCelebrateSummary(summary), newBadges, badgeCount, promptKinds });
     else { if (newBadges.length) toast(`New badge: ${newBadges[0].name}`); openTrail(t); }
   }, [openTrail]);
 
@@ -211,14 +218,14 @@ export function App() {
         <Find tpl={tpl} visible={tab === 'find'} savedIds={saved.marked} offlineIds={saved.offline} onOpen={openTrail} onOpenId={openId} onToggleSave={toggleSave} />
       </div>
       <div className="screen" hidden={tab !== 'saved'}>
-        <Saved visible={tab === 'saved'} version={saved.version} onOpen={openTrail} onChange={refreshSaved} onFind={() => goTab('find')} />
+        <Saved visible={tab === 'saved'} version={saved.version} renderPrompt={(has) => <GuestPrompt kinds={['save']} trigger={has && tab === 'saved'} hikeActive={!!hike} />} onOpen={openTrail} onChange={refreshSaved} onFind={() => goTab('find')} />
       </div>
       <div className="screen" hidden={tab !== 'hike' || !!hike}>
         <Hike visible={tab === 'hike' && !hike} version={saved.version} onStart={startHike} onFind={() => goTab('find')} onResume={resumeHike} />
       </div>
       {profileOpened.current && (
         <div className="screen" hidden={tab !== 'profile'}>
-          <Later><Profile version={profileVersion} onOpenBadges={() => go({ kind: 'badges' })} onReplayTour={() => setOnboarding('replay')} onOpenActivity={openActivity} /></Later>
+          <Later><Profile version={profileVersion} onOpenDeleteAccount={() => go({ kind: 'account-delete' })} onOpenBadges={() => go({ kind: 'badges' })} onReplayTour={() => setOnboarding('replay')} onOpenActivity={openActivity} /></Later>
         </div>
       )}
 
@@ -252,6 +259,7 @@ export function App() {
       {done && (
         <div className="screen overlay">
           <Later><Celebrate summary={done.summary} newBadges={done.newBadges} badgeCount={done.badgeCount}
+            guestPrompt={done.promptKinds.length ? <GuestPrompt kinds={done.promptKinds} trigger tone="dark" /> : undefined}
             onDone={() => { setDone(null); go({ kind: 'tab', tab: 'profile' }); }} onShareApp={shareApp} /></Later>
         </div>
       )}

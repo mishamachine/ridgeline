@@ -22,6 +22,8 @@ const base = import.meta.env.BASE_URL ?? '/';
 export interface ProfileProps {
   onOpenBadges: () => void;
   onReplayTour: () => void;
+  /** Opens the delete-account page (only used when accounts are on). */
+  onOpenDeleteAccount?: () => void;
   onOpenActivity?: (a: Activity) => void;
   /** Changes when the screen should re-read the phone (a hike just finished, or the tab was opened). */
   version?: number;
@@ -39,7 +41,7 @@ function Switch({ on, onChange, label }: { on: boolean; onChange: (v: boolean) =
   );
 }
 
-export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, version, preset }: ProfileProps) {
+export function Profile({ onOpenBadges, onReplayTour, onOpenDeleteAccount, onOpenActivity, version, preset }: ProfileProps) {
   const { activities, trails, reload } = useHikes(preset);
   const [settings, setSettings] = useSettings();
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -180,12 +182,22 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, version, p
 
         <h2 className="pf-h">Settings</h2>
         <div className="pf-group">
-          {features.accounts ? <AccountRow /> : (
+          {features.accounts ? <AccountRow onOpenDelete={onOpenDeleteAccount} /> : (
             <>
               <div className="pf-row pf-static" aria-label="Account: not signed in, optional">
                 <span>Account</span><span className="val">Not signed in · optional</span>
               </div>
               <p className="pf-note pf-static" style={{ margin: 0, paddingTop: 8 }}>Ridgeline works without an account. Optional sign-in may come later; nothing to do now.</p>
+            </>
+          )}
+
+          {features.accounts && (
+            <>
+              <div className="pf-row">
+                <span>Keep hike tracks on this phone only</span>
+                <Switch on={settings.keepTracksLocal} onChange={(v) => setSettings({ keepTracksLocal: v })} label="Keep hike tracks on this phone only" />
+              </div>
+              <p className="pf-note" style={{ margin: 0 }}>When you are signed in, hike routes are not uploaded. Your hike list and stats still sync; the first and last 200 m of any route are always left out.</p>
             </>
           )}
 

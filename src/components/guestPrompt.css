@@ -1,0 +1,9 @@
+.gp { border-radius: 14px; padding: 14px 16px; text-align: left; }
+.gp h2 { margin: 0 0 4px; font: 700 16px var(--text); }
+.gp p { margin: 0 0 10px; font-size: 14px; line-height: 1.4; }
+.gp-light { background: #FBFBF9; border: 1px solid #EDEDEA; color: var(--ink); }
+.gp-dark { background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.25); color: #FFFFFF; }
+.gp-btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.gp-btn { min-height: 44px; padding: 0 14px; border-radius: 12px; font: 600 14px var(--text); border: 2px solid currentColor; background: transparent; color: inherit; }
+.gp-later { min-height: 44px; margin-top: 4px; background: none; border: 0; color: inherit; font: 600 14px var(--text); text-decoration: underline; }
+.gp .gp-fail { margin: 6px 0 0; }

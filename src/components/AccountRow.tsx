@@ -6,8 +6,8 @@ import { nativePlatform } from '../lib/native/platform';
 
 const LABEL: Record<Provider, string> = { apple: 'Continue with Apple', google: 'Continue with Google' };
 
-/** Sign in / sign out in Profile. Renders nothing while features.accounts is off. The full Account screen comes in a later PR. */
-export function AccountRow({ enabled = features.accounts }: { enabled?: boolean }) {
+/** Profile › Account: guest banner, sign in / out, and both delete options. Renders nothing while features.accounts is off. */
+export function AccountRow({ enabled = features.accounts, onOpenDelete }: { enabled?: boolean; onOpenDelete?: () => void }) {
   const acct = useAccount(enabled);
   const [msg, setMsg] = useState('');
   const [leaving, setLeaving] = useState(false);
@@ -31,15 +31,20 @@ export function AccountRow({ enabled = features.accounts }: { enabled?: boolean 
   }
   if (acct.signedIn) {
     return (
-      <div className="pf-row pf-static" aria-label="Account: signed in">
-        <span>Signed in with {acct.provider === 'apple' ? 'Apple' : 'Google'}{acct.email ? ` · ${acct.email}` : ''}</span>
-        <button className="pf-link" onClick={() => setLeaving(true)}>Sign out</button>
+      <div className="pf-static" aria-label="Account: signed in">
+        <div className="pf-row pf-static">
+          <span>Signed in with {acct.provider === 'apple' ? 'Apple' : 'Google'}{acct.email ? ` · ${acct.email}` : ''}</span>
+          <button className="pf-link" onClick={() => setLeaving(true)}>Sign out</button>
+        </div>
+        {onOpenDelete && <button className="pf-row" onClick={onOpenDelete}>Delete my Ridgeline data</button>}
+        {onOpenDelete && <button className="pf-row" onClick={onOpenDelete}>Delete my whole account</button>}
       </div>
     );
   }
   return (
     <div className="pf-static" aria-label="Account: not signed in, optional">
       <div className="pf-row pf-static"><span>Account</span><span className="val">Not signed in · optional</span></div>
+      <p className="pf-note pf-static" style={{ margin: 0, paddingTop: 8 }}>Signed out: your hikes live only on this phone.</p>
       {providersFor(nativePlatform()).map((p) => (
         <button key={p} className="pf-row" onClick={() => go(p)}>{LABEL[p]}</button>
       ))}
