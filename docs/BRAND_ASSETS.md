@@ -20,4 +20,12 @@ How the guidelines are followed: the button is the artwork itself (so its fill, 
 
 ## Apple: Sign in with Apple
 
-**Not added yet.** Apple's logo bundle is a disk image on a different host (`devimages-cdn.apple.com/design/resources/download/Logo-Sign-in-with-Apple.dmg`, linked from https://developer.apple.com/design/resources/), and its button files are on Figma and Sketch. Until that is approved, the Apple button is drawn: black (white on a dark card), the Apple mark, and Apple's wording "Continue with Apple", at the same size as Google's button. It should be replaced by Apple's official artwork. On iOS a native `ASAuthorizationAppleIDButton` can follow later if App Review asks.
+**No Apple artwork is in the repo, and no Apple licence has been accepted.** Apple's logo bundle (`Logo-Sign-in-with-Apple.dmg`, devimages-cdn.apple.com) carries a click-through licence that does not allow copying or redistributing the artwork, and this repo is public. The bundle and the licence text were only inspected, outside the repo, and are not committed.
+
+Instead the button is always Apple's own control, with Apple's own wording "Sign in with Apple" (type `sign-in`), at the same size as Google's button:
+
+- **iOS app:** the system button `ASAuthorizationAppleIDButton` (type `.signIn`; black, or white on a dark background) through the local plugin `RidgelineAppleButton` (`ios/App/App/HikePlugin.swift`, `src/lib/native/appleButtonPlugin.ts`). **Not tested on a device or simulator** (built in CI only).
+- **Web:** Apple's Sign in with Apple JS button. The script URL, as given in Apple's documentation ("Displaying Sign in with Apple buttons on the web" and "Configuring your webpage for Sign in with Apple", checked 8 Nov 2026), is exactly
+  `https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js`
+  (host `appleid.cdn-apple.com`). It is added to the page only when the web sign-in screen shows the Apple button, only while accounts are live (built in AND the runtime flag on, never while paused), and never in the iOS or Android apps. It is the only place this URL appears (`src/lib/accounts/appleWeb.ts`). Loading it contacts Apple (IP address and browser details); the privacy Accounts section says so.
+- **Android:** Google only.
