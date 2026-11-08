@@ -3,7 +3,7 @@
 // so deleting the whole account can later tell Apple to disconnect Ridgeline (App Store 5.1.1(v)).
 // Secrets (set in the Supabase dashboard, never in the repo): APPLE_TEAM_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY, APPLE_BUNDLE_ID.
 // SUPABASE_URL, SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY are provided by the platform.
-import { createClient } from 'npm:@supabase/supabase-js@2.119.0';
+import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { appleClientSecret, exchangeAppleCode } from '../_shared/apple.ts';
 
 const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type, apikey, x-client-info', 'access-control-allow-methods': 'POST, OPTIONS' };
@@ -22,14 +22,17 @@ Deno.serve(async (req) => {
   try { code = String((await req.json()).code ?? ''); } catch { /* falls through */ }
   if (!code || code.length > 2000) return reply(400, { error: 'code' });
 
+  // Only a caller who signed in with Apple can park an Apple token: check BEFORE spending the code on Apple.
+  const apple = (u.user.identities ?? []).find((i) => i.provider === 'apple');
+  if (!apple) return reply(403, { error: 'no apple identity' });
+
   const env = (k: string) => Deno.env.get(k) ?? '';
   const clientId = env('APPLE_BUNDLE_ID') || 'com.bbprojectfactory.ridgeline';
   try {
     const secret = await appleClientSecret({ teamId: env('APPLE_TEAM_ID'), keyId: env('APPLE_KEY_ID'), privateKeyPem: env('APPLE_PRIVATE_KEY') }, clientId);
     const t = await exchangeAppleCode(fetch, clientId, secret, code);
     // The token must belong to the Apple identity of the caller, or anyone could park a token on someone else's account.
-    const apple = (u.user.identities ?? []).find((i) => i.provider === 'apple');
-    if (!apple || apple.identity_data?.sub !== t.sub) return reply(403, { error: 'identity mismatch' });
+    if (apple.identity_data?.sub !== t.sub) return reply(403, { error: 'identity mismatch' });
     const admin = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
     const { error: e } = await admin.schema('ridgeline').rpc('store_apple_token', { p_user: u.user.id, p_token: t.refreshToken });
     if (e) throw e;

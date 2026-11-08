@@ -100,13 +100,26 @@ export async function completeWebSignIn(c: SupabaseClient): Promise<boolean> {
 export const isCallbackPath = (pathname: string, base = '/') => pathname.replace(/\/+$/, '') === (base.replace(/\/?$/, '/') + CALLBACK_PATH);
 
 export type DeleteScope = 'data' | 'account';
+export type AppleResult = 'revoked' | 'manual' | 'none';
+/** ok: done. partial: the Ridgeline data is gone but the account could not be closed (still signed in, so the person can try again). failed: nothing was deleted. */
+export type DeleteResult = { status: 'ok'; apple: AppleResult } | { status: 'partial'; apple: AppleResult } | { status: 'failed' };
 
-/** Calls the delete-account Edge Function. 'data' keeps the shared account; 'account' removes it everywhere (Apple is disconnected first). */
-export async function deleteMyAccount(scope: DeleteScope, c: Pick<SupabaseClient, 'functions' | 'auth'>): Promise<boolean> {
-  const { error } = await c.functions.invoke('delete-account', { body: { scope } });
-  if (error) return false;
-  if (scope === 'account') { try { await c.auth.signOut({ scope: 'local' }); } catch { /* the user no longer exists */ } }
-  return true;
+const defaultWipe = async () => (await import('../sync/local')).wipeLocalAccountData();
+
+/**
+ * Calls the delete-account Edge Function and then makes this phone match.
+ * After a delete (or a partial one) the synced copies and sync cursors on the phone are cleared, otherwise the next sync
+ * would upload everything again. 'data' also signs out, so nothing is uploaded until the person signs in on purpose.
+ */
+export async function deleteMyAccount(scope: DeleteScope, c: Pick<SupabaseClient, 'functions' | 'auth'>, wipe: () => Promise<void> = defaultWipe): Promise<DeleteResult> {
+  const { data, error } = await c.functions.invoke('delete-account', { body: { scope } });
+  const r = data as { status?: string; apple?: AppleResult } | null;
+  if (error || !r || (r.status !== 'ok' && r.status !== 'partial')) return { status: 'failed' };
+  const apple: AppleResult = r.apple === 'revoked' || r.apple === 'manual' ? r.apple : 'none';
+  if (r.status === 'partial') { await wipe(); return { status: 'partial', apple }; }
+  try { await c.auth.signOut({ scope: 'local' }); } catch { /* the user may no longer exist */ }
+  await wipe();
+  return { status: 'ok', apple };
 }
 
 /** Sign out, then optionally forget the account's records on this phone. */
