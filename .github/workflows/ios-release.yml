@@ -47,6 +47,9 @@ jobs:
       - name: Web build (native) + cap sync ios
         if: env.HAS_SECRETS == 'true'
         run: npm ci && npm run build:ios
+      - name: No Facebook or Twitter SDK in the release build
+        if: env.HAS_SECRETS == 'true'
+        run: bash scripts/check-no-social-sdks.sh ios
       - name: API key
         if: env.HAS_SECRETS == 'true'
         env:

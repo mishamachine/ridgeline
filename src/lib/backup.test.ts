@@ -3,8 +3,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const db = { saved: new Map<string, unknown>(), acts: new Map<string, unknown>(), sl: new Map<string, unknown>() };
 vi.mock('./store', () => ({
   getSaved: async (id: string) => db.saved.get(id),
-  putSaved: async (s: { trail: { id: string } }) => { db.saved.set(s.trail.id, s); },
-  putActivity: async (a: { id: string }) => { db.acts.set(a.id, a); },
+  restoreSaved: async (s: { trail: { id: string } }) => { db.saved.set(s.trail.id, s); },
+  restoreActivity: async (a: { id: string }) => { db.acts.set(a.id, a); },
   getShortlisted: async (id: string) => db.sl.get(id),
   restoreShortlisted: async (m: { trail: { id: string } }) => { db.sl.set(m.trail.id, m); },
   listShortlisted: async () => [...db.sl.values()],

@@ -9,7 +9,7 @@ import { getUnits, getVoiceOn, setVoiceOn } from './voice/prefs';
 beforeEach(() => { mem.clear(); updateSettings(DEFAULT_SETTINGS); });
 
 describe('settings', () => {
-  it('starts with sensible defaults', () => expect(DEFAULT_SETTINGS).toEqual({ voice: true, units: 'imperial', withDogDefault: false, onboardingSeen: false }));
+  it('starts with sensible defaults', () => expect(DEFAULT_SETTINGS).toEqual({ voice: true, units: 'imperial', withDogDefault: false, onboardingSeen: false, keepTracksLocal: false }));
   it('sanitize drops unknown keys and wrong types', () => {
     expect(sanitize({ voice: 'x', units: 'metric', extra: 1 })).toEqual({ ...DEFAULT_SETTINGS, units: 'metric' });
     expect(sanitize(null)).toEqual(DEFAULT_SETTINGS);

@@ -13,6 +13,8 @@ import { shareApp } from '../lib/share';
 import { features } from '../lib/features';
 import { ChevronIcon } from '../components/Icons';
 import { PageHead } from '../components/PageHead';
+import { AccountRow } from '../components/AccountRow';
+import { useAccount } from '../lib/accounts/useAccount';
 import { BadgeMedal } from './Badges';
 import './profile.css';
 
@@ -21,12 +23,19 @@ const base = import.meta.env.BASE_URL ?? '/';
 export interface ProfileProps {
   onOpenBadges: () => void;
   onReplayTour: () => void;
+  /** Opens the delete-account page (only used when accounts are on). */
+  onOpenDeleteAccount?: () => void;
   onOpenActivity?: (a: Activity) => void;
   /** Changes when the screen should re-read the phone (a hike just finished, or the tab was opened). */
   version?: number;
   /** Previews and tests only: skip reading the phone. */
   preset?: { activities: Activity[]; trails: BadgeTrail[] };
 }
+
+/** The delete-hike question. Signed in, the hike is removed everywhere, so the question says so. */
+export const hikeDeleteText = (signedIn: boolean) => signedIn
+  ? 'Delete this hike everywhere? It is removed from your account and from every phone you are signed in on. This cannot be undone.'
+  : 'Delete this hike from your phone? This cannot be undone.';
 
 const trailCount = (b: Backup) => new Set([...b.saved.map((x) => x.trail.id), ...b.shortlist.map((x) => x.trail.id)]).size;
 
@@ -38,9 +47,10 @@ function Switch({ on, onChange, label }: { on: boolean; onChange: (v: boolean) =
   );
 }
 
-export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, version, preset }: ProfileProps) {
+export function Profile({ onOpenBadges, onReplayTour, onOpenDeleteAccount, onOpenActivity, version, preset }: ProfileProps) {
   const { activities, trails, reload } = useHikes(preset);
   const [settings, setSettings] = useSettings();
+  const signedIn = useAccount().signedIn;
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [storage, setStorage] = useState<{ used: number; quota: number } | null>(null);
   const [savedCount, setSavedCount] = useState(0);
@@ -61,7 +71,7 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, version, p
   const badges = computeBadges(activities, trails);
   const next = nextBadge(badges);
   const earned = badges.filter((b) => b.earned).length;
-  const recorded = activities.filter((a) => a.points.length >= 2);
+  const recorded = activities.filter((a) => a.points.length >= 2 || !!a.summary); // a hike with no route here but a summary came from another phone
   const first = recorded.length ? new Date(Math.min(...recorded.map((a) => a.startedAt))) : null;
 
   async function remove(id: string) {
@@ -140,11 +150,15 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, version, p
         <div className="pf-group">
           {recorded.length === 0 && <p className="pf-empty">No hikes yet. Start one from a trail and it is saved here, on your phone.</p>}
           {recorded.map((a) => {
-            const canOpen = !!onOpenActivity && !!a.trailId;
+            const summaryOnly = a.points.length < 2 && !!a.summary;
+            const canOpen = !!onOpenActivity && !!a.trailId && !summaryOnly;
+            const distM = summaryOnly ? a.summary!.distanceM : trackDistance(a.points);
+            const mins = summaryOnly ? a.summary!.durationMs / 60000 : ((a.endedAt ?? a.startedAt) - a.startedAt) / 60000;
             const info = (
               <>
                 <b>{a.name}</b>
-                <small>{distanceValue(trackDistance(a.points), u)} {distanceUnit(u)} · {duration(((a.endedAt ?? a.startedAt) - a.startedAt) / 60000)} · {new Date(a.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{a.unfinished ? ' · Unfinished' : ''}</small>
+                <small>{distanceValue(distM, u)} {distanceUnit(u)} · {duration(mins)}{summaryOnly ? ` · ${climbValue(a.summary!.climbM, u)} ${climbUnit(u)} climbed` : ''} · {new Date(a.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{a.unfinished ? ' · Unfinished' : ''}</small>
+                {summaryOnly && <small>Route kept on your other phone</small>}
               </>
             );
             return (
@@ -165,7 +179,7 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, version, p
                 )}
                 {confirmDelete === a.id && (
                   <div className="pf-confirm" role="alertdialog" aria-label={`Delete ${a.name}?`}>
-                    <p>Delete this hike from your phone? This cannot be undone.</p>
+                    <p>{hikeDeleteText(signedIn)}</p>
                     <div className="pf-actions" style={{ padding: 0 }}>
                       <button className="pf-btn danger" onClick={() => remove(a.id)}>Delete hike</button>
                       <button className="pf-btn" onClick={() => setConfirmDelete(null)}>Keep it</button>
@@ -179,10 +193,24 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, version, p
 
         <h2 className="pf-h">Settings</h2>
         <div className="pf-group">
-          <div className="pf-row pf-static" aria-label="Account: not signed in, optional">
-            <span>Account</span><span className="val">Not signed in · optional</span>
-          </div>
-          <p className="pf-note pf-static" style={{ margin: 0, paddingTop: 8 }}>Ridgeline works without an account. Optional sign-in may come later; nothing to do now.</p>
+          {features.accounts ? <AccountRow onOpenDelete={onOpenDeleteAccount} /> : (
+            <>
+              <div className="pf-row pf-static" aria-label="Account: not signed in, optional">
+                <span>Account</span><span className="val">Not signed in · optional</span>
+              </div>
+              <p className="pf-note pf-static" style={{ margin: 0, paddingTop: 8 }}>Ridgeline works without an account. Optional sign-in may come later; nothing to do now.</p>
+            </>
+          )}
+
+          {features.accounts && (
+            <>
+              <div className="pf-row">
+                <span>Keep hike tracks on this phone only</span>
+                <Switch on={settings.keepTracksLocal} onChange={(v) => setSettings({ keepTracksLocal: v })} label="Keep hike tracks on this phone only" />
+              </div>
+              <p className="pf-note" style={{ margin: 0 }}>When you are signed in, hike routes are not uploaded. Your hike list and stats still sync; the first and last 200 m of any route are always left out.</p>
+            </>
+          )}
 
           <div className="pf-row">
             <span>Voice directions</span>

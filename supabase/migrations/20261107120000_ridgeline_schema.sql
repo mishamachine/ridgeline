@@ -1,0 +1,170 @@
+-- Ridgeline accounts: schema, owner-only RLS, Apple refresh-token table (Vault).
+-- Lives in its own schema `ridgeline`. Touches no other app's tables and adds NO trigger on auth.users:
+-- the app creates the Ridgeline profile row itself after sign-in (ensureProfile in src/lib/accounts).
+-- Never store body or health fields in these tables. No display_name: the provider name stays in auth only.
+-- Apply: owner only (shared project). After applying, add `ridgeline` to Settings > API > Exposed schemas.
+
+create schema if not exists ridgeline;
+revoke all on schema ridgeline from public, anon;
+grant usage on schema ridgeline to authenticated, service_role;
+
+-- A profile is a bare row: it proves the user opted in to Ridgeline. No marketing flag, no name.
+create table ridgeline.profiles (
+  user_id    uuid primary key references auth.users (id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+create table ridgeline.shortlist (
+  user_id    uuid not null references auth.users (id) on delete cascade,
+  trail_id   text not null check (length(trail_id) between 1 and 200),
+  trail      jsonb check (pg_column_size(trail) < 65536),
+  added_at   timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted    boolean not null default false,
+  check (not deleted or trail is null),                 -- a tombstone carries no payload
+  primary key (user_id, trail_id)
+);
+
+create table ridgeline.saved (
+  user_id    uuid not null references auth.users (id) on delete cascade,
+  trail_id   text not null check (length(trail_id) between 1 and 200),
+  trail      jsonb check (pg_column_size(trail) < 65536),
+  added_at   timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted    boolean not null default false,
+  check (not deleted or trail is null),                 -- a tombstone carries no payload
+  primary key (user_id, trail_id)
+);
+
+create table ridgeline.activities (
+  user_id    uuid not null references auth.users (id) on delete cascade,
+  id         text not null check (length(id) between 1 and 200),
+  trail_id   text check (trail_id is null or length(trail_id) <= 200),
+  started_at timestamptz not null,
+  stats      jsonb not null default '{}'::jsonb check (pg_column_size(stats) < 65536),   -- name, endedAt, withDog, rain, snapshot, unfinished, pausedMs. Never body data.
+  track      jsonb check (track is null or (jsonb_typeof(track) = 'array' and jsonb_array_length(track) <= 50000 and pg_column_size(track) < 1048576)),
+  updated_at timestamptz not null default now(),
+  deleted    boolean not null default false,
+  check (not deleted or (stats = '{}'::jsonb and track is null and trail_id is null)),   -- a tombstone carries no payload
+  primary key (user_id, id)
+);
+
+create table ridgeline.settings (
+  user_id    uuid primary key references auth.users (id) on delete cascade,
+  data       jsonb not null default '{}'::jsonb check (pg_column_size(data) < 65536),
+  updated_at timestamptz not null default now()
+);
+
+-- Apple refresh token: the token itself sits in vault.secrets; this table only holds the secret id.
+-- RLS on, no policy, no grant: reachable by the service role only.
+create table ridgeline.apple_tokens (
+  user_id    uuid primary key references auth.users (id) on delete cascade,
+  secret_id  uuid not null,
+  created_at timestamptz not null default now()
+);
+
+-- Row limits mirror backup.ts (5,000 hikes, 2,000 saved trails; shortlist capped at 5,000). Three caps per user and table:
+--   live rows (not deleted) up to the limit; ALL rows, tombstones included, up to twice the limit; total stored bytes up to a cap.
+-- A route is at most 1 MB (about 8,000 points; the app thins longer ones before upload), so the byte cap is what bounds a user's storage:
+-- 100 MB of hikes, 25 MB each of saved trails and shortlist. A per-user advisory lock serialises inserts so two requests cannot both pass the count.
+-- Args: limit, name of the key column, byte cap. An upsert that updates an existing row is never blocked.
+create function ridgeline.enforce_row_limit() returns trigger
+language plpgsql set search_path = '' as $$
+declare lim int := tg_argv[0]::int; keycol text := tg_argv[1]; maxbytes bigint := tg_argv[2]::bigint; n bigint; found boolean;
+        is_dead boolean := coalesce((to_jsonb(new)->>'deleted')::boolean, false);
+begin
+  if tg_op = 'UPDATE' and not (coalesce((to_jsonb(old)->>'deleted')::boolean, false) and not is_dead) then return new; end if;  -- only a revival adds a live row
+  perform pg_advisory_xact_lock(hashtextextended(tg_table_name || ':' || new.user_id::text, 0));
+  if tg_op = 'INSERT' then
+    execute format('select exists(select 1 from %I.%I where user_id = $1 and %I::text = $2)', tg_table_schema, tg_table_name, keycol)
+      into found using new.user_id, to_jsonb(new)->>keycol;
+    if found then return new; end if;                                                                       -- the upsert path: row already there
+    execute format('select count(*) from %I.%I where user_id = $1', tg_table_schema, tg_table_name) into n using new.user_id;
+    if n >= 2 * lim then raise exception 'ridgeline: total row limit (%) reached for %', 2 * lim, tg_table_name using errcode = '54000'; end if;
+  end if;
+  if not is_dead then
+    execute format('select count(*) from %I.%I where user_id = $1 and not deleted', tg_table_schema, tg_table_name) into n using new.user_id;
+    if n >= lim then raise exception 'ridgeline: row limit (%) reached for %', lim, tg_table_name using errcode = '54000'; end if;
+  end if;
+  execute format('select coalesce(sum(pg_column_size(t)), 0) from %I.%I t where user_id = $1', tg_table_schema, tg_table_name) into n using new.user_id;
+  if n + pg_column_size(new) > maxbytes then raise exception 'ridgeline: storage limit reached for %', tg_table_name using errcode = '54000'; end if;
+  return new;
+end $$;
+create trigger activities_limit before insert or update of deleted on ridgeline.activities for each row execute function ridgeline.enforce_row_limit(5000, 'id', 104857600);
+create trigger saved_limit      before insert or update of deleted on ridgeline.saved      for each row execute function ridgeline.enforce_row_limit(2000, 'trail_id', 26214400);
+create trigger shortlist_limit  before insert or update of deleted on ridgeline.shortlist  for each row execute function ridgeline.enforce_row_limit(5000, 'trail_id', 26214400);
+
+-- RLS: owner only, signed-in users only. anon gets nothing.
+do $$
+declare t text;
+begin
+  foreach t in array array['profiles','shortlist','saved','activities','settings'] loop
+    execute format('alter table ridgeline.%I enable row level security', t);
+    execute format('revoke all on ridgeline.%I from public, anon', t);
+    execute format('grant select, insert, update, delete on ridgeline.%I to authenticated', t);
+    execute format('create policy %I on ridgeline.%I for all to authenticated using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()))', t || '_owner', t);
+  end loop;
+end $$;
+alter table ridgeline.apple_tokens enable row level security;
+revoke all on ridgeline.apple_tokens from public, anon, authenticated;
+grant select, insert, update, delete on ridgeline.apple_tokens to service_role;
+grant select, insert, update, delete on ridgeline.profiles, ridgeline.shortlist, ridgeline.saved, ridgeline.activities, ridgeline.settings to service_role;
+
+-- Vault helpers: SECURITY DEFINER, callable by the service role only.
+create function ridgeline.store_apple_token(p_user uuid, p_token text) returns void
+language plpgsql security definer set search_path = '' as $$
+declare sid uuid;
+begin
+  select secret_id into sid from ridgeline.apple_tokens where user_id = p_user;
+  if sid is null then
+    sid := vault.create_secret(p_token, 'ridgeline_apple_' || p_user::text, 'Ridgeline Sign in with Apple refresh token');
+    insert into ridgeline.apple_tokens (user_id, secret_id) values (p_user, sid);
+  else
+    perform vault.update_secret(sid, p_token);
+  end if;
+end $$;
+
+create function ridgeline.read_apple_token(p_user uuid) returns text
+language sql security definer set search_path = '' as $$
+  select s.decrypted_secret
+  from ridgeline.apple_tokens t join vault.decrypted_secrets s on s.id = t.secret_id
+  where t.user_id = p_user
+$$;
+
+-- Vault has no delete function of its own (only create_secret / update_secret), so we delete from vault.secrets.
+-- On hosted Supabase the function owner is `postgres`; the grant below gives it that right. If the grant is refused,
+-- or the delete is later refused, the secret's value is overwritten so no token stays readable. MUST be verified on a
+-- Supabase branch before go-live (see the PR).
+-- The grant is made only if the owner does not already have the right, and the schema comment records that WE made it, so the rollback
+-- takes back only what this migration gave (never a platform default).
+do $$
+begin
+  if not has_table_privilege('postgres', 'vault.secrets', 'DELETE') then
+    grant usage on schema vault to postgres;
+    grant delete on vault.secrets to postgres;
+    comment on schema ridgeline is 'vault_delete_granted_by_migration';
+  end if;
+exception when others then
+  raise notice 'ridgeline: vault grant skipped (%): verify delete_apple_token on a branch', sqlerrm;
+end $$;
+
+create function ridgeline.delete_apple_token(p_user uuid) returns void
+language plpgsql security definer set search_path = '' as $$
+declare sid uuid;
+begin
+  select secret_id into sid from ridgeline.apple_tokens where user_id = p_user;
+  if sid is not null then
+    begin
+      delete from vault.secrets where id = sid;
+    exception when insufficient_privilege then
+      -- Overwrite the value and rename it, so nothing readable and nothing carrying the person's id is left.
+      perform vault.update_secret(sid, 'deleted', 'ridgeline_deleted_' || gen_random_uuid()::text, 'deleted');
+      raise warning 'ridgeline: vault delete refused; secret value overwritten instead';
+    end;
+    delete from ridgeline.apple_tokens where user_id = p_user;
+  end if;
+end $$;
+
+revoke execute on function ridgeline.store_apple_token(uuid, text), ridgeline.read_apple_token(uuid), ridgeline.delete_apple_token(uuid) from public, anon, authenticated;
+grant  execute on function ridgeline.store_apple_token(uuid, text), ridgeline.read_apple_token(uuid), ridgeline.delete_apple_token(uuid) to service_role;
+revoke execute on function ridgeline.enforce_row_limit() from public, anon, authenticated;
