@@ -3,7 +3,7 @@
 -- Never run against the shared production project. Everything runs in one transaction and rolls back.
 begin;
 create extension if not exists pgtap;
-select plan(58);
+select plan(66);
 
 insert into auth.users (id) values ('00000000-0000-0000-0000-00000000000a'), ('00000000-0000-0000-0000-00000000000b');
 
@@ -122,7 +122,7 @@ select throws_ok($$insert into ridgeline.activities (user_id, id, started_at, tr
 select ok((select count(*) from pg_locks where locktype = 'advisory' and pid = pg_backend_pid()) >= 1, 'inserts take a per-user advisory lock (so two requests cannot both pass the count)');
 create table ridgeline.zz_cap_test (user_id uuid not null references auth.users (id) on delete cascade, id text not null, deleted boolean not null default false, payload text, primary key (user_id, id));
 create trigger zz_limit before insert or update on ridgeline.zz_cap_test for each row execute function ridgeline.enforce_row_limit(1000, 'id', 3000);
-create trigger zz_usage after insert or update or delete on ridgeline.zz_cap_test for each row execute function ridgeline.track_usage();
+create trigger zz_usage after insert or update or delete on ridgeline.zz_cap_test for each row execute function ridgeline.track_usage(1000, 3000);
 insert into ridgeline.zz_cap_test (user_id, id, payload) values ('00000000-0000-0000-0000-00000000000b', 'a', repeat('x', 1000)), ('00000000-0000-0000-0000-00000000000b', 'b', repeat('x', 1000));
 select throws_ok($$insert into ridgeline.zz_cap_test (user_id, id, payload) values ('00000000-0000-0000-0000-00000000000b', 'c', repeat('x', 1500))$$, '54000', null, 'a row that would push the user over the byte cap is refused');
 select lives_ok($$insert into ridgeline.zz_cap_test (user_id, id, payload) values ('00000000-0000-0000-0000-00000000000b', 'd', repeat('x', 100))$$, 'a small row under the byte cap is accepted');
@@ -139,6 +139,21 @@ select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
 select throws_ok($$select * from ridgeline.usage$$, '42501', null, 'a signed-in user cannot read the usage table');
 reset role;
 
+
+-- H1': ONE statement writing many rows cannot get past a cap (the BEFORE check sees the usage from the start of the statement; the AFTER trigger sees it as it grows).
+create function pg_temp.blob(n int) returns text language sql as $f$ select string_agg(md5(random()::text || g::text), '') from generate_series(1, n) g $f$;   -- n x 32 characters that do not compress much
+create table ridgeline.zz_multi (user_id uuid not null references auth.users (id) on delete cascade, id text not null, deleted boolean not null default false, payload text, primary key (user_id, id));
+create trigger zz_multi_limit before insert or update on ridgeline.zz_multi for each row execute function ridgeline.enforce_row_limit(5, 'id', 100000);
+create trigger zz_multi_usage after insert or update or delete on ridgeline.zz_multi for each row execute function ridgeline.track_usage(5, 100000);
+insert into ridgeline.zz_multi (user_id, id) select '00000000-0000-0000-0000-00000000000b', 'a' || i from generate_series(1, 3) i;
+select throws_ok($$insert into ridgeline.zz_multi (user_id, id) select '00000000-0000-0000-0000-00000000000b', 'm' || i from generate_series(1, 4) i$$, '54000', null, 'one multi-row INSERT crossing the live-row limit (3 + 4 > 5) is refused');
+select is((select count(*)::int from ridgeline.zz_multi), 3, 'and the whole statement rolled back (still 3 rows)');
+select is((select n_live from ridgeline.usage where tbl = 'zz_multi' and user_id = '00000000-0000-0000-0000-00000000000b'), 3, 'and usage did not move');
+select throws_ok($$insert into ridgeline.zz_multi (user_id, id, deleted) select '00000000-0000-0000-0000-00000000000b', 't' || i, true from generate_series(1, 8) i$$, '54000', null, 'one multi-row INSERT of tombstones crossing 2x the limit (3 + 8 > 10) is refused');
+select throws_ok($$insert into ridgeline.zz_multi (user_id, id, payload) select '00000000-0000-0000-0000-00000000000b', 'b' || i, pg_temp.blob(4000) from generate_series(1, 2) i$$, '54000', null, 'one multi-row INSERT crossing the byte cap (2 x ~70 KB stored vs a 100 KB cap) is refused');
+select lives_ok($$insert into ridgeline.zz_multi (user_id, id, payload) select '00000000-0000-0000-0000-00000000000b', 'ok' || i, pg_temp.blob(1000) from generate_series(1, 2) i$$, 'a multi-row INSERT that fits is accepted');
+select throws_ok($$update ridgeline.zz_multi set payload = pg_temp.blob(4000) where id like 'a%' or id like 'ok%'$$, '54000', null, 'one multi-row UPDATE growing rows past the byte cap is refused');
+select ok(abs((select sum(pg_column_size(t))::bigint from ridgeline.zz_multi t) - (select bytes from ridgeline.usage where tbl = 'zz_multi' and user_id = '00000000-0000-0000-0000-00000000000b')) <= 64, 'and usage still matches the real size after the rollback (within row alignment)');
 -- Deleting the auth user removes the Ridgeline rows.
 delete from auth.users where id = '00000000-0000-0000-0000-00000000000a';
 select is((select count(*)::int from ridgeline.activities where user_id = '00000000-0000-0000-0000-00000000000a'), 0, 'auth user delete cascades to hikes');
