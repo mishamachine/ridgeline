@@ -74,13 +74,23 @@ export async function capacitorLogin(): Promise<NativeLogin> {
 }
 
 /** Entry point for the buttons. Does nothing, and loads nothing, when accounts are off. */
-export async function signIn(provider: Provider, enabled?: boolean): Promise<SignInResult> {
+/** Where the web redirect should bring the person back to after Apple or Google: the delete page when they were re-signing in to delete. */
+export const RETURN_KEY = 'ridgeline:returnTo';
+export type ReturnTo = 'account-delete';
+export function rememberReturn(to: ReturnTo | undefined, s: Pick<Storage, 'setItem' | 'removeItem'> | null = typeof sessionStorage === 'undefined' ? null : sessionStorage) {
+  try { if (to) s?.setItem(RETURN_KEY, to); else s?.removeItem(RETURN_KEY); } catch { /* private mode: they land on Profile */ }
+}
+export function takeReturn(s: Pick<Storage, 'getItem' | 'removeItem'> | null = typeof sessionStorage === 'undefined' ? null : sessionStorage): ReturnTo | null {
+  try { const v = s?.getItem(RETURN_KEY); s?.removeItem(RETURN_KEY); return v === 'account-delete' ? v : null; } catch { return null; }
+}
+
+export async function signIn(provider: Provider, enabled?: boolean, returnTo?: ReturnTo): Promise<SignInResult> {
   const p = getClient(enabled);
   if (!p) return { ok: false, reason: 'unavailable' };
   const c = await p;
   const platform = nativePlatform();
   if (!providersFor(platform).includes(provider)) return { ok: false, reason: 'unavailable' };
-  if (platform === 'web') return signInWeb(provider, c);
+  if (platform === 'web') { rememberReturn(returnTo); return signInWeb(provider, c); }
   return signInNative(provider, c, await capacitorLogin());
 }
 

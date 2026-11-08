@@ -11,7 +11,6 @@ import { features } from '../features';
 import { readFileSync } from 'node:fs';
 import { Profile, hikeDeleteText } from '../../screens/Profile';
 import { deleteCopy } from '../../screens/DeleteAccount';
-import { providerWords } from './copy';
 import { providersFor } from './auth';
 
 const ok: PromptContext = { accountsOn: true, signedIn: false, onboardingDone: true, hikeActive: false };
@@ -92,7 +91,10 @@ describe('final prompt copy', () => {
   it('Google uses its official artwork unmodified; Apple is Apple\'s own control (never drawn by us); both say "Sign in with" and are the same size', () => {
     const apple = renderToStaticMarkup(<ProviderButton provider="apple" platform="web" onClick={() => {}} />);
     const google = renderToStaticMarkup(<ProviderButton provider="google" platform="web" onClick={() => {}} />);
-    expect(apple).toContain('id="appleid-signin"');
+    expect(apple).toMatch(/id="appleid-signin-\d+"/);                   // a unique id per button; Apple's own id is held only while it renders
+    expect(apple).not.toContain('id="appleid-signin"');
+    expect(apple).toContain('role="button"');
+    expect(apple).toContain('tabindex="0"');
     expect(apple).toContain('data-type="sign-in"');
     expect(apple).toContain('data-width="180"');
     expect(apple).toContain('data-height="40"');
@@ -102,11 +104,14 @@ describe('final prompt copy', () => {
     expect(google).toContain('aria-label="Sign in with Google"');
     expect(apple).toContain('width:180px;height:40px');
     expect(google).toContain('width:180px;height:40px');
+    const apple2 = renderToStaticMarkup(<><ProviderButton provider="apple" platform="web" onClick={() => {}} /><ProviderButton provider="apple" platform="web" onClick={() => {}} /></>);
+    const ids = [...apple2.matchAll(/ id="(appleid-signin[^"]*)"/g)].map((m) => m[1]);
+    expect(new Set(ids).size).toBe(ids.length);                              // two Apple buttons on screen never share an id
     const ios = renderToStaticMarkup(<ProviderButton provider="apple" platform="ios" onClick={() => {}} />);
     expect(ios).toContain('data-apple-button="ios"');                         // the native system button is laid over this placeholder
     expect(ios).toContain('width:188px;height:44px');
     expect(renderToStaticMarkup(<ProviderButton provider="google" platform="ios" onClick={() => {}} />)).toContain('width:188px;height:44px');
-    expect(renderToStaticMarkup(<ProviderButton provider="apple" platform="android" onClick={() => {}} />)).not.toContain('appleid-signin');
+    expect(renderToStaticMarkup(<ProviderButton provider="apple" platform="android" onClick={() => {}} />)).toBe('');
     expect(googleArtwork('android', 'light')).toMatchObject({ w: 180, h: 40 });
     expect(googleArtwork('ios', 'dark')).toMatchObject({ w: 188, h: 44 });
     expect(readFileSync('src/components/ProviderButton.tsx', 'utf8')).not.toMatch(/APPLE_PATH|<path/);   // no Apple mark anywhere in our code
@@ -123,11 +128,6 @@ describe('final prompt copy', () => {
 });
 
 describe('Android copy says Google only; web and iOS keep Google or Apple', () => {
-  it('the helper words', () => {
-    expect(providerWords('android')).toBe('Google');
-    expect(providerWords('ios')).toBe('Google or Apple');
-    expect(providerWords('web')).toBe('Google or Apple');
-  });
   it('the whole-account warning drops the Apple sentence on Android only', () => {
     expect(deleteCopy('android').account.warn).not.toMatch(/Apple/);
     expect(deleteCopy('ios').account.warn).toContain('On iPhone Apple sign-ins we also disconnect Ridgeline from your Apple ID');
@@ -203,8 +203,9 @@ describe('privacy page', () => {
     const rewritten = injectAccountsSection(page, true);
     expect(injectAccountsSection(rewritten, true)).toBe(rewritten);
   });
-  it('the Apple promise is conditional and carries the manual line', () => {
-    expect(ACCOUNTS_SECTION_HTML).toContain('If you signed in with Apple on an iPhone, we also tell Apple to disconnect Ridgeline.');
+  it('the Apple promise is conditional, only for deleting the whole account, and carries the manual line', () => {
+    expect(ACCOUNTS_SECTION_HTML).toContain('If you delete your whole account and you signed in with Apple on an iPhone, we also tell Apple to disconnect Ridgeline.');
+    expect(ACCOUNTS_SECTION_HTML).not.toContain('If you signed in with Apple on an iPhone, we also tell Apple');
     expect(ACCOUNTS_SECTION_HTML).toContain('to fully disconnect, also remove Ridgeline in your Apple ID settings &rsaquo; Sign in with Apple (appleid.apple.com)');
     expect(ACCOUNTS_SECTION_HTML).not.toContain('If you used Sign in with Apple, we also tell Apple');
   });

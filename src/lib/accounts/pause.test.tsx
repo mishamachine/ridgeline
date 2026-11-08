@@ -58,7 +58,7 @@ describe('the runtime flag: reading it', () => {
 });
 
 describe('paused: guest mode works exactly as today, sign-in is hidden, nothing syncs', () => {
-  it('Profile › Account shows only the quiet note, no sign-in, no delete buttons', () => {
+  it('Profile › Account shows the quiet note and no sign-in; a signed-out guest sees no delete buttons', () => {
     const s = mem(); s.setItem(FLAGS_KEY, JSON.stringify({ accounts: false, at: 1, tried: 1 }));
     vi.stubGlobal('localStorage', s);
     try {
@@ -68,6 +68,18 @@ describe('paused: guest mode works exactly as today, sign-in is hidden, nothing 
       expect(h).not.toContain('Sign in<');
       expect(h).not.toContain('Continue with Apple');
       expect(h).not.toContain('Delete');
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it('while paused, anyone WITH a session can still delete their data or their whole account', () => {
+    const s = mem(); s.setItem(FLAGS_KEY, JSON.stringify({ accounts: false, at: 1, tried: 1 }));
+    vi.stubGlobal('localStorage', s);
+    try {
+      const account = { signedIn: true, email: 'a@example.com', provider: 'google' as const, userId: 'u1' };
+      const h = renderToStaticMarkup(<AccountRow build account={account} onOpenDelete={() => {}} />);
+      expect(h).toContain('Sign-in is paused for now. Your hikes are safe on this phone.');
+      expect(h).toContain('Delete my Ridgeline data');
+      expect(h).toContain('Delete my whole account');
+      expect(h).not.toContain('Sign in<');
     } finally { vi.unstubAllGlobals(); }
   });
   it('before the flag is known the account row shows nothing at all, not even the pause note', () => {

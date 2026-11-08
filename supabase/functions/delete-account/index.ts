@@ -5,7 +5,8 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { appleClientSecret, revokeAppleToken } from '../_shared/apple.ts';
 import { deleteAccount, type Scope } from '../_shared/deleteAccount.ts';
-import { recentSignIn } from '../_shared/reauth.ts';
+import { jwtClaims, recentSignIn } from '../_shared/reauth.ts';
+import { retryOnDeadlock } from '../_shared/retry.ts';
 
 const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type, apikey, x-client-info', 'access-control-allow-methods': 'POST, OPTIONS' };
 const reply = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { ...cors, 'content-type': 'application/json' } });
@@ -22,8 +23,8 @@ Deno.serve(async (req) => {
   try { const s = (await req.json()).scope; scope = s === 'data' || s === 'account' ? s : ''; } catch { /* falls through */ }
   if (!scope) return reply(400, { error: 'scope' });
 
-  // Closing the whole account needs a sign-in from the last 10 minutes (data-only delete does not).
-  if (scope === 'account' && !recentSignIn(u.user.last_sign_in_at)) return reply(401, { status: 'reauth' });
+  // Closing the whole account needs a session created in the last 10 minutes (data-only delete does not). The token was accepted by getUser above.
+  if (scope === 'account' && !recentSignIn(jwtClaims((req.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '')))) return reply(401, { status: 'reauth' });
 
   const uid = u.user.id;
   const admin = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
@@ -39,7 +40,8 @@ Deno.serve(async (req) => {
         await revokeAppleToken(fetch, clientId, secret, token);
       },
       async deleteAppleToken() { const { error: e } = await rl.rpc('delete_apple_token', { p_user: uid }); if (e) throw e; },
-      async deleteUserData() { const { error: e } = await rl.rpc('delete_user_data', { uid }); if (e) throw e; }, // one transaction
+      // one transaction; retried if the database picks it as a deadlock victim (40P01)
+      async deleteUserData() { await retryOnDeadlock(async () => { const { error: e } = await rl.rpc('delete_user_data', { uid }); if (e) throw e; }); },
       async deleteAuthUser() { const { error: e } = await admin.auth.admin.deleteUser(uid); if (e) throw e; },
       log: (ev) => console.log(JSON.stringify({ fn: 'delete-account', ev })),
     });

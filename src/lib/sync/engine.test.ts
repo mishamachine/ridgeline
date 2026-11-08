@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { StaleEpochError, syncOnce, type Cursors, type Remote, type SyncOptions } from './engine';
+import { StaleEpochError, parkDelay, retryDelay, syncOnce, type Cursors, type Owner, type PushFailure, type Remote, type SyncOptions } from './engine';
 import { syncGate } from './gate';
 import { fitTrack, MAX_UPLOAD_POINTS } from './trim';
 import type { LocalSource } from './local';
@@ -12,7 +12,8 @@ import { mergeRemoteActivity } from './local';
 // writes tagged with an old data epoch refused, and delete_user_data (wipe everything, epoch + 1).
 class Server {
   rows = new Map<string, SyncRec>(); clock = 10_000_000; dataEpoch = 0;
-  rejectIds = new Set<string>();          // rows the database refuses (a constraint violation)
+  rejectIds = new Set<string>();          // rows the database refuses for good (a constraint violation)
+  flakyIds = new Set<string>();           // rows that fail for a passing reason (a timeout)
   pushes: { kind: Kind; ids: string[] }[] = [];
   deleteUserData() { this.rows.clear(); this.dataEpoch++; }
   remote(): Remote {
@@ -23,9 +24,10 @@ class Server {
         if (epoch < this.dataEpoch) throw new StaleEpochError();
         this.clock++;
         this.pushes.push({ kind, ids: recs.map((r) => r.id) });
-        const failed: string[] = [];
+        const failed: PushFailure[] = [];
         for (const r of recs) {
-          if (this.rejectIds.has(r.id)) { failed.push(r.id); continue; }
+          if (this.rejectIds.has(r.id)) { failed.push({ id: r.id, permanent: true }); continue; }
+          if (this.flakyIds.has(r.id)) { failed.push({ id: r.id, permanent: false }); continue; }
           const k = kind + '/' + r.id, old = this.rows.get(k);
           if (old && r.updatedAt < old.updatedAt) continue;
           this.rows.set(k, { ...r, updatedAt: Math.min(r.updatedAt, this.clock), syncedAt: this.clock });
@@ -36,17 +38,24 @@ class Server {
   }
 }
 class Phone implements LocalSource {
-  recs = new Map<string, SyncRec>(); cursors = new Map<string, number>();
-  cur: Cursors = { get: async (k) => this.cursors.get(k) ?? 0, set: async (k, v) => { this.cursors.set(k, v); } };
+  recs = new Map<string, SyncRec>(); cursors = new Map<string, number>(); json = new Map<string, unknown>(); ownerId: string | null = null;
+  cur: Cursors = { get: async (k) => this.cursors.get(k) ?? 0, set: async (k, v) => { this.cursors.set(k, v); }, getJson: async <T,>(k: string) => this.json.get(k) as T | undefined, setJson: async (k, v) => { this.json.set(k, v); } };
+  owner: Owner = { get: async () => this.ownerId, set: async (id) => { this.ownerId = id; } };
+  inProgress = new Set<string>();           // ids of hikes recorded (not finished) when a wipe arrives
   seq = 0; // the local edit stamp: rises on edits made on this phone only
   put(kind: Kind, id: string, updatedAt: number, payload: unknown = { n: id }) { this.recs.set(kind + '/' + id, { kind, id, updatedAt, editedAt: ++this.seq, deleted: false, payload }); }
   del(kind: Kind, id: string, updatedAt: number) { this.recs.set(kind + '/' + id, { kind, id, updatedAt, editedAt: ++this.seq, deleted: true, payload: null }); }
   async readAll(kind: Kind) { return [...this.recs.values()].filter((r) => r.kind === kind); }
   async apply(r: SyncRec) { this.recs.set(r.kind + '/' + r.id, { ...r, editedAt: 0 }); } // a record taken from the server was not edited here
-  async wipe() { this.recs.clear(); this.cursors.clear(); }
+  async wipe(keep?: { keepActivitiesSince: number }) {
+    for (const [k, r] of [...this.recs]) { if (keep && r.kind === 'activities' && (this.inProgress.has(r.id) || ((r.payload as { endedAt?: number } | null)?.endedAt ?? 0) >= keep.keepActivitiesSince)) continue; this.recs.delete(k); }
+    this.cursors.clear(); this.json.clear();
+  }
   live(kind: Kind) { return [...this.recs.values()].filter((r) => r.kind === kind && !r.deleted).map((r) => r.id).sort(); }
   syncFull(s: Server, user = 'u1', opts?: SyncOptions) { return syncOnce(user, this, s.remote(), this.cur, opts); }
   async sync(s: Server, user = 'u1') { const r = await this.syncFull(s, user); return { pulled: r.pulled, pushed: r.pushed }; }
+  /** Like syncFull, but with the owner check and a clock the test controls. */
+  syncAs(s: Server, user: string, now: number, extra: SyncOptions = {}) { return syncOnce(user, this, s.remote(), this.cur, { owner: this.owner, now: () => now, ...extra }); }
 }
 
 describe('last write wins', () => {
@@ -166,21 +175,124 @@ describe('delete on one device, the other stays signed in', () => {
 });
 
 describe('one bad row does not wedge sync', () => {
-  it('the other rows go through, the bad one is retried next pass, and later edits still upload', async () => {
+  it('a row the database refuses for good is parked: the cursor moves past it, the others go through, it is retried only after a growing delay or an edit', async () => {
     const s = new Server(), a = new Phone();
     a.put('activities', 'ok1', 1); a.put('activities', 'bad', 2); a.put('activities', 'ok2', 3);
     s.rejectIds.add('bad');
-    const first = await a.syncFull(s);
+    const T0 = 1_000_000;
+    const first = await a.syncAs(s, 'u1', T0);
     expect(first).toMatchObject({ pushed: 2, failed: 1 });
     expect([...s.rows.keys()].sort()).toEqual(['activities/ok1', 'activities/ok2']);
+    const parked = a.json.get('sync:u1:activities:parked') as Record<string, { until: number; tries: number }>;
+    expect(parked.bad.until).toBe(T0 + parkDelay(1));
+    // The cursor passed the bad row: new edits upload at once and the bad row is NOT sent again yet.
+    s.pushes.length = 0;
     a.put('activities', 'ok3', 4);
-    const second = await a.syncFull(s);
-    expect(second.failed).toBe(1);                                  // still refused, still retried
-    expect(s.rows.has('activities/ok3')).toBe(true);                // but the new edit went through
+    const second = await a.syncAs(s, 'u1', T0 + 60_000);
+    expect(second).toMatchObject({ pushed: 1, failed: 0 });
+    expect(s.pushes.flatMap((p) => p.ids)).toEqual(['ok3']);
+    // Still refused when its time comes: parked again with a longer delay.
+    const third = await a.syncAs(s, 'u1', T0 + parkDelay(1) + 1);
+    expect(third.failed).toBe(1);
+    expect((a.json.get('sync:u1:activities:parked') as Record<string, { until: number }>).bad.until).toBe(T0 + parkDelay(1) + 1 + parkDelay(2));
+    expect(parkDelay(2)).toBe(2 * parkDelay(1));
+    // Fixed (or edited) later: it goes through and is un-parked.
     s.rejectIds.clear();
-    const third = await a.syncFull(s);
-    expect(third.failed).toBe(0);
+    const fourth = await a.syncAs(s, 'u1', T0 + parkDelay(1) + 1 + parkDelay(2) + 1);
+    expect(fourth.failed).toBe(0);
     expect(s.rows.has('activities/bad')).toBe(true);
+    expect((a.json.get('sync:u1:activities:parked') as Record<string, unknown>).bad).toBeUndefined();
+  });
+  it('editing a parked row tries it again at once', async () => {
+    const s = new Server(), a = new Phone();
+    a.put('activities', 'bad', 1);
+    s.rejectIds.add('bad');
+    await a.syncAs(s, 'u1', 1_000_000);
+    s.rejectIds.clear();
+    a.put('activities', 'bad', 2, { n: 'smaller' });                 // the person trimmed it
+    const r = await a.syncAs(s, 'u1', 1_000_001);
+    expect(r).toMatchObject({ pushed: 1, failed: 0 });
+    expect(s.rows.has('activities/bad')).toBe(true);
+  });
+  it('a passing failure holds the cursor and backs the kind off (1 min, 2, 4 ... up to 15), then recovers', async () => {
+    const s = new Server(), a = new Phone();
+    a.put('activities', 'flaky', 1); a.put('activities', 'ok', 2);
+    s.flakyIds.add('flaky');
+    const T0 = 5_000_000;
+    expect(await a.syncAs(s, 'u1', T0)).toMatchObject({ pushed: 1, failed: 1 });
+    s.pushes.length = 0;
+    expect(await a.syncAs(s, 'u1', T0 + 1000)).toMatchObject({ pushed: 0, failed: 0 });   // backing off: nothing sent
+    expect(s.pushes).toEqual([]);
+    expect(await a.syncAs(s, 'u1', T0 + retryDelay(1) + 1)).toMatchObject({ failed: 1 }); // tried again after the delay
+    expect(retryDelay(2)).toBe(2 * retryDelay(1));
+    expect(retryDelay(20)).toBe(15 * 60_000);
+    s.flakyIds.clear();
+    const later = await a.syncAs(s, 'u1', T0 + retryDelay(1) + 1 + retryDelay(2) + 1);
+    expect(later.failed).toBe(0);
+    expect(s.rows.has('activities/flaky')).toBe(true);
+  });
+});
+
+describe('a delete from another device does not wipe the hike being recorded', () => {
+  it('the wipe waits while a hike is active, then clears everything except what was recorded in the meantime', async () => {
+    const s = new Server(), a = new Phone(), b = new Phone();
+    a.put('activities', 'old', 100, { n: 'old', endedAt: 1_000 }); await a.sync(s); await b.sync(s);
+    s.deleteUserData();                                              // the other phone deletes
+    b.put('activities', 'now', 2_000_000, { n: 'now' });             // B is recording a hike
+    b.inProgress.add('now');
+    const T = 9_000_000;
+    const deferred = await b.syncAs(s, 'u1', T, { canWipe: () => false });
+    expect(deferred).toMatchObject({ deferredWipe: true, deletedElsewhere: false });
+    expect(b.recs.has('activities/old')).toBe(true);                 // nothing wiped yet, nothing uploaded
+    expect(b.recs.has('activities/now')).toBe(true);
+    expect(s.rows.size).toBe(0);
+    // The hike ends; the next pass wipes the account copy but keeps the hike that was being recorded.
+    b.inProgress.clear();
+    b.recs.set('activities/now', { ...b.recs.get('activities/now')!, payload: { n: 'now', endedAt: T + 60_000 } });
+    const done = await b.syncAs(s, 'u1', T + 120_000, { canWipe: () => true });
+    expect(done.deletedElsewhere).toBe(true);
+    expect(b.recs.has('activities/old')).toBe(false);
+    expect(b.recs.has('activities/now')).toBe(true);
+    // And it uploads under the new epoch on the next pass.
+    b.recs.set('activities/now', { ...b.recs.get('activities/now')!, editedAt: ++b.seq });
+    expect(await b.syncAs(s, 'u1', T + 180_000)).toMatchObject({ pushed: 1 });
+  });
+});
+
+describe('another account signing in on a phone that kept the first account\'s copy', () => {
+  it('uploads nothing until the person chooses; "add" hands it over, "remove" clears it', async () => {
+    const s1 = new Server(), s2 = new Server(), a = new Phone();
+    a.put('shortlist', 'mine', 1);
+    await a.syncAs(s1, 'user-A', 10);                                // account A syncs; the phone now belongs to A
+    expect(a.ownerId).toBe('user-A');
+    // A signs out keeping a copy; B signs in.
+    const blocked = await a.syncAs(s2, 'user-B', 20);
+    expect(blocked.ownerMismatch).toBe(true);
+    expect(s2.rows.size).toBe(0);
+    expect(s2.pushes).toEqual([]);
+    // 'add': B takes the copy.
+    a.ownerId = 'user-B';
+    expect((await a.syncAs(s2, 'user-B', 30)).pushed).toBe(1);
+    // 'remove' path: clear, then sync as B with nothing to upload.
+    const c = new Phone(); c.put('shortlist', 'theirs', 1);
+    await c.syncAs(s1, 'user-A', 10);
+    expect((await c.syncAs(new Server(), 'user-B', 20)).ownerMismatch).toBe(true);
+    await c.wipe(); c.ownerId = 'user-B';
+    const after = await c.syncAs(new Server(), 'user-B', 30);
+    expect(after).toMatchObject({ ownerMismatch: false, pushed: 0 });
+  });
+  it('guest data (never synced) goes to the first account that signs in; the same account signing in again is not asked', async () => {
+    const s = new Server(), a = new Phone();
+    a.put('shortlist', 'guest-trail', 1);
+    expect((await a.syncAs(s, 'user-A', 10)).ownerMismatch).toBe(false);
+    expect(a.ownerId).toBe('user-A');
+    expect((await a.syncAs(s, 'user-A', 20)).ownerMismatch).toBe(false);
+  });
+  it('an empty phone just becomes the new account\'s', async () => {
+    const s = new Server(), a = new Phone();
+    a.ownerId = 'user-A';
+    expect((await a.syncAs(s, 'user-B', 10)).ownerMismatch).toBe(false);
+    expect(a.ownerId).toBe('user-B');
   });
 });
 

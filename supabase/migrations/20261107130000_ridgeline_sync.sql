@@ -28,13 +28,19 @@ insert into ridgeline.config (key, value) values ('accounts_paused', 'false'::js
 
 create function ridgeline.sync_guard() returns trigger
 language plpgsql security definer set search_path = '' as $$
+declare claims jsonb := coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb, '{}'::jsonb);
 begin
+  -- A signed-in caller may only write their own rows. Checked FIRST, so a forged user_id learns nothing (not even whether that person has an epoch):
+  -- this trigger runs before the row-level policy would refuse the write. The check follows the database role the API switches to; direct sessions and the service role are not affected.
+  if current_setting('role', true) in ('authenticated', 'anon') and new.user_id is distinct from nullif(claims->>'sub', '')::uuid then
+    raise exception 'ridgeline: not your data' using errcode = '42501';
+  end if;
   if coalesce((select c.value from ridgeline.config c where c.key = 'accounts_paused'), 'false'::jsonb) = 'true'::jsonb then
     raise exception 'ridgeline: sign-in is paused' using errcode = 'RL002';
   end if;
   -- Shared lock: delete_user_data takes the exclusive one, so a write is either seen by the delete or refused after it.
   perform pg_advisory_xact_lock_shared(hashtextextended('ridgeline:epoch:' || new.user_id::text, 0));
-  if new.epoch < coalesce((select p.data_epoch from ridgeline.profiles p where p.user_id = new.user_id), 0) then
+  if new.epoch <> coalesce((select p.data_epoch from ridgeline.profiles p where p.user_id = new.user_id), 0) then   -- older (stale) or higher (forged): both refused
     raise exception 'ridgeline: stale data epoch' using errcode = 'RL001';
   end if;
   if new.updated_at > now() then new.updated_at := now(); end if;

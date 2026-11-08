@@ -63,36 +63,93 @@ create table ridgeline.apple_tokens (
   created_at timestamptz not null default now()
 );
 
+-- Per-user usage, kept by deltas. One row per user and table: stored bytes, rows (tombstones included) and live rows. The limits below read this row
+-- instead of scanning the table (a whole-row size sum reads every stored route), and a trigger after each write keeps it current in the same
+-- transaction, under the same per-user advisory lock. Clients have no grant on it.
+create table ridgeline.usage (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  tbl     text not null,
+  bytes   bigint not null default 0,
+  n_rows  integer not null default 0,
+  n_live  integer not null default 0,
+  primary key (user_id, tbl)
+);
+
 -- Row limits mirror backup.ts (5,000 hikes, 2,000 saved trails; shortlist capped at 5,000). Three caps per user and table:
 --   live rows (not deleted) up to the limit; ALL rows, tombstones included, up to twice the limit; total stored bytes up to a cap.
 -- A route is at most 1 MB (about 8,000 points; the app thins longer ones before upload), so the byte cap is what bounds a user's storage:
--- 100 MB of hikes, 25 MB each of saved trails and shortlist. A per-user advisory lock serialises inserts so two requests cannot both pass the count.
--- Args: limit, name of the key column, byte cap. An upsert that updates an existing row is never blocked.
+-- 100 MB of hikes, 25 MB each of saved trails and shortlist. A write that GROWS a row (an update or an upsert) is checked against the cap too.
+-- Size of a row = the stored size of its big columns (read without fetching them) plus 200 bytes of overhead.
+-- Args: limit, name of the key column, byte cap. An upsert that updates an existing row is never blocked by the row counts.
 create function ridgeline.enforce_row_limit() returns trigger
-language plpgsql set search_path = '' as $$
-declare lim int := tg_argv[0]::int; keycol text := tg_argv[1]; maxbytes bigint := tg_argv[2]::bigint; n bigint; found boolean;
+language plpgsql security definer set search_path = '' as $$
+declare lim int := tg_argv[0]::int; keycol text := tg_argv[1]; maxbytes bigint := tg_argv[2]::bigint;
+        u ridgeline.usage; found boolean; nb bigint := 0; ob bigint := 0; delta bigint;
         is_dead boolean := coalesce((to_jsonb(new)->>'deleted')::boolean, false);
 begin
-  if tg_op = 'UPDATE' and not (coalesce((to_jsonb(old)->>'deleted')::boolean, false) and not is_dead) then return new; end if;  -- only a revival adds a live row
+  if tg_table_name = 'activities' then nb := 200 + coalesce(pg_column_size(new.track), 0) + coalesce(pg_column_size(new.stats), 0);
+  elsif tg_table_name in ('saved', 'shortlist') then nb := 200 + coalesce(pg_column_size(new.trail), 0);
+  else nb := pg_column_size(new); end if;
   perform pg_advisory_xact_lock(hashtextextended(tg_table_name || ':' || new.user_id::text, 0));
+  select * into u from ridgeline.usage where user_id = new.user_id and tbl = tg_table_name;
   if tg_op = 'INSERT' then
     execute format('select exists(select 1 from %I.%I where user_id = $1 and %I::text = $2)', tg_table_schema, tg_table_name, keycol)
       into found using new.user_id, to_jsonb(new)->>keycol;
-    if found then return new; end if;                                                                       -- the upsert path: row already there
-    execute format('select count(*) from %I.%I where user_id = $1', tg_table_schema, tg_table_name) into n using new.user_id;
-    if n >= 2 * lim then raise exception 'ridgeline: total row limit (%) reached for %', 2 * lim, tg_table_name using errcode = '54000'; end if;
+    if found then return new; end if;               -- the upsert path: the row exists, the UPDATE that follows does the accounting
+    if coalesce(u.n_rows, 0) >= 2 * lim then raise exception 'ridgeline: total row limit (%) reached for %', 2 * lim, tg_table_name using errcode = '54000'; end if;
+    if not is_dead and coalesce(u.n_live, 0) >= lim then raise exception 'ridgeline: row limit (%) reached for %', lim, tg_table_name using errcode = '54000'; end if;
+    delta := nb;
+  else
+    if tg_table_name = 'activities' then ob := 200 + coalesce(pg_column_size(old.track), 0) + coalesce(pg_column_size(old.stats), 0);
+    elsif tg_table_name in ('saved', 'shortlist') then ob := 200 + coalesce(pg_column_size(old.trail), 0);
+    else ob := pg_column_size(old); end if;
+    if coalesce((to_jsonb(old)->>'deleted')::boolean, false) and not is_dead and coalesce(u.n_live, 0) >= lim then   -- a revival adds a live row
+      raise exception 'ridgeline: row limit (%) reached for %', lim, tg_table_name using errcode = '54000';
+    end if;
+    delta := nb - ob;
   end if;
-  if not is_dead then
-    execute format('select count(*) from %I.%I where user_id = $1 and not deleted', tg_table_schema, tg_table_name) into n using new.user_id;
-    if n >= lim then raise exception 'ridgeline: row limit (%) reached for %', lim, tg_table_name using errcode = '54000'; end if;
-  end if;
-  execute format('select coalesce(sum(pg_column_size(t)), 0) from %I.%I t where user_id = $1', tg_table_schema, tg_table_name) into n using new.user_id;
-  if n + pg_column_size(new) > maxbytes then raise exception 'ridgeline: storage limit reached for %', tg_table_name using errcode = '54000'; end if;
+  if delta > 0 and coalesce(u.bytes, 0) + delta > maxbytes then raise exception 'ridgeline: storage limit reached for %', tg_table_name using errcode = '54000'; end if;
   return new;
 end $$;
-create trigger activities_limit before insert or update of deleted on ridgeline.activities for each row execute function ridgeline.enforce_row_limit(5000, 'id', 104857600);
-create trigger saved_limit      before insert or update of deleted on ridgeline.saved      for each row execute function ridgeline.enforce_row_limit(2000, 'trail_id', 26214400);
-create trigger shortlist_limit  before insert or update of deleted on ridgeline.shortlist  for each row execute function ridgeline.enforce_row_limit(5000, 'trail_id', 26214400);
+
+-- After every write that really happened: move the usage row by the change (deltas, never a scan).
+create function ridgeline.track_usage() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare uid uuid; nb bigint := 0; ob bigint := 0; d_rows int := 0; d_live int := 0;
+begin
+  if tg_op <> 'DELETE' then
+    uid := new.user_id;
+    if tg_table_name = 'activities' then nb := 200 + coalesce(pg_column_size(new.track), 0) + coalesce(pg_column_size(new.stats), 0);
+    elsif tg_table_name in ('saved', 'shortlist') then nb := 200 + coalesce(pg_column_size(new.trail), 0);
+    else nb := pg_column_size(new); end if;
+  end if;
+  if tg_op <> 'INSERT' then
+    uid := old.user_id;
+    if tg_table_name = 'activities' then ob := 200 + coalesce(pg_column_size(old.track), 0) + coalesce(pg_column_size(old.stats), 0);
+    elsif tg_table_name in ('saved', 'shortlist') then ob := 200 + coalesce(pg_column_size(old.trail), 0);
+    else ob := pg_column_size(old); end if;
+  end if;
+  if tg_op = 'INSERT' then d_rows := 1; d_live := case when coalesce((to_jsonb(new)->>'deleted')::boolean, false) then 0 else 1 end;
+  elsif tg_op = 'DELETE' then d_rows := -1; d_live := - case when coalesce((to_jsonb(old)->>'deleted')::boolean, false) then 0 else 1 end;
+  else d_live := (case when coalesce((to_jsonb(new)->>'deleted')::boolean, false) then 0 else 1 end) - (case when coalesce((to_jsonb(old)->>'deleted')::boolean, false) then 0 else 1 end);
+  end if;
+  perform pg_advisory_xact_lock(hashtextextended(tg_table_name || ':' || uid::text, 0));
+  if tg_op = 'DELETE' then
+    -- Only ever update here: when an account is deleted the cascade removes the user (and its usage rows) in the same statement.
+    update ridgeline.usage set bytes = bytes + nb - ob, n_rows = n_rows + d_rows, n_live = n_live + d_live where user_id = uid and tbl = tg_table_name;
+    return old;
+  end if;
+  insert into ridgeline.usage as u (user_id, tbl, bytes, n_rows, n_live) values (uid, tg_table_name, nb - ob, d_rows, d_live)
+    on conflict (user_id, tbl) do update set bytes = u.bytes + (nb - ob), n_rows = u.n_rows + d_rows, n_live = u.n_live + d_live;
+  return new;
+end $$;
+
+create trigger activities_limit before insert or update on ridgeline.activities for each row execute function ridgeline.enforce_row_limit(5000, 'id', 104857600);
+create trigger saved_limit      before insert or update on ridgeline.saved      for each row execute function ridgeline.enforce_row_limit(2000, 'trail_id', 26214400);
+create trigger shortlist_limit  before insert or update on ridgeline.shortlist  for each row execute function ridgeline.enforce_row_limit(5000, 'trail_id', 26214400);
+create trigger activities_usage after insert or update or delete on ridgeline.activities for each row execute function ridgeline.track_usage();
+create trigger saved_usage      after insert or update or delete on ridgeline.saved      for each row execute function ridgeline.track_usage();
+create trigger shortlist_usage  after insert or update or delete on ridgeline.shortlist  for each row execute function ridgeline.track_usage();
 
 -- RLS: owner only, signed-in users only. anon gets nothing.
 do $$
@@ -167,4 +224,7 @@ end $$;
 
 revoke execute on function ridgeline.store_apple_token(uuid, text), ridgeline.read_apple_token(uuid), ridgeline.delete_apple_token(uuid) from public, anon, authenticated;
 grant  execute on function ridgeline.store_apple_token(uuid, text), ridgeline.read_apple_token(uuid), ridgeline.delete_apple_token(uuid) to service_role;
-revoke execute on function ridgeline.enforce_row_limit() from public, anon, authenticated;
+revoke execute on function ridgeline.enforce_row_limit(), ridgeline.track_usage() from public, anon, authenticated;
+alter table ridgeline.usage enable row level security;
+revoke all on ridgeline.usage from public, anon, authenticated;
+grant select, insert, update, delete on ridgeline.usage to service_role;

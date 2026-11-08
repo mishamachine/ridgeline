@@ -63,7 +63,7 @@ export function DeleteAccount({ onBack }: { onBack: () => void }) {
         {needsSignIn && !finished && (
           <>
             <p className="pf-note">Sign in to the account you want to delete.</p>
-            <div className="gp-btns" style={{ padding: '4px 14px' }}>{providersFor(nativePlatform()).map((p) => <ProviderButton key={p} provider={p} onClick={() => signIn(p, features.accounts)} />)}</div>
+            <div className="gp-btns" style={{ padding: '4px 14px' }}>{providersFor(nativePlatform()).map((p) => <ProviderButton key={p} provider={p} forDelete onClick={() => signIn(p, features.accounts, 'account-delete')} />)}</div>
           </>
         )}
         {acct.signedIn && !finished && result?.r.status !== 'reauth' && (
