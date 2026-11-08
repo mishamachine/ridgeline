@@ -43,7 +43,7 @@ describe('routes', () => {
   it('the privacy page describes sharing a hike and carries today\'s date', () => {
     const html = readFileSync('public/privacy/index.html', 'utf8');
     expect(html).toContain('<h2>Sharing a hike</h2>');
-    expect(html).toContain('Last updated 7 November 2026');
+    expect(html).toContain('Last updated 8 November 2026');
     expect(html).toContain('first and last 200 m');
     expect(html).toContain('whether you finished');
   });
