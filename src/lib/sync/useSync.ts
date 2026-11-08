@@ -3,32 +3,49 @@ import { get, set } from 'idb-keyval';
 import { features } from '../features';
 import { getClient } from '../accounts/client';
 import { getSettings } from '../settings';
-import { KINDS, syncOnce, type Cursors } from './engine';
+import { syncOnce, StaleEpochError, type Cursors } from './engine';
 import { idbLocal } from './local';
 import { supabaseRemote } from './remote';
+import { syncGate } from './gate';
 
 const cursors: Cursors = { get: async (k) => (await get<number>(k)) ?? 0, set: (k, v) => set(k, v) };
-let running = false;
 
-/** One sync pass for the signed-in user. Never throws; a failure just means "try again later". */
-export async function runSync(userId: string): Promise<number> {
-  if (running) return 0;
-  running = true;
-  try {
-    const c = await getClient();
-    if (!c) return 0;
-    const r = await syncOnce(userId, idbLocal, supabaseRemote(c, userId, () => getSettings().keepTracksLocal), cursors, KINDS);
-    return r.pulled;
-  } catch { return 0; } finally { running = false; }
+export interface PassOutcome { pulled: number; deletedElsewhere: boolean }
+
+/** One sync pass for the signed-in user, under the delete gate. Never throws; a failure just means "try again later". */
+export async function runSync(userId: string): Promise<PassOutcome> {
+  const none: PassOutcome = { pulled: 0, deletedElsewhere: false };
+  const out = await syncGate.run(async () => {
+    try {
+      const c = await getClient();
+      if (!c) return none;
+      const r = await syncOnce(userId, idbLocal, supabaseRemote(c, userId, () => getSettings().keepTracksLocal), cursors, { canPush: () => !syncGate.paused });
+      return { pulled: r.pulled, deletedElsewhere: r.deletedElsewhere };
+    } catch (e) {
+      // A refused write means the data was deleted elsewhere while this pass ran: the next pass will see the new epoch and clear this phone.
+      if (e instanceof StaleEpochError) return { ...none, retrySoon: true } as PassOutcome;
+      return none;
+    }
+  });
+  return out ?? none;
 }
 
-/** Syncs when the person signs in, when the app comes back to the front or the network returns, and every 2 minutes. Nothing runs while accounts are off or signed out. */
-export function useSync(userId: string | null, onPulled: () => void, enabled: boolean = features.accounts) {
-  const cb = useRef(onPulled);
-  cb.current = onPulled;
+export const DELETED_ELSEWHERE_MESSAGE = 'Your Ridgeline data was deleted on another device.';
+
+/** Syncs when the person signs in, when the app comes back to the front or the network returns, and every 2 minutes. Nothing runs while accounts are off, signed out, or a delete is in progress. */
+export function useSync(userId: string | null, onPulled: () => void, onDeletedElsewhere: () => void = () => {}, enabled: boolean = features.accounts) {
+  const cb = useRef(onPulled), cbDel = useRef(onDeletedElsewhere);
+  cb.current = onPulled; cbDel.current = onDeletedElsewhere;
   useEffect(() => {
     if (!enabled || !userId) return;
-    const go = () => { if (navigator.onLine) runSync(userId).then((n) => { if (n) cb.current(); }); };
+    const go = () => {
+      if (!navigator.onLine) return;
+      runSync(userId).then((o) => {
+        if (o.deletedElsewhere) { cbDel.current(); cb.current(); }
+        else if (o.pulled) cb.current();
+        if ((o as PassOutcome & { retrySoon?: boolean }).retrySoon) setTimeout(go, 1500);
+      });
+    };
     go();
     const timer = setInterval(go, 120_000);
     const vis = () => { if (document.visibilityState === 'visible') go(); };

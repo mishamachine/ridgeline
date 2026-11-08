@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { deleteAccount, type DeleteDeps } from '../../../supabase/functions/_shared/deleteAccount';
 import { revokeAppleToken } from '../../../supabase/functions/_shared/apple';
 import { deleteMyAccount } from './auth';
+import { syncGate } from '../sync/gate';
+import { recentSignIn } from '../../../supabase/functions/_shared/reauth';
 import { APPLE_MANUAL_LINE, COPY, resultText } from '../../screens/DeleteAccount';
 import { parseRoute, routePath } from '../route';
 import { SYNCED_SETTING_KEYS, sanitize } from '../settings';
@@ -118,14 +120,56 @@ describe('client side of delete', () => {
     expect(c.auth.signOut).not.toHaveBeenCalled();
     expect(wipe).toHaveBeenCalled();
   });
-  it('a failed delete changes nothing on the phone', async () => {
+  it('"failed" only when the server said so: nothing changes on the phone', async () => {
     const wipe = vi.fn(async () => {});
-    for (const c of [client(null, { message: 'x' }), client({ status: 'failed' }), client({})]) expect(await deleteMyAccount('account', c as never, wipe)).toEqual({ status: 'failed' });
+    const asHttpError = (body: unknown) => ({ message: 'x', context: { json: async () => body } });
+    for (const c of [client(null, asHttpError({ status: 'failed' })), client({ status: 'failed' })]) expect(await deleteMyAccount('account', c as never, wipe)).toEqual({ status: 'failed' });
     expect(wipe).not.toHaveBeenCalled();
+  });
+  it('a lost request or answer is "unconfirmed", never "nothing was deleted"', async () => {
+    const wipe = vi.fn(async () => {});
+    const lost = [client(null, { message: 'Failed to fetch' }), client(null, { message: 'x', context: { json: async () => { throw new Error('no body'); } } }), client(null, { message: 'x', context: { json: async () => ({ oops: 1 }) } }), client({}), client(undefined)];
+    for (const c of lost) expect(await deleteMyAccount('account', c as never, wipe)).toEqual({ status: 'unconfirmed' });
+    const thrown = { functions: { invoke: vi.fn(async () => { throw new TypeError('network'); }) }, auth: { signOut: vi.fn() } };
+    expect(await deleteMyAccount('account', thrown as never, wipe)).toEqual({ status: 'unconfirmed' });
+    expect(wipe).not.toHaveBeenCalled();
+  });
+  it('an old sign-in is sent back to sign in again, and nothing changes', async () => {
+    const wipe = vi.fn(async () => {});
+    const c = client(null, { message: 'x', context: { json: async () => ({ status: 'reauth' }) } });
+    expect(await deleteMyAccount('account', c as never, wipe)).toEqual({ status: 'reauth' });
+    expect(wipe).not.toHaveBeenCalled();
+  });
+  it('sync is paused during the delete and resumed after the wipe, whatever the result', async () => {
+    const order: string[] = [];
+    const c = { functions: { invoke: vi.fn(async () => { order.push(`invoke paused=${syncGate.paused}`); return { data: { status: 'ok', apple: 'none' }, error: null }; }) }, auth: { signOut: vi.fn(async () => { order.push(`signout paused=${syncGate.paused}`); return {}; }) } };
+    await deleteMyAccount('data', c as never, async () => { order.push(`wipe paused=${syncGate.paused}`); });
+    order.push(`after paused=${syncGate.paused}`);
+    expect(order).toEqual(['invoke paused=true', 'signout paused=true', 'wipe paused=true', 'after paused=false']);
+    await deleteMyAccount('data', { functions: { invoke: async () => { throw new Error('x'); } }, auth: {} } as never, async () => {});
+    expect(syncGate.paused).toBe(false);
+  });
+});
+
+describe('recent sign-in for closing the account', () => {
+  const now = Date.parse('2026-11-08T12:00:00Z');
+  it('accepts a sign-in from the last 10 minutes only', () => {
+    expect(recentSignIn('2026-11-08T11:55:00Z', now)).toBe(true);
+    expect(recentSignIn('2026-11-08T11:49:59Z', now)).toBe(false);
+    expect(recentSignIn('2026-11-07T12:00:00Z', now)).toBe(false);
+    expect(recentSignIn(null, now)).toBe(false);
+    expect(recentSignIn(undefined, now)).toBe(false);
+    expect(recentSignIn('not a date', now)).toBe(false);
+    expect(recentSignIn('2026-11-08T13:00:00Z', now)).toBe(false);   // a time in the future is not a sign-in
   });
 });
 
 describe('what the person is told', () => {
+  it('a lost answer says we could not confirm; a reauth asks for a new sign-in; neither says nothing was deleted', () => {
+    expect(resultText('account', { status: 'unconfirmed' })).toBe('We couldn\u2019t confirm the delete. Try again.');
+    expect(resultText('account', { status: 'reauth' })).toBe('Sign in again to delete your account, then try again.');
+    expect(resultText('account', { status: 'unconfirmed' })).not.toContain('nothing was deleted');
+  });
   it('partial is never presented as success', () => {
     expect(resultText('account', { status: 'partial', apple: 'none' })).toBe('Your Ridgeline data was deleted, but we couldn\u2019t close your account. Try again.');
   });

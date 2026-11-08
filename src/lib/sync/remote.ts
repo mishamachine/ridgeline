@@ -3,9 +3,9 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { cleanActivity } from '../backup';
 import type { Activity } from '../store';
 import { APP_DATA_SCHEMA } from '../accounts/config';
-import type { Remote } from './engine';
+import { StaleEpochError, type Remote } from './engine';
 import type { Kind, SyncRec } from './merge';
-import { trimTrack } from './trim';
+import { fitTrack, trimTrack } from './trim';
 
 const TABLE: Record<Kind, string> = { shortlist: 'shortlist', saved: 'saved', activities: 'activities', settings: 'settings' };
 const PAGE = 500, CHUNK = 25;
@@ -13,23 +13,23 @@ const iso = (ms: number) => new Date(ms).toISOString();
 type Row = Record<string, unknown>;
 
 /** Hike fields that go in `stats`. The route is separate (`track`). Never add body or health fields here. */
-export function activityToRow(userId: string, r: SyncRec, keepTracksLocal: boolean): Row {
-  if (r.deleted || !r.payload) return { user_id: userId, id: r.id, started_at: iso(0), stats: {}, track: null, updated_at: iso(r.updatedAt), deleted: true };
+export function activityToRow(userId: string, r: SyncRec, keepTracksLocal: boolean, epoch = 0): Row {
+  if (r.deleted || !r.payload) return { user_id: userId, id: r.id, started_at: iso(0), stats: {}, track: null, updated_at: iso(r.updatedAt), deleted: true, epoch };
   const a = r.payload as Activity;
   const { id, trailId, startedAt, points, updatedAt: _u, ...stats } = a;
   void id; void _u;
   return {
     user_id: userId, id: a.id, trail_id: trailId ?? null, started_at: iso(startedAt), stats,
-    track: keepTracksLocal ? null : trimTrack(points), // first and last 200 m removed; null when "phone only" or nothing is left
-    updated_at: iso(r.updatedAt), deleted: false,
+    track: keepTracksLocal ? null : fitTrack(trimTrack(points)), // first and last 200 m removed, thinned to fit the server cap; null when "phone only" or nothing is left
+    updated_at: iso(r.updatedAt), deleted: false, epoch,
   };
 }
 
-export function toRow(userId: string, r: SyncRec, keepTracksLocal: boolean): Row {
-  if (r.kind === 'activities') return activityToRow(userId, r, keepTracksLocal);
-  if (r.kind === 'settings') return { user_id: userId, data: r.payload ?? {}, updated_at: iso(r.updatedAt) };
+export function toRow(userId: string, r: SyncRec, keepTracksLocal: boolean, epoch = 0): Row {
+  if (r.kind === 'activities') return activityToRow(userId, r, keepTracksLocal, epoch);
+  if (r.kind === 'settings') return { user_id: userId, data: r.payload ?? {}, updated_at: iso(r.updatedAt), epoch };
   const p = r.payload as { trail?: unknown; addedAt?: number } | null;
-  return { user_id: userId, trail_id: r.id, trail: r.deleted ? null : p?.trail ?? null, added_at: iso(p?.addedAt ?? r.updatedAt), updated_at: iso(r.updatedAt), deleted: r.deleted };
+  return { user_id: userId, trail_id: r.id, trail: r.deleted ? null : p?.trail ?? null, added_at: iso(p?.addedAt ?? r.updatedAt), updated_at: iso(r.updatedAt), deleted: r.deleted, epoch };
 }
 
 /** Returns null for a row that does not look right (it is skipped, never half-applied). */
@@ -53,6 +53,15 @@ export function fromRow(kind: Kind, row: Row): SyncRec | null {
   return { ...base, id, deleted, payload: deleted ? null : { trail: row.trail, addedAt: Date.parse(String(row.added_at)) } };
 }
 
+/** One request per set of columns (PostgREST fills a missing column with null on conflict, which would blank a stored route). True if every request worked. */
+async function sendGroups(rows: Row[], send: (rows: Row[]) => Promise<unknown>): Promise<boolean> {
+  const groups = new Map<string, Row[]>();
+  for (const row of rows) { const sig = Object.keys(row).sort().join(','); groups.set(sig, [...(groups.get(sig) ?? []), row]); }
+  let ok = true;
+  for (const g of groups.values()) if (await send(g)) ok = false;
+  return ok;
+}
+
 export function supabaseRemote(c: SupabaseClient, userId: string, keepTracksLocal: () => boolean): Remote {
   const t = (k: Kind) => c.schema(APP_DATA_SCHEMA).from(TABLE[k]);
   return {
@@ -72,13 +81,28 @@ export function supabaseRemote(c: SupabaseClient, userId: string, keepTracksLoca
       }
       return [...out.values()];
     },
-    async push(kind, recs) {
+    async epoch() {
+      const { data, error } = await c.schema(APP_DATA_SCHEMA).from('profiles').select('data_epoch').maybeSingle();
+      if (error) throw new Error('sync epoch: ' + error.message);
+      return typeof data?.data_epoch === 'number' ? data.data_epoch : 0;
+    },
+    async push(kind, recs, epoch) {
       const conflict = kind === 'settings' ? 'user_id' : kind === 'activities' ? 'user_id,id' : 'user_id,trail_id';
-      for (let i = 0; i < recs.length; i += CHUNK) {
-        const rows = recs.slice(i, i + CHUNK).map((r) => toRow(userId, r, keepTracksLocal()));
+      const failed: string[] = [];
+      const send = async (rows: Row[]) => {
         const { error } = await t(kind).upsert(rows, { onConflict: conflict });
-        if (error) throw new Error('sync push: ' + error.message);
+        if (error && (error as { code?: string }).code === 'RL001') throw new StaleEpochError();
+        return error;
+      };
+      for (let i = 0; i < recs.length; i += CHUNK) {
+        const batch = recs.slice(i, i + CHUNK);
+        const rows = batch.map((r) => toRow(userId, r, keepTracksLocal(), epoch));
+        const ok = await sendGroups(rows, send);
+        if (ok) continue;
+        // The batch failed: try the rows one by one so a single bad row cannot hold up the others.
+        for (let j = 0; j < rows.length; j++) if (await send([rows[j]])) failed.push(batch[j].id);
       }
+      return { failed };
     },
   };
 }

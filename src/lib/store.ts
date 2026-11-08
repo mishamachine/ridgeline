@@ -1,6 +1,7 @@
 // Local persistence (IndexedDB). Nothing leaves the device unless the person signs in (src/lib/sync).
 import { get, set, del, keys, getMany } from 'idb-keyval';
 import type { Trail } from './trails';
+import { features } from './features';
 
 export interface SavedTrail {
   trail: Trail;
@@ -63,11 +64,16 @@ export const nextEditStamp = (): Promise<number> => (editChain = editChain.catch
   await set(EDIT_SEQ, n);
   return n;
 }));
-const tombstone = async (kind: TombKind, id: string) => set(tombKey(kind, id), { kind, id, deletedAt: Date.now(), editedAt: await nextEditStamp() } satisfies Tombstone);
+const tombstone = async (kind: TombKind, id: string) => features.accounts && set(tombKey(kind, id), { kind, id, deletedAt: Date.now(), editedAt: await nextEditStamp() } satisfies Tombstone);
 const untomb = (kind: TombKind, id: string) => del(tombKey(kind, id));
 export async function listTombstones(): Promise<Tombstone[]> {
   const ks = (await keys()).filter((k) => String(k).startsWith('tomb:'));
   return (await getMany<Tombstone | undefined>(ks)).filter((x): x is Tombstone => !!x);
+}
+/** Drop tombstones older than this: a phone that was offline for longer than that re-syncs from the server's copy anyway. */
+export const TOMBSTONE_MAX_AGE_MS = 90 * 24 * 3600 * 1000;
+export async function pruneTombstones(now = Date.now(), maxAge = TOMBSTONE_MAX_AGE_MS): Promise<void> {
+  for (const t of await listTombstones()) if (now - t.deletedAt > maxAge) await del(tombKey(t.kind, t.id));
 }
 export const clearTombstone = (kind: TombKind, id: string) => untomb(kind, id);
 export const clearTombstones = async () => { for (const k of (await keys()).filter((k) => String(k).startsWith('tomb:'))) await del(k); };
@@ -76,6 +82,9 @@ export const getSaved = (id: string) => get<SavedTrail>(T + id);
 export const putSaved = async (s: SavedTrail) => { await set(T + s.trail.id, { ...s, updatedAt: Date.now(), editedAt: await nextEditStamp() }); await untomb('saved', s.trail.id); };
 export const deleteSaved = async (id: string) => { await del(T + id); await tombstone('saved', id); };
 /** For sync only: store exactly what came from the server (no new timestamp, no tombstone). */
+/** Restore from a backup: keeps the record's own updatedAt (so an old backup never beats newer synced data), but counts as an edit made here so it uploads. */
+export const restoreSaved = async (s: SavedTrail) => { await set(T + s.trail.id, { ...s, updatedAt: s.updatedAt ?? s.savedAt, editedAt: await nextEditStamp() }); await untomb('saved', s.trail.id); };
+export const restoreActivity = async (a: Activity) => { await set(A + a.id, { ...a, updatedAt: a.updatedAt ?? a.endedAt ?? a.startedAt, editedAt: await nextEditStamp() }); await untomb('activities', a.id); };
 export const putSavedRaw = (s: SavedTrail) => set(T + s.trail.id, { ...s, editedAt: 0 });
 export const deleteSavedRaw = (id: string) => del(T + id);
 
@@ -109,7 +118,7 @@ export interface Shortlisted { trail: Trail; addedAt: number; updatedAt?: number
 export const getShortlisted = (id: string) => get<Shortlisted>(S + id);
 export const putShortlisted = async (trail: Trail) => { const now = Date.now(); await set(S + trail.id, { trail, addedAt: now, updatedAt: now, editedAt: await nextEditStamp() } satisfies Shortlisted); await untomb('shortlist', trail.id); };
 /** Used by restore, to keep the original date. */
-export const restoreShortlisted = async (s: Shortlisted) => { await set(S + s.trail.id, { ...s, updatedAt: Date.now(), editedAt: await nextEditStamp() }); await untomb('shortlist', s.trail.id); };
+export const restoreShortlisted = async (s: Shortlisted) => { await set(S + s.trail.id, { ...s, updatedAt: s.updatedAt ?? s.addedAt, editedAt: await nextEditStamp() }); await untomb('shortlist', s.trail.id); };
 export const deleteShortlisted = async (id: string) => { await del(S + id); await tombstone('shortlist', id); };
 export const putShortlistedRaw = (s: Shortlisted) => set(S + s.trail.id, { ...s, editedAt: 0 });
 export const deleteShortlistedRaw = (id: string) => del(S + id);

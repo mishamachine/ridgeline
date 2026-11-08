@@ -5,6 +5,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { appleClientSecret, revokeAppleToken } from '../_shared/apple.ts';
 import { deleteAccount, type Scope } from '../_shared/deleteAccount.ts';
+import { recentSignIn } from '../_shared/reauth.ts';
 
 const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type, apikey, x-client-info', 'access-control-allow-methods': 'POST, OPTIONS' };
 const reply = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { ...cors, 'content-type': 'application/json' } });
@@ -20,6 +21,9 @@ Deno.serve(async (req) => {
   let scope: Scope | '' = '';
   try { const s = (await req.json()).scope; scope = s === 'data' || s === 'account' ? s : ''; } catch { /* falls through */ }
   if (!scope) return reply(400, { error: 'scope' });
+
+  // Closing the whole account needs a sign-in from the last 10 minutes (data-only delete does not).
+  if (scope === 'account' && !recentSignIn(u.user.last_sign_in_at)) return reply(401, { status: 'reauth' });
 
   const uid = u.user.id;
   const admin = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);

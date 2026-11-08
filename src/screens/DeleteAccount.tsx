@@ -23,6 +23,8 @@ export const COPY: Record<DeleteScope, { title: string; button: string; warn: st
 
 export function resultText(scope: DeleteScope, r: DeleteResult): string {
   if (r.status === 'failed') return 'That did not go through, and nothing was deleted. Try again in a minute.';
+  if (r.status === 'unconfirmed') return 'We couldn\u2019t confirm the delete. Try again.';
+  if (r.status === 'reauth') return 'Sign in again to delete your account, then try again.';
   if (r.status === 'partial') return 'Your Ridgeline data was deleted, but we couldn\u2019t close your account. Try again.';
   if (scope === 'data') return 'Your Ridgeline data was deleted from our servers, and this phone is signed out with its copies removed. Sign out your other phones too, or they may upload their copies again.';
   const base = 'Your account is deleted. Backup copies are erased within 7 days.';
@@ -45,19 +47,20 @@ export function DeleteAccount({ onBack }: { onBack: () => void }) {
     setResult({ scope, r }); setWorking(false);
   };
   const finished = result?.r.status === 'ok';
+  const needsSignIn = !acct.signedIn || result?.r.status === 'reauth'; // a recent sign-in is required to close the whole account
 
   return (
     <div className="screen pf">
       <PageHead title="Delete account" sub="Optional. Ridgeline works without an account." />
       <div className="pf-body">
         {result && <p className="pf-note" role={result.r.status === 'ok' ? 'status' : 'alert'}>{resultText(result.scope, result.r)}</p>}
-        {!acct.signedIn && !finished && (
+        {needsSignIn && !finished && (
           <>
             <p className="pf-note">Sign in to the account you want to delete.</p>
             {providersFor(nativePlatform()).map((p) => <button key={p} className="pf-row" onClick={() => signIn(p)}>{p === 'apple' ? 'Continue with Apple' : 'Continue with Google'}</button>)}
           </>
         )}
-        {acct.signedIn && !finished && (
+        {acct.signedIn && !finished && result?.r.status !== 'reauth' && (
           <div className="pf-group">
             {(['data', 'account'] as const).map((s) => (
               <div key={s}>

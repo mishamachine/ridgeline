@@ -26,7 +26,8 @@ import { count } from './lib/counter';
 import { isCallbackPath, completeWebSignIn } from './lib/accounts/auth';
 import { getClient } from './lib/accounts/client';
 import { useAccount } from './lib/accounts/useAccount';
-import { useSync } from './lib/sync/useSync';
+import { useSync, DELETED_ELSEWHERE_MESSAGE } from './lib/sync/useSync';
+import { pruneTombstones, clearTombstones } from './lib/store';
 import { setHikeActive } from './lib/swUpdate';
 import { Toaster } from './components/Toaster';
 import { Later } from './components/ScreenBoundary';
@@ -91,9 +92,11 @@ export function App() {
   }, []);
 
   const account = useAccount();
-  useSync(account.userId, () => { refreshSaved(); setProfileVersion((v) => v + 1); });
+  useSync(account.userId, () => { refreshSaved(); setProfileVersion((v) => v + 1); }, () => toast(DELETED_ELSEWHERE_MESSAGE));
 
   useEffect(() => {
+    // Tombstones only matter to sync: none are kept while accounts are off, and old ones are dropped when on.
+    (features.accounts ? pruneTombstones() : clearTombstones()).catch(() => {});
     closeAbandoned().catch(() => {}); // hikes left open for over 6 hours are closed as Unfinished
     getTileTemplate().then(setTpl);
     refreshSaved();
