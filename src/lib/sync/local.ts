@@ -10,6 +10,8 @@ import type { Trail } from '../trails';
 import type { Kind, SyncRec } from './merge';
 
 export interface LocalSource {
+  /** Forget this account's synced copies and all sync cursors on this phone (the server copy is untouched). */
+  wipe(): Promise<void>;
   readAll(kind: Kind): Promise<SyncRec[]>;
   apply(rec: SyncRec): Promise<void>;
 }
@@ -38,6 +40,7 @@ export function mergeRemoteActivity(local: Activity | undefined, remote: Activit
 }
 
 export const idbLocal: LocalSource = {
+  wipe: () => wipeLocalAccountData(),
   async readAll(kind) {
     const tombs = kind === 'settings' ? [] : (await listTombstones()).filter((t) => t.kind === kind)
       .map((t): SyncRec => ({ kind, id: t.id, updatedAt: t.deletedAt, editedAt: t.editedAt ?? t.deletedAt, deleted: true, payload: null }));

@@ -16,3 +16,16 @@ export function trimTrack(points: TrackPoint[], trimM = TRIM_M): TrackPoint[] | 
   const kept = points.filter((p) => far(p, a) && far(p, b));
   return kept.length >= 2 ? kept : null;
 }
+
+/**
+ * The server accepts a route of at most 1 MB (about 8,000 points). Longer ones are thinned before upload by keeping every n-th point,
+ * always including the first and last kept points, so one long hike can never make the upload fail.
+ */
+export const MAX_UPLOAD_POINTS = 5000;
+export function fitTrack(points: TrackPoint[] | null, max = MAX_UPLOAD_POINTS): TrackPoint[] | null {
+  if (!points || points.length <= max) return points;
+  const step = (points.length - 1) / (max - 1);
+  const out: TrackPoint[] = [];
+  for (let i = 0; i < max; i++) out.push(points[Math.round(i * step)]);
+  return out;
+}

@@ -1,7 +1,7 @@
 // Back up / restore everything Ridgeline keeps on this phone, as one JSON file. No server involved.
 import type { LngLat } from './geo';
 import type { Junction, Trail } from './trails';
-import { Activity, SavedTrail, Shortlisted, TrackPoint, TrailSnapshot, getSaved, getShortlisted, listActivities, listSaved, listShortlisted, putActivity, putSaved, restoreShortlisted } from './store';
+import { Activity, SavedTrail, Shortlisted, TrackPoint, TrailSnapshot, getSaved, getShortlisted, listActivities, listSaved, listShortlisted, restoreActivity, restoreSaved, restoreShortlisted } from './store';
 import { Settings, getSettings, sanitize, updateSettings } from './settings';
 
 export const BACKUP_APP = 'ridgeline';
@@ -67,6 +67,7 @@ export function cleanActivity(a: unknown): Activity | null {
   if (a.trackOrigin === 'server') out.trackOrigin = 'server'; // a restored server route must still never be trimmed again
   const sm = a.summary;
   if (isObj(sm) && num(sm.distanceM) && num(sm.durationMs) && num(sm.climbM)) out.summary = { distanceM: sm.distanceM, durationMs: sm.durationMs, climbM: sm.climbM };
+  if (num(a.updatedAt)) out.updatedAt = a.updatedAt; // a restore keeps the original time
   return out;
 }
 
@@ -132,13 +133,13 @@ export function cleanTrail(t: unknown): Trail | null {
 function cleanSaved(s: unknown): SavedTrail | null {
   if (!isObj(s) || !num(s.savedAt)) return null;
   const trail = cleanTrail(s.trail);
-  return trail ? { trail, savedAt: s.savedAt, tileKeys: [], bytes: 0 } : null;
+  return trail ? { trail, savedAt: s.savedAt, tileKeys: [], bytes: 0, ...(num(s.updatedAt) ? { updatedAt: s.updatedAt } : {}) } : null;
 }
 
 function cleanShortlisted(s: unknown): Shortlisted | null {
   if (!isObj(s) || !num(s.addedAt)) return null;
   const trail = cleanTrail(s.trail);
-  return trail ? { trail, addedAt: s.addedAt } : null;
+  return trail ? { trail, addedAt: s.addedAt, ...(num(s.updatedAt) ? { updatedAt: s.updatedAt } : {}) } : null;
 }
 
 export type ParseResult = { ok: true; backup: Backup } | { ok: false; error: string };
@@ -184,9 +185,9 @@ export function downloadBackup(b: Backup) {
  */
 export async function restoreBackup(b: Backup, progress: { done: number; total: number } = { done: 0, total: 0 }) {
   progress.total = b.saved.length + b.shortlist.length + b.activities.length + 1;
-  for (const s of b.saved) { if (!(await getSaved(s.trail.id))) await putSaved({ ...s, tileKeys: [], bytes: 0 }); progress.done++; }
+  for (const s of b.saved) { if (!(await getSaved(s.trail.id))) await restoreSaved({ ...s, tileKeys: [], bytes: 0 }); progress.done++; }
   for (const m of b.shortlist) { if (!(await getShortlisted(m.trail.id))) await restoreShortlisted(m); progress.done++; }
-  for (const a of b.activities) { await putActivity(a); progress.done++; }
+  for (const a of b.activities) { await restoreActivity(a); progress.done++; }
   updateSettings(b.settings);
   progress.done++;
 }

@@ -1,24 +1,36 @@
 import { describe, it, expect } from 'vitest';
-import { syncOnce, type Cursors, type Remote } from './engine';
+import { StaleEpochError, syncOnce, type Cursors, type Remote, type SyncOptions } from './engine';
+import { syncGate } from './gate';
+import { fitTrack, MAX_UPLOAD_POINTS } from './trim';
 import type { LocalSource } from './local';
 import { winner, type Kind, type SyncRec } from './merge';
 import { activityToRow, fromRow, supabaseRemote, toRow } from './remote';
 import type { Activity } from '../store';
 import { mergeRemoteActivity } from './local';
 
-// A fake server with the same rules as the SQL: synced_at set on every write, stale writes ignored, future clocks clamped.
+// A fake server with the same rules as the SQL: synced_at set on every write, stale writes ignored, future clocks clamped,
+// writes tagged with an old data epoch refused, and delete_user_data (wipe everything, epoch + 1).
 class Server {
-  rows = new Map<string, SyncRec>(); clock = 10_000_000;
+  rows = new Map<string, SyncRec>(); clock = 10_000_000; dataEpoch = 0;
+  rejectIds = new Set<string>();          // rows the database refuses (a constraint violation)
+  pushes: { kind: Kind; ids: string[] }[] = [];
+  deleteUserData() { this.rows.clear(); this.dataEpoch++; }
   remote(): Remote {
     return {
+      epoch: async () => this.dataEpoch,
       pull: async (kind, since) => [...this.rows.values()].filter((r) => r.kind === kind && r.syncedAt! > since).sort((a, b) => a.syncedAt! - b.syncedAt!),
-      push: async (kind, recs) => {
+      push: async (kind, recs, epoch) => {
+        if (epoch < this.dataEpoch) throw new StaleEpochError();
         this.clock++;
+        this.pushes.push({ kind, ids: recs.map((r) => r.id) });
+        const failed: string[] = [];
         for (const r of recs) {
+          if (this.rejectIds.has(r.id)) { failed.push(r.id); continue; }
           const k = kind + '/' + r.id, old = this.rows.get(k);
           if (old && r.updatedAt < old.updatedAt) continue;
           this.rows.set(k, { ...r, updatedAt: Math.min(r.updatedAt, this.clock), syncedAt: this.clock });
         }
+        return { failed };
       },
     };
   }
@@ -31,8 +43,10 @@ class Phone implements LocalSource {
   del(kind: Kind, id: string, updatedAt: number) { this.recs.set(kind + '/' + id, { kind, id, updatedAt, editedAt: ++this.seq, deleted: true, payload: null }); }
   async readAll(kind: Kind) { return [...this.recs.values()].filter((r) => r.kind === kind); }
   async apply(r: SyncRec) { this.recs.set(r.kind + '/' + r.id, { ...r, editedAt: 0 }); } // a record taken from the server was not edited here
+  async wipe() { this.recs.clear(); this.cursors.clear(); }
   live(kind: Kind) { return [...this.recs.values()].filter((r) => r.kind === kind && !r.deleted).map((r) => r.id).sort(); }
-  sync(s: Server, user = 'u1') { return syncOnce(user, this, s.remote(), this.cur); }
+  syncFull(s: Server, user = 'u1', opts?: SyncOptions) { return syncOnce(user, this, s.remote(), this.cur, opts); }
+  async sync(s: Server, user = 'u1') { const r = await this.syncFull(s, user); return { pulled: r.pulled, pushed: r.pushed }; }
 }
 
 describe('last write wins', () => {
@@ -104,6 +118,117 @@ describe('two-device sync', () => {
   });
 });
 
+describe('delete on one device, the other stays signed in', () => {
+  it('B uploads nothing, clears its copy, the server has zero rows, and B syncs normally afterwards', async () => {
+    const s = new Server(), a = new Phone(), b = new Phone();
+    for (const i of [1, 2, 3]) a.put('shortlist', 'way/' + i, 100 + i);
+    a.put('activities', 'h1', 200);
+    await a.sync(s); await b.sync(s);
+    expect(b.live('shortlist')).toHaveLength(3);
+    // A runs "Delete my Ridgeline data": the server is emptied and the epoch goes up; A wipes itself.
+    s.deleteUserData(); await a.wipe();
+    // B is still signed in and has local edits it has not uploaded yet.
+    b.put('shortlist', 'way/9', 500);
+    s.pushes.length = 0;
+    const r = await b.syncFull(s);
+    expect(r.deletedElsewhere).toBe(true);
+    expect(r).toMatchObject({ pulled: 0, pushed: 0 });
+    expect(s.pushes).toEqual([]);                       // nothing uploaded
+    expect(s.rows.size).toBe(0);                        // the server has zero rows
+    expect(b.recs.size).toBe(0);                        // B cleared its account copy (including the edit it had not uploaded)
+    // B carries on normally: new items upload and reach another device.
+    b.put('shortlist', 'new-after', 900);
+    expect(await b.sync(s)).toEqual({ pulled: 0, pushed: 1 });
+    const c = new Phone(); await c.sync(s);
+    expect(c.live('shortlist')).toEqual(['new-after']);
+  });
+  it('a push that crosses the delete is refused by the server, and the next pass clears the phone', async () => {
+    const s = new Server(), a = new Phone(), b = new Phone();
+    a.put('shortlist', 'way/1', 1); await a.sync(s); await b.sync(s);
+    b.put('shortlist', 'late', 2);
+    // B has read epoch 0; A deletes; B's push arrives with epoch 0.
+    const remote = s.remote();
+    const racing: Remote = { ...remote, epoch: async () => { const e = s.dataEpoch; s.deleteUserData(); return e; } };
+    await expect(syncOnce('u1', b, racing, b.cur)).rejects.toBeInstanceOf(StaleEpochError);
+    expect(s.rows.size).toBe(0);
+    const next = await b.syncFull(s);
+    expect(next.deletedElsewhere).toBe(true);
+    expect(b.recs.size).toBe(0);
+  });
+  it('the first sign-in on a phone adopts the epoch and keeps its guest data (no wipe)', async () => {
+    const s = new Server(); s.dataEpoch = 3;
+    const a = new Phone(); a.put('shortlist', 'guest-trail', 5);
+    const r = await a.syncFull(s);
+    expect(r.deletedElsewhere).toBe(false);
+    expect(a.live('shortlist')).toEqual(['guest-trail']);
+    expect(s.rows.has('shortlist/guest-trail')).toBe(true);
+  });
+});
+
+describe('one bad row does not wedge sync', () => {
+  it('the other rows go through, the bad one is retried next pass, and later edits still upload', async () => {
+    const s = new Server(), a = new Phone();
+    a.put('activities', 'ok1', 1); a.put('activities', 'bad', 2); a.put('activities', 'ok2', 3);
+    s.rejectIds.add('bad');
+    const first = await a.syncFull(s);
+    expect(first).toMatchObject({ pushed: 2, failed: 1 });
+    expect([...s.rows.keys()].sort()).toEqual(['activities/ok1', 'activities/ok2']);
+    a.put('activities', 'ok3', 4);
+    const second = await a.syncFull(s);
+    expect(second.failed).toBe(1);                                  // still refused, still retried
+    expect(s.rows.has('activities/ok3')).toBe(true);                // but the new edit went through
+    s.rejectIds.clear();
+    const third = await a.syncFull(s);
+    expect(third.failed).toBe(0);
+    expect(s.rows.has('activities/bad')).toBe(true);
+  });
+});
+
+describe('a delete cannot race a sync', () => {
+  it('pause() waits for the pass in flight; nothing is pushed after the delete begins; passes stay blocked until resume()', async () => {
+    const s = new Server(), a = new Phone();
+    a.put('shortlist', 'w1', 1);
+    const events: string[] = [];
+    const slow: Remote = { ...s.remote(), push: async (k, r, e) => { await new Promise((res) => setTimeout(res, 30)); events.push('push-done'); return s.remote().push(k, r, e); } };
+    const pass = syncGate.run(() => syncOnce('u1', a, slow, a.cur, { canPush: () => !syncGate.paused }));
+    await new Promise((res) => setTimeout(res, 5));                 // the pass is mid-push
+    await syncGate.pause();                                         // what the delete flow does first
+    events.push('delete-starts');
+    await pass;
+    a.put('shortlist', 'w2', 2);                                    // an edit made while the delete runs
+    expect(await syncGate.run(() => syncOnce('u1', a, slow, a.cur))).toBeUndefined();   // a new pass does not even start
+    s.deleteUserData(); await a.wipe(); events.push('wiped');
+    syncGate.resume();
+    expect(events).toEqual(['push-done', 'delete-starts', 'wiped']);
+    expect(s.rows.size).toBe(0);                                    // the racing pass pushed nothing after the delete
+  });
+  it('a pass that is told to stop pushing uploads nothing', async () => {
+    const s = new Server(), a = new Phone();
+    a.put('shortlist', 'w1', 1);
+    const r = await a.syncFull(s, 'u1', { canPush: () => false });
+    expect(r.pushed).toBe(0);
+    expect(s.rows.size).toBe(0);
+  });
+});
+
+describe('long routes fit the server cap', () => {
+  const pts = (n: number) => Array.from({ length: n }, (_, i) => ({ lon: -121.8 + i * 1e-5, lat: 47.4 + i * 1e-5, alt: 300, acc: 5, t: i * 1000 }));
+  it('a 40,000-point track is thinned to the upload limit, keeping its first and last points', () => {
+    const long = pts(40_000), out = fitTrack(long)!;
+    expect(out).toHaveLength(MAX_UPLOAD_POINTS);
+    expect(out[0]).toBe(long[0]);
+    expect(out[out.length - 1]).toBe(long[long.length - 1]);
+  });
+  it('a track under the limit is untouched', () => {
+    const t = pts(100);
+    expect(fitTrack(t)).toBe(t);
+    expect(fitTrack(null)).toBeNull();
+  });
+  it('5,000 points stay well under the 1 MB server cap (measured about 124 bytes a point in Postgres)', () => {
+    expect(MAX_UPLOAD_POINTS * 124).toBeLessThan(1_048_576 * 0.7);
+  });
+});
+
 describe('the push cursor follows local edits, not server times', () => {
   it('a server clock running ahead cannot hide edits made here afterwards', async () => {
     const s = new Server(), a = new Phone(), b = new Phone();
@@ -149,7 +274,7 @@ describe('phone only never blanks a route that is already uploaded', () => {
   it('rows with and without a route are sent in separate requests', async () => {
     const sent: Record<string, unknown>[][] = [];
     const c = { schema: () => ({ from: () => ({ upsert: async (rows: Record<string, unknown>[]) => { sent.push(rows); return { error: null }; } }) }) };
-    await supabaseRemote(c as never, 'u1', () => false).push('activities', [rec(act), rec(stub)]);
+    await supabaseRemote(c as never, 'u1', () => false).push('activities', [rec(act), rec(stub)], 0);
     expect(sent).toHaveLength(2);
     expect(sent.find((g) => 'track' in g[0])!.map((r) => r.id)).toEqual(['h1']);
     expect(sent.find((g) => !('track' in g[0]))!.map((r) => r.id)).toEqual(['h2']);
@@ -179,7 +304,7 @@ describe('a route that came from the server is never trimmed or uploaded again',
   const client = { schema: () => ({ from: () => ({ upsert: async (rows: Record<string, unknown>[]) => { for (const r of rows) table.set(String(r.id), { ...table.get(String(r.id)), ...r }); return { error: null }; } }) }) };
 
   it('an edit on a second phone does not shrink the route on the server', async () => {
-    await supabaseRemote(client as never, 'u1', () => false).push('activities', [rec(full)]);           // phone A uploads once, trimmed
+    await supabaseRemote(client as never, 'u1', () => false).push('activities', [rec(full)], 0);           // phone A uploads once, trimmed
     const uploaded = (table.get('h1')!.track as unknown[]).length;
     expect(uploaded).toBeGreaterThan(0);
     expect(uploaded).toBeLessThan(full.points.length);
@@ -188,7 +313,7 @@ describe('a route that came from the server is never trimmed or uploaded again',
     expect(b.trackOrigin).toBe('server');
     for (let i = 0; i < 3; i++) {
       b = { ...b, withDog: i % 2 === 0, updatedAt: 2 + i };
-      await supabaseRemote(client as never, 'u1', () => false).push('activities', [rec(b, 10 + i)]);
+      await supabaseRemote(client as never, 'u1', () => false).push('activities', [rec(b, 10 + i)], 0);
     }
     expect((table.get('h1')!.track as unknown[]).length).toBe(uploaded);                                  // unchanged after three edits
     expect((table.get('h1')!.stats as { withDog: boolean }).withDog).toBe(true);                          // the edit itself did sync
@@ -212,7 +337,7 @@ describe('pull overlap', () => {
     const s = new Server(), a = new Phone(), b = new Phone();
     a.put('shortlist', 'way/1', 10);
     await a.sync(s); await b.sync(s);                       // B's cursor is now at the first row's synced_at
-    const cursorBefore = [...b.cursors.values()].find((v) => v > 0)!;
+    const cursorBefore = b.cursors.get('sync:u1:shortlist:pull')!;
     // A row from another device shows up with a synced_at slightly BEHIND B's cursor (commit order differs from clock order).
     s.rows.set('shortlist/way/2', { kind: 'shortlist', id: 'way/2', updatedAt: 20, editedAt: 0, deleted: false, payload: { n: 'way/2' }, syncedAt: cursorBefore - 5 });
     s.rows.set('shortlist/way/3', { kind: 'shortlist', id: 'way/3', updatedAt: 21, editedAt: 0, deleted: false, payload: { n: 'way/3' }, syncedAt: cursorBefore + 5 });
@@ -247,7 +372,7 @@ describe('what goes to the server', () => {
   });
   it('carries no name, email or user fields besides user_id, and the server never sees the raw points object', () => {
     const row = activityToRow('u1', rec(act), false);
-    expect(Object.keys(row).sort()).toEqual(['id', 'started_at', 'stats', 'track', 'trail_id', 'updated_at', 'deleted', 'user_id'].sort());
+    expect(Object.keys(row).sort()).toEqual(['id', 'started_at', 'stats', 'track', 'trail_id', 'updated_at', 'deleted', 'user_id', 'epoch'].sort());
     expect(Object.keys(row.stats as object)).not.toEqual(expect.arrayContaining(['calories', 'heartRate']));
     expect(JSON.stringify(row.stats)).not.toContain('points');
   });
