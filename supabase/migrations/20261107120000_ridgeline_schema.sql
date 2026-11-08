@@ -17,7 +17,7 @@ create table ridgeline.profiles (
 create table ridgeline.shortlist (
   user_id    uuid not null references auth.users (id) on delete cascade,
   trail_id   text not null check (length(trail_id) between 1 and 200),
-  trail      jsonb,
+  trail      jsonb check (pg_column_size(trail) < 65536),
   added_at   timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   deleted    boolean not null default false,
@@ -27,7 +27,7 @@ create table ridgeline.shortlist (
 create table ridgeline.saved (
   user_id    uuid not null references auth.users (id) on delete cascade,
   trail_id   text not null check (length(trail_id) between 1 and 200),
-  trail      jsonb,
+  trail      jsonb check (pg_column_size(trail) < 65536),
   added_at   timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   deleted    boolean not null default false,
@@ -39,7 +39,7 @@ create table ridgeline.activities (
   id         text not null check (length(id) between 1 and 200),
   trail_id   text,
   started_at timestamptz not null,
-  stats      jsonb not null default '{}'::jsonb,   -- name, endedAt, withDog, rain, snapshot, unfinished, pausedMs. Never body data.
+  stats      jsonb not null default '{}'::jsonb check (pg_column_size(stats) < 65536),   -- name, endedAt, withDog, rain, snapshot, unfinished, pausedMs. Never body data.
   track      jsonb check (track is null or (jsonb_typeof(track) = 'array' and jsonb_array_length(track) <= 50000)),
   updated_at timestamptz not null default now(),
   deleted    boolean not null default false,
@@ -48,7 +48,7 @@ create table ridgeline.activities (
 
 create table ridgeline.settings (
   user_id    uuid primary key references auth.users (id) on delete cascade,
-  data       jsonb not null default '{}'::jsonb,
+  data       jsonb not null default '{}'::jsonb check (pg_column_size(data) < 65536),
   updated_at timestamptz not null default now()
 );
 
@@ -60,18 +60,26 @@ create table ridgeline.apple_tokens (
   created_at timestamptz not null default now()
 );
 
--- Row limits mirror backup.ts (5,000 hikes, 2,000 saved trails; shortlist capped at 5,000).
+-- Row limits mirror backup.ts (5,000 hikes, 2,000 saved trails; shortlist capped at 5,000). Only live rows count.
+-- Args: limit, name of the key column. An upsert that updates an existing row is never blocked, and a tombstone never counts.
 create function ridgeline.enforce_row_limit() returns trigger
 language plpgsql set search_path = '' as $$
-declare lim int := tg_argv[0]::int; n int;
+declare lim int := tg_argv[0]::int; keycol text := tg_argv[1]; n int; found boolean;
 begin
-  execute format('select count(*) from %I.%I where user_id = $1', tg_table_schema, tg_table_name) into n using new.user_id;
+  if coalesce((to_jsonb(new)->>'deleted')::boolean, false) then return new; end if;                  -- a tombstone is not a live row
+  if tg_op = 'UPDATE' and not coalesce((to_jsonb(old)->>'deleted')::boolean, false) then return new; end if; -- already live: no growth
+  if tg_op = 'INSERT' then                                                                           -- the upsert path: row already there
+    execute format('select exists(select 1 from %I.%I where user_id = $1 and %I::text = $2)', tg_table_schema, tg_table_name, keycol)
+      into found using new.user_id, to_jsonb(new)->>keycol;
+    if found then return new; end if;
+  end if;
+  execute format('select count(*) from %I.%I where user_id = $1 and not deleted', tg_table_schema, tg_table_name) into n using new.user_id;
   if n >= lim then raise exception 'ridgeline: row limit (%) reached for %', lim, tg_table_name using errcode = '54000'; end if;
   return new;
 end $$;
-create trigger activities_limit before insert on ridgeline.activities for each row execute function ridgeline.enforce_row_limit(5000);
-create trigger saved_limit      before insert on ridgeline.saved      for each row execute function ridgeline.enforce_row_limit(2000);
-create trigger shortlist_limit  before insert on ridgeline.shortlist  for each row execute function ridgeline.enforce_row_limit(5000);
+create trigger activities_limit before insert or update of deleted on ridgeline.activities for each row execute function ridgeline.enforce_row_limit(5000, 'id');
+create trigger saved_limit      before insert or update of deleted on ridgeline.saved      for each row execute function ridgeline.enforce_row_limit(2000, 'trail_id');
+create trigger shortlist_limit  before insert or update of deleted on ridgeline.shortlist  for each row execute function ridgeline.enforce_row_limit(5000, 'trail_id');
 
 -- RLS: owner only, signed-in users only. anon gets nothing.
 do $$
@@ -110,13 +118,30 @@ language sql security definer set search_path = '' as $$
   where t.user_id = p_user
 $$;
 
+-- Vault has no delete function of its own (only create_secret / update_secret), so we delete from vault.secrets.
+-- On hosted Supabase the function owner is `postgres`; the grant below gives it that right. If the grant is refused,
+-- or the delete is later refused, the secret's value is overwritten so no token stays readable. MUST be verified on a
+-- Supabase branch before go-live (see the PR).
+do $$
+begin
+  grant usage on schema vault to postgres;
+  grant delete on vault.secrets to postgres;
+exception when others then
+  raise notice 'ridgeline: vault grant skipped (%): verify delete_apple_token on a branch', sqlerrm;
+end $$;
+
 create function ridgeline.delete_apple_token(p_user uuid) returns void
 language plpgsql security definer set search_path = '' as $$
 declare sid uuid;
 begin
   select secret_id into sid from ridgeline.apple_tokens where user_id = p_user;
   if sid is not null then
-    delete from vault.secrets where id = sid;
+    begin
+      delete from vault.secrets where id = sid;
+    exception when insufficient_privilege then
+      perform vault.update_secret(sid, 'deleted');
+      raise warning 'ridgeline: vault delete refused; secret value overwritten instead';
+    end;
     delete from ridgeline.apple_tokens where user_id = p_user;
   end if;
 end $$;
