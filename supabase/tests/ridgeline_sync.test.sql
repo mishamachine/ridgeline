@@ -1,7 +1,7 @@
 -- pgTAP tests for 20261107130000_ridgeline_sync.sql. Same rules as ridgeline_rls.test.sql: throwaway database only.
 begin;
 create extension if not exists pgtap;
-select plan(32);
+select plan(36);
 insert into auth.users (id) values ('00000000-0000-0000-0000-00000000000a');
 
 insert into ridgeline.shortlist (user_id, trail_id, updated_at) values ('00000000-0000-0000-0000-00000000000a', 'way/1', '2026-01-01T10:00:00Z');
@@ -89,5 +89,20 @@ select throws_ok($$insert into ridgeline.shortlist (user_id, trail_id, epoch) va
 select lives_ok($$insert into ridgeline.shortlist (user_id, trail_id, epoch) values ('00000000-0000-0000-0000-0000000000a1', 'fine', 0)$$, 'your own row with your own epoch works');
 reset role;
 select is((select count(*)::int from ridgeline.shortlist where user_id = '00000000-0000-0000-0000-0000000000a1' and trail_id = 'forged'), 0, 'and nothing forged was stored');
+
+-- L-a: a forged user_id against a victim who is AT a cap gets 42501 (the sync guard runs before the cap check), and the victim's usage is cleaned up by the delete.
+insert into auth.users (id) values ('00000000-0000-0000-0000-0000000000f1'), ('00000000-0000-0000-0000-0000000000f2');
+insert into ridgeline.profiles (user_id) values ('00000000-0000-0000-0000-0000000000f1'), ('00000000-0000-0000-0000-0000000000f2');
+insert into ridgeline.saved (user_id, trail_id) select '00000000-0000-0000-0000-0000000000f2', 's' || i from generate_series(1, 2000) i;
+select set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-0000000000f1', 'role', 'authenticated')::text, true), set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000f1', true);
+set local role authenticated;
+select throws_ok($$insert into ridgeline.saved (user_id, trail_id) values ('00000000-0000-0000-0000-0000000000f2', 'one-more')$$, '42501', null, 'a forged user_id against a victim at the live-row cap gets 42501, not a cap error');
+select lives_ok($$insert into ridgeline.saved (user_id, trail_id) values ('00000000-0000-0000-0000-0000000000f1', 'mine')$$, 'while the attacker''s own write works');
+reset role;
+select is((select string_agg(t.tgname, ',' order by t.tgname) from pg_trigger t where t.tgrelid = 'ridgeline.saved'::regclass and not t.tgisinternal and (t.tgname like '%sync_guard' or t.tgname like '%zz_limit')), 'saved_sync_guard,saved_zz_limit', 'the sync guard sorts before the limit trigger');
+set local role service_role;
+select ridgeline.delete_user_data('00000000-0000-0000-0000-0000000000f2');
+reset role;
+select is((select count(*)::int from ridgeline.usage where user_id = '00000000-0000-0000-0000-0000000000f2'), 0, 'delete_user_data also removes the usage counters');
 select * from finish();
 rollback;
