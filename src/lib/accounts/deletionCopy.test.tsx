@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { DELETION_TIMING } from './copy';
 import { ACCOUNTS_SECTION_HTML } from './privacyAccounts';
-import { deleteCopy, resultText } from '../../screens/DeleteAccount';
+import { DeleteAccount, deleteCopy, resultText } from '../../screens/DeleteAccount';
 
 const SENTENCE = 'Deleting removes your data from our live systems, normally straight away and always within 7 days; backup copies are erased within 7 days, when backups roll over.';
 
@@ -32,5 +32,24 @@ describe('no "instantly", and no "straight away" outside that sentence, in any d
     const all = [ACCOUNTS_SECTION_HTML, ...(['web', 'android'] as const).flatMap((p) => [deleteCopy(p).data.warn, deleteCopy(p).account.warn]), resultText('account', { status: 'ok', apple: 'manual' }), resultText('data', { status: 'ok', apple: 'none' })].join('\n');
     expect(all.toLowerCase()).not.toContain('instantly');
     expect(all.split(SENTENCE).join('').toLowerCase()).not.toContain('straight away');
+  });
+});
+
+describe('deletion by email (Play needs a way to ask without the app)', () => {
+  const MAIL = 'mailto:machinemisha@gmail.com?subject=Ridgeline%20account%20deletion';
+  it('the privacy Accounts section gives the address as a mailto link', () => {
+    expect(ACCOUNTS_SECTION_HTML).toContain(`<a href="${MAIL}">machinemisha@gmail.com</a>`);
+    expect(ACCOUNTS_SECTION_HTML).toContain('ask us to delete your account by email, without opening the app');
+  });
+  it('the /account/delete/ page gives it too', async () => {
+    const { renderToStaticMarkup } = await import('react-dom/server');
+    const html = renderToStaticMarkup(<DeleteAccount onBack={() => {}} />);
+    expect(html).toContain(`href="${MAIL}"`);
+    expect(html).toContain('machinemisha@gmail.com');
+  });
+  it('one source for the address', async () => {
+    const { DELETE_EMAIL, DELETE_MAILTO } = await import('./copy');
+    expect(DELETE_MAILTO).toBe(MAIL);
+    expect(DELETE_EMAIL).toBe('machinemisha@gmail.com');
   });
 });

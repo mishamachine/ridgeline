@@ -7,3 +7,7 @@ export const appleDisconnectSentence = (platform: Platform): string =>
 
 /** The one sentence about when deleted data is gone. Used verbatim in the delete screen, both confirmations and the privacy Accounts section. */
 export const DELETION_TIMING = "Deleting removes your data from our live systems, normally straight away and always within 7 days; backup copies are erased within 7 days, when backups roll over.";
+
+/** Asking for deletion without the app (Google Play needs a way to do this). Used on /account/delete/ and in the privacy Accounts section. */
+export const DELETE_EMAIL = 'machinemisha@gmail.com';
+export const DELETE_MAILTO = `mailto:${DELETE_EMAIL}?subject=Ridgeline%20account%20deletion`;
