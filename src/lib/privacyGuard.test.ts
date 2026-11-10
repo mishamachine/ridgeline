@@ -39,3 +39,11 @@ describe('Apple on the privacy page', () => {
     expect(page).not.toContain('If you signed in with Apple on an iPhone, we also tell Apple');
   });
 });
+
+describe('deleting by email', () => {
+  it('the page gives the address as a mailto link, for requests made without the app', () => {
+    const page = readFileSync('public/privacy/index.html', 'utf8');
+    expect(page).toContain('<a href="mailto:machinemisha@gmail.com?subject=Ridgeline%20account%20deletion">machinemisha@gmail.com</a>');
+    expect(page).toContain('ask us to delete your account by email, without opening the app');
+  });
+});
