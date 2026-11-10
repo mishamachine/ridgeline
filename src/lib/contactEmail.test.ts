@@ -13,6 +13,9 @@ describe('public contact email', () => {
   it('privacy page names the email and the support page as contact', () => {
     expect(read('public/privacy/index.html')).toContain(`Contact: ${MAILTO} or <a href="../support/">our support page</a>.`)
   })
+  it('privacy page date reflects the changed contact line', () => {
+    expect(read('public/privacy/index.html')).toContain('Last updated 10 November 2026')
+  })
   it('release doc names the review and Play listing contact', () => {
     const doc = read('docs/NATIVE_RELEASE.md')
     expect(doc).toContain('App Review contact email: machinemisha@gmail.com')
