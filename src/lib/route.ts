@@ -1,6 +1,7 @@
 // Real URLs without a router: /, /saved, /hike, /profile, /profile/badges, /trail/<id>, /s?ids=a,b,c, and (celebrate flag) /h/<id>?d=&c=&t=
 import { features } from './features';
 import { accountsLive } from './accounts/flags';
+import { hadSession } from './accounts/session';
 import { HikeStats, isTrailId, parseHikeParams } from './shareLinks';
 
 export type Tab = 'find' | 'saved' | 'hike' | 'profile';
@@ -24,16 +25,17 @@ export function parseLL(s: string | null | undefined, sep = ','): [number, numbe
 }
 
 /** base is the app's base path ("/" or "/ridgeline/"). */
-export function parseRoute(pathname: string, search: string, base = '/', celebrate: boolean = features.celebrate, accounts: boolean = features.accounts, live: boolean = accountsLive()): Route {
+export function parseRoute(pathname: string, search: string, base = '/', celebrate: boolean = features.celebrate, accounts: boolean = features.accounts, live: boolean = accountsLive(), hadAccount: boolean = hadSession()): Route {
   let p = pathname.startsWith(base) ? pathname.slice(base.length) : pathname.replace(/^\//, '');
   p = p.replace(/^\/+|\/+$/g, '');
   const q = new URLSearchParams(search);
   if (p === 'profile/badges' && features.badges) return { kind: 'badges' };
   if (accounts && p === 'account/delete') return { kind: 'account-delete' };
-  // The one sign-in screen. While sign-in is paused it can only be reached from the delete flow (to confirm who is deleting).
+  // The one sign-in screen. While sign-in is paused it can only be reached from the delete flow (to confirm who is deleting), and only on a phone that
+  // already has (or had) an account session: it never creates a new account.
   if (accounts && p === 'signin') {
     const forDelete = q.get('return') === 'delete';
-    if (live || forDelete) return forDelete ? { kind: 'sign-in', returnTo: 'account-delete' } : { kind: 'sign-in' };
+    if (live || (forDelete && hadAccount)) return forDelete ? { kind: 'sign-in', returnTo: 'account-delete' } : { kind: 'sign-in' };
   }
   if (celebrate && p.startsWith('h/')) {
     let id = '';

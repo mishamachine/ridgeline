@@ -4,6 +4,7 @@ import { ProviderButton } from '../components/ProviderButton';
 import { features } from '../lib/features';
 import { providersFor, signIn, type Provider, type ReturnTo } from '../lib/accounts/auth';
 import { useAccountsState } from '../lib/accounts/flags';
+import { hadSession } from '../lib/accounts/session';
 import { nativePlatform } from '../lib/native/platform';
 import '../components/guestPrompt.css';
 
@@ -14,7 +15,7 @@ import '../components/guestPrompt.css';
 export function SignIn({ returnTo, onDone, onBack, platform = nativePlatform() }: { returnTo?: ReturnTo; onDone: () => void; onBack: () => void; platform?: 'ios' | 'android' | 'web' }) {
   const state = useAccountsState();
   const forDelete = returnTo === 'account-delete';
-  const allowed = state === 'live' || (forDelete && features.accounts);
+  const allowed = state === 'live' || (forDelete && features.accounts && hadSession());
   const [msg, setMsg] = useState('');
   if (!allowed) return null;
 

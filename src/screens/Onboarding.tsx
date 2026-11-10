@@ -1,3 +1,4 @@
+import { useAnnounceOverlay } from '../lib/overlayEvents';
 import { useEffect, useRef, useState } from 'react';
 import { features } from '../lib/features';
 import { updateSettings } from '../lib/settings';
@@ -34,6 +35,7 @@ const PERKS = ['Centre the map on you when you open it or tap Locate', 'Your pre
  * The OS location prompt appears only after "Allow location".
  */
 export function Onboarding({ onDone, replay = false }: { onDone: () => void; replay?: boolean }) {
+  useAnnounceOverlay();   // the tour covers the app: the native Apple button must not float over it
   const cards = onboardingCards(features, !replay);
   const [i, setI] = useState(0);
   const [asking, setAsking] = useState(false);

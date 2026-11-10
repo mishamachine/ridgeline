@@ -29,6 +29,8 @@ import { getClient } from './lib/accounts/client';
 import { useAccount } from './lib/accounts/useAccount';
 import { startFlagRefresh, useAccountsState } from './lib/accounts/flags';
 import { useSync, DELETED_ELSEWHERE_MESSAGE, resolveOwnerMismatch } from './lib/sync/useSync';
+import { clearNotNow, saidNotNow, setOwnerPending, shouldAskOwner, useOwnerPending } from './lib/sync/ownerPending';
+import { announceOverlayOpen } from './lib/overlayEvents';
 import { pruneTombstones, clearTombstones } from './lib/store';
 import { setHikeActive } from './lib/swUpdate';
 import { Toaster } from './components/Toaster';
@@ -104,8 +106,11 @@ export function App() {
   const accountsLiveNow = useAccountsState() === 'live';
   const account = useAccount(accountsLiveNow);
   useEffect(() => startFlagRefresh(), []);   // read the runtime flag now and whenever the app returns to the front (no network while the build has no accounts)
-  useSync(account.userId, () => { refreshSaved(); setProfileVersion((v) => v + 1); }, () => toast(DELETED_ELSEWHERE_MESSAGE), accountsLiveNow, () => setOwnerAsk((a) => a ?? true));
-  const [ownerAsk, setOwnerAsk] = useState<boolean | null>(null);   // a different account signed in on a phone that kept another account's copy: ask before anything uploads
+  useSync(account.userId, () => { refreshSaved(); setProfileVersion((v) => v + 1); }, () => toast(DELETED_ELSEWHERE_MESSAGE), accountsLiveNow, () => setOwnerPending(account.userId));
+  const ownerPendingFor = useOwnerPending();
+  const [, bumpOwner] = useState(0);   // a different account signed in on a phone that kept another account's copy: ask before anything uploads (and keep a note in Profile)
+  const ownerAsk = shouldAskOwner(ownerPendingFor, account.userId);
+  useEffect(() => { if (ownerAsk) announceOverlayOpen(); }, [ownerAsk]);   // the native Apple button must not float over the sheet
 
   useEffect(() => {
     // Tombstones only matter to sync: none are kept while accounts are off, and old ones are dropped when on.
@@ -326,9 +331,9 @@ export function App() {
           <div className="sheet" role="alertdialog" aria-modal="true" aria-labelledby="owner-title">
             <h2 id="owner-title" className="sheet-title">Hikes from another account</h2>
             <p className="sheet-body">This phone still has saved trails and hikes from another account. Add them to this account, or remove them from this phone?</p>
-            <button className="btn btn-primary" onClick={() => { const u = account.userId!; setOwnerAsk(null); resolveOwnerMismatch(u, 'add').then(refreshSaved); }}>Add them to this account</button>
-            <button className="btn btn-outline" onClick={() => { const u = account.userId!; setOwnerAsk(null); resolveOwnerMismatch(u, 'remove').then(() => { refreshSaved(); setProfileVersion((v) => v + 1); }); }}>Remove them from this phone</button>
-            <button className="btn btn-outline" onClick={() => setOwnerAsk(false)}>Not now (nothing is uploaded)</button>
+            <button className="btn btn-primary" onClick={() => { const u = account.userId!; clearNotNow(u); resolveOwnerMismatch(u, 'add').then(() => { setOwnerPending(null); refreshSaved(); }); }}>Add them to this account</button>
+            <button className="btn btn-outline" onClick={() => { const u = account.userId!; clearNotNow(u); resolveOwnerMismatch(u, 'remove').then(() => { setOwnerPending(null); refreshSaved(); setProfileVersion((v) => v + 1); }); }}>Remove them from this phone</button>
+            <button className="btn btn-outline" onClick={() => { saidNotNow(account.userId!); bumpOwner((n) => n + 1); }}>Not now (nothing is uploaded; Profile keeps a reminder)</button>
           </div>
         </div>
       )}
