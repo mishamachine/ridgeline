@@ -3,6 +3,7 @@ import { AppleButton as NativeAppleButton } from '../lib/native/appleButtonPlugi
 import { loadAppleScript, renderAppleButton } from '../lib/accounts/appleWeb';
 import { accountsLive } from '../lib/accounts/flags';
 import { features } from '../lib/features';
+import { OVERLAY_EVENT } from '../lib/overlayEvents';
 
 export interface AppleButtonProps {
   platform: 'ios' | 'android' | 'web'; tone: 'light' | 'dark'; width: number; height: number; onClick: () => void;
@@ -37,13 +38,15 @@ export const newToken = () => `apple-${++nextToken}-${Math.random().toString(36)
 
 /** True when the placeholder is really on screen and nothing (a sheet, another screen) is drawn over its middle. */
 export function placeholderShowing(el: HTMLElement | null, doc?: Document): boolean {
-  if (!el || typeof document === 'undefined') return false;
-  doc ??= document;
-  if (el.offsetParent === null || doc.visibilityState === 'hidden') return false;
+  const d = doc ?? (typeof document !== 'undefined' ? document : undefined);
+  if (!el || !d) return false;
+  if (el.offsetParent === null || d.visibilityState === 'hidden') return false;
   const r = el.getBoundingClientRect();
-  if (r.width <= 0 || r.height <= 0 || r.bottom <= 0 || r.right <= 0 || r.top >= (window.innerHeight || 0) || r.left >= (window.innerWidth || 0)) return false;
-  const top = doc.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-  return !!top && (top === el || el.contains(top));
+  const vw = d.defaultView?.innerWidth ?? 0, vh = d.defaultView?.innerHeight ?? 0;
+  if (r.width <= 0 || r.height <= 0 || r.bottom <= 0 || r.right <= 0 || r.top >= vh || r.left >= vw) return false;
+  // Nothing may be drawn over ANY part of it: the centre and all four corners (inset 2 px) must belong to the placeholder.
+  const pts: [number, number][] = [[r.left + r.width / 2, r.top + r.height / 2], [r.left + 2, r.top + 2], [r.right - 2, r.top + 2], [r.left + 2, r.bottom - 2], [r.right - 2, r.bottom - 2]];
+  return pts.every(([x, y]) => { const top = d.elementFromPoint(x, y); return !!top && (top === el || el.contains(top)); });
 }
 
 function IosButton({ tone, width, height, onClick, visible = true }: AppleButtonProps) {
@@ -73,9 +76,12 @@ function IosButton({ tone, width, height, onClick, visible = true }: AppleButton
     if (io && ref.current) io.observe(ref.current);
     const poll = setInterval(queue, 300);                       // a sheet opening over the button fires no event of its own
     const tap = NativeAppleButton.addListener('tap', (e) => { if (!e?.token || e.token === token) click.current(); });
+    // Any sheet or modal opening hides the native button at once, in the same tick (the poll above is only a safety net).
+    const cover = () => { if (shown) { shown = false; NativeAppleButton.hide({ token }).catch(() => {}); } };
+    window.addEventListener(OVERLAY_EVENT, cover);
     return () => {
       off = true; if (raf) cancelAnimationFrame(raf);
-      clearInterval(poll); io?.disconnect();
+      clearInterval(poll); io?.disconnect(); window.removeEventListener(OVERLAY_EVENT, cover);
       window.removeEventListener('resize', queue); document.removeEventListener('scroll', queue, true); document.removeEventListener('visibilitychange', queue);
       tap.then((h) => h.remove()).catch(() => {});
       NativeAppleButton.hide({ token }).catch(() => {});        // only hides the button if this screen still owns it
@@ -99,7 +105,8 @@ function WebButton({ tone, width, height, onClick, forDelete }: AppleButtonProps
     const tidy = () => {
       const el = slot.current;
       if (!el) return false;
-      el.querySelectorAll<HTMLElement>(tabbable).forEach((n) => n.setAttribute('tabindex', '-1'));   // our wrapper is the one tab stop
+      // our wrapper is the one tab stop: Apple's inner elements, and the container itself if Apple made it focusable, leave the tab order
+      [el, ...Array.from(el.querySelectorAll<HTMLElement>(tabbable))].forEach((n) => { if (n === el ? n.matches(tabbable) : true) n.setAttribute('tabindex', '-1'); });
       if (el.childElementCount > 0) { el.id = id; return true; }                                      // rendered: give the id back
       return false;
     };
@@ -113,7 +120,8 @@ function WebButton({ tone, width, height, onClick, forDelete }: AppleButtonProps
       await new Promise<void>((resolve) => {
         const done = () => { obs.disconnect(); clearTimeout(timer); resolve(); };
         const obs = new MutationObserver(() => { if (tidy()) done(); });
-        const timer = setTimeout(() => { el.id = id; done(); }, 3000);
+        // Apple's script loaded but drew nothing in 3 s: render nothing rather than an empty box.
+        const timer = setTimeout(() => { el.id = id; if (el.childElementCount === 0 && !off) setFailed(true); done(); }, 3000);
         obs.observe(el, { childList: true, subtree: true });
         if (tidy()) done();
       });

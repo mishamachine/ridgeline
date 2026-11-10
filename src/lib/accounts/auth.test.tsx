@@ -45,7 +45,7 @@ describe('native sign-in', () => {
   });
   it('creates a bare profile: user_id only, no name', async () => {
     const { c, upsert, raw } = fakeClient();
-    await signInNative('apple', c, plugin({ idToken: 't' }));
+    await signInNative('apple', c, plugin({ idToken: 't' }), true);
     expect(raw.schema).toHaveBeenCalledWith('ridgeline');
     expect(upsert.mock.calls[0]).toEqual([{ user_id: 'u1' }, { onConflict: 'user_id', ignoreDuplicates: true }]);
   });
@@ -94,10 +94,22 @@ describe('web sign-in', () => {
   });
 });
 
+describe('no profile write while sign-in is paused', () => {
+  it('ensureProfile does nothing when accounts are not live (a re-sign-in only to delete writes nothing)', async () => {
+    const upsert = vi.fn(async () => ({ error: null }));
+    const c = { schema: () => ({ from: () => ({ upsert }) }) };
+    await ensureProfile(c as never, 'u', false);
+    expect(upsert).not.toHaveBeenCalled();
+    const { c: client, upsert: up2 } = fakeClient();
+    expect(await signInNative('google', client, plugin({ idToken: 't' }), false)).toEqual({ ok: true });
+    expect(up2).not.toHaveBeenCalled();
+  });
+});
+
 describe('profile', () => {
   it('surfaces a database error', async () => {
     const c = { schema: () => ({ from: () => ({ upsert: async () => ({ error: { message: 'denied' } }) }) }) };
-    await expect(ensureProfile(c as never, 'u')).rejects.toThrow('profile: denied');
+    await expect(ensureProfile(c as never, 'u', true)).rejects.toThrow('profile: denied');
   });
 });
 

@@ -15,7 +15,7 @@ export const deleteCopy = (platform: Platform): Record<DeleteScope, { title: str
   data: {
     title: 'Delete my Ridgeline data',
     button: 'Delete my Ridgeline data',
-    warn: `This removes your saved trails, hike history, routes and settings from our servers. This phone is signed out and its copies are removed. Other phones that are still signed in should be signed out too, or they may upload their copies again. Your sign-in stays, so your other B&B apps keep working. ${DELETION_TIMING}`,
+    warn: `This removes your saved trails, hike history, routes and settings from our servers. This phone is signed out and its copies are removed. Other phones that are still signed in should be signed out too, or they may upload their copies again. A hike being recorded on another phone is kept there and uploads again when it ends. Your sign-in stays, so your other B&B apps keep working. ${DELETION_TIMING}`,
   },
   account: {
     title: 'Delete my whole account',

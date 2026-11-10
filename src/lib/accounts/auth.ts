@@ -5,6 +5,7 @@ import { SITE_URL } from '../site';
 import { nativePlatform } from '../native/platform';
 import { CALLBACK_PATH, GOOGLE_IOS_CLIENT_ID, GOOGLE_WEB_CLIENT_ID } from './config';
 import { getClient } from './client';
+import { accountsLive } from './flags';
 import { makeNonce } from './nonce';
 import { syncGate } from '../sync/gate';
 import { ensureProfile } from './profile';
@@ -38,14 +39,14 @@ export async function signInWeb(provider: Provider, c: SupabaseClient, redirectT
   return error ? { ok: false, reason: 'failed' } : { ok: true };
 }
 
-export async function signInNative(provider: Provider, c: SupabaseClient, plugin: NativeLogin): Promise<SignInResult> {
+export async function signInNative(provider: Provider, c: SupabaseClient, plugin: NativeLogin, live: boolean = accountsLive()): Promise<SignInResult> {
   const nonce = await makeNonce();
   let r: { idToken: string | null; authorizationCode?: string };
   try { r = await plugin.login(provider, nonce.hashed); } catch (e) { return { ok: false, reason: cancelled(e) ? 'cancelled' : 'failed' }; }
   if (!r.idToken) return { ok: false, reason: 'failed' };
   const { data, error } = await c.auth.signInWithIdToken({ provider, token: r.idToken, nonce: nonce.raw });
   if (error || !data.user) return { ok: false, reason: 'failed' };
-  try { await ensureProfile(c, data.user.id); } catch { /* retried on next launch (ensureProfile is idempotent) */ }
+  try { await ensureProfile(c, data.user.id, live); } catch { /* retried on next launch (ensureProfile is idempotent) */ }
   if (provider === 'apple' && r.authorizationCode) {
     // Lets "Delete my whole account" tell Apple to disconnect Ridgeline. Best effort: sign-in already worked.
     try { await c.functions.invoke('apple-token', { body: { code: r.authorizationCode } }); } catch { /* fallback is logged server-side at delete time */ }
@@ -101,10 +102,10 @@ export async function signOut(enabled?: boolean): Promise<void> {
 }
 
 /** On /auth/callback: let supabase-js swap the code for a session, make the profile, then send the person home. */
-export async function completeWebSignIn(c: SupabaseClient): Promise<boolean> {
+export async function completeWebSignIn(c: SupabaseClient, live: boolean = accountsLive()): Promise<boolean> {
   const { data } = await c.auth.getSession();
   if (!data.session) return false;
-  try { await ensureProfile(c, data.session.user.id); } catch { /* retried next launch */ }
+  try { await ensureProfile(c, data.session.user.id, live); } catch { /* retried next launch */ }
   return true;
 }
 

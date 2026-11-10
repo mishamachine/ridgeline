@@ -4,8 +4,16 @@ Pausing is two small changes, in two places. Together they stop accounts without
 
 ## What pausing does
 
-1. **`flags.json` says `{"accounts": false}`.** Every phone and browser reads this file from our own host (`https://hike.bbprojectfactory.com/flags.json`) when the app starts and when it comes back to the front, at most once an hour. While it says false, the app hides sign-in, shows only "Sign-in is paused for now. Your hikes are safe on this phone.", starts no sync, and leaves the copy on the phone alone. If a phone cannot reach the file it keeps the last value it saw; a new install that has never read it shows nothing about accounts.
-2. **The config row `accounts_paused` is `true`.** The database then refuses every write to the synced tables (error code `RL002`), so even an old app version that has not read the flag cannot sync. **Deleting keeps working while paused**, so people can always delete their data or their account: Profile › Account still shows "Delete my Ridgeline data" and "Delete my whole account" to anyone who has a session on the phone, and `/account/delete/` stays reachable (the sign-in screen is the one place Apple's and Google's buttons exist, and while paused it can be opened only from the delete flow, to confirm who is deleting: Apple's script may load there, nowhere else).
+1. **`flags.json` says `{"accounts": false}`.** Every phone and browser reads this file from our own host (`https://hike.bbprojectfactory.com/flags.json`) when the app starts and when it comes back to the front, at most once an hour. While it says false, the app hides sign-in, shows only "Sign-in is paused for now. Your hikes are safe on this phone.", starts no sync, writes no profile, and leaves the copy on the phone alone. If a phone cannot reach the file it keeps the last value it saw; a new install that has never read it shows nothing about accounts.
+2. **The config row `accounts_paused` is `true`.** The database then refuses every write to the synced tables (error code `RL002`), so even an old app version that has not read the flag cannot sync.
+
+### The exceptions while paused (exactly these, nothing else)
+- **Delete.** Profile › Account still shows "Delete my Ridgeline data" and "Delete my whole account" to anyone with a session on the phone, and `/account/delete/` stays reachable. In the database `delete_user_data` and the delete function still work.
+- **Re-signing in to confirm a delete.** The one sign-in screen (the only place the Apple and Google buttons exist) can be opened while paused only from the delete flow (`/signin?return=delete`), and only on a phone that already has, or had, an account session; it never creates a new account. Apple's script may load there and nowhere else. A re-sign-in while paused writes no profile row.
+- **The session itself.** The signed-in session is still read and refreshed so the delete can run. Nothing syncs and nothing is uploaded.
+- **Reading the flag file** (the app asks our own host at most once an hour).
+
+Everything else is off: sign-in from Profile and from the prompt cards, new accounts, the guest prompts, sync (both directions), and every write to the synced tables.
 
 ## Who may pull it
 

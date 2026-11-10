@@ -3,6 +3,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { APPLE_JS_URL, loadAppleScript, resetAppleScriptForTests } from './appleWeb';
 import { accountsLive } from './flags';
+import { vi } from 'vitest';
 import { handleAppleKey, newToken, placeholderShowing } from '../../components/AppleButton';
 import { APPLE_PRIVACY_LINE, ACCOUNTS_SECTION_HTML } from './privacyAccounts';
 import { FLAGS_KEY } from './flags';
@@ -165,9 +166,45 @@ describe('no Apple button, and so no request to appleid.cdn-apple.com, anywhere 
     expect(live).toContain('aria-label="Sign in with Google"');
   });
   it('the sign-in route: open when live, reachable while paused only from the delete flow, absent when accounts are not built in', () => {
-    expect(parseRoute('/signin', '', '/', false, true, true)).toEqual({ kind: 'sign-in' });
-    expect(parseRoute('/signin', '', '/', false, true, false)).toEqual({ kind: 'tab', tab: 'find' });                    // paused, not from delete: no
-    expect(parseRoute('/signin', '?return=delete', '/', false, true, false)).toEqual({ kind: 'sign-in', returnTo: 'account-delete' });
-    expect(parseRoute('/signin', '?return=delete', '/', false, false, true)).toEqual({ kind: 'tab', tab: 'find' });       // not built in
+    expect(parseRoute('/signin', '', '/', false, true, true, false)).toEqual({ kind: 'sign-in' });
+    expect(parseRoute('/signin', '', '/', false, true, false, true)).toEqual({ kind: 'tab', tab: 'find' });                    // paused, not from delete: no
+    expect(parseRoute('/signin', '?return=delete', '/', false, true, false, true)).toEqual({ kind: 'sign-in', returnTo: 'account-delete' });
+    expect(parseRoute('/signin', '?return=delete', '/', false, true, false, false)).toEqual({ kind: 'tab', tab: 'find' });    // paused and this phone never had an account: no new sign-ups
+    expect(parseRoute('/signin', '?return=delete', '/', false, false, true, true)).toEqual({ kind: 'tab', tab: 'find' });       // not built in
+  });
+});
+
+describe('the iOS button: covered anywhere, or a sheet opening, hides it at once', () => {
+  const box = (over: object = {}) => ({ offsetParent: {}, getBoundingClientRect: () => ({ left: 10, top: 100, right: 198, bottom: 144, width: 188, height: 44 }), contains: (n: unknown) => n === inner, ...over });
+  const inner = {};
+  const docWith = (hit: (x: number, y: number) => unknown) => ({ visibilityState: 'visible', defaultView: { innerWidth: 390, innerHeight: 800 }, elementFromPoint: hit }) as unknown as Document;
+  it('visible only when the centre AND all four corners belong to the placeholder', () => {
+    const el = box();
+    expect(placeholderShowing(el as never, docWith(() => el))).toBe(true);
+    // something drawn over just the bottom-right corner (a toast, a sheet edge)
+    expect(placeholderShowing(el as never, docWith((x, y) => (x > 190 && y > 140 ? {} : el)))).toBe(false);
+    expect(placeholderShowing(el as never, docWith((x, y) => (x < 13 && y < 103 ? {} : el)))).toBe(false);         // top-left corner covered
+    expect(placeholderShowing(el as never, docWith((x, y) => (x > 190 && y < 103 ? {} : el)))).toBe(false);        // top-right
+    expect(placeholderShowing(el as never, docWith((x, y) => (x < 13 && y > 140 ? {} : el)))).toBe(false);         // bottom-left
+    expect(placeholderShowing(el as never, docWith((x, y) => (x === 104 ? {} : el)))).toBe(false);                 // the centre
+  });
+  it('not showing when hidden, off screen, or the page is in the background', () => {
+    expect(placeholderShowing(box({ offsetParent: null }) as never, docWith(() => box()))).toBe(false);
+    expect(placeholderShowing(box({ getBoundingClientRect: () => ({ left: 10, top: 900, right: 198, bottom: 944, width: 188, height: 44 }) }) as never, docWith(() => box()))).toBe(false);
+  });
+  it('a sheet announcing itself is heard in the same tick', async () => {
+    const { announceOverlayOpen, OVERLAY_EVENT } = await import('../overlayEvents');
+    const w = new EventTarget();
+    vi.stubGlobal('window', w);
+    try { let n = 0; w.addEventListener(OVERLAY_EVENT, () => n++); announceOverlayOpen(); expect(n).toBe(1); } finally { vi.unstubAllGlobals(); }
+  });
+  it('the button listens for it, sheets and the tour announce, and the tab-order and timeout nits are in', () => {
+    const btn = readFileSync('src/components/AppleButton.tsx', 'utf8');
+    expect(btn).toContain('window.addEventListener(OVERLAY_EVENT, cover)');
+    expect(btn).toContain('[el, ...Array.from(el.querySelectorAll');
+    expect(btn).toContain('if (el.childElementCount === 0 && !off) setFailed(true)');
+    expect(readFileSync('src/components/ConfirmSheet.tsx', 'utf8')).toContain('useAnnounceOverlay()');
+    expect(readFileSync('src/screens/Onboarding.tsx', 'utf8')).toContain('useAnnounceOverlay()');
+    expect(readFileSync('src/App.tsx', 'utf8')).toContain('announceOverlayOpen()');
   });
 });

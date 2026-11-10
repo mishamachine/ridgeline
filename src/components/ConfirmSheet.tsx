@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { useAnnounceOverlay } from '../lib/overlayEvents';
 
 /** Keep Tab inside a dialog, close on Escape, and give focus back to what opened it. */
 export function useDialogKeys(ref: React.RefObject<HTMLElement | null>, onClose: () => void) {
@@ -34,6 +35,7 @@ interface Props {
 /** Bottom sheet that asks before something hard to undo. The safe choice has focus. */
 export function ConfirmSheet({ title, body, confirmLabel, cancelLabel = 'Keep going', danger, onConfirm, onCancel }: Props) {
   const ref = useRef<HTMLDivElement>(null);
+  useAnnounceOverlay();
   useDialogKeys(ref, onCancel);
   return (
     <div className="sheet-wrap" onClick={onCancel}>
