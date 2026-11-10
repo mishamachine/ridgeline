@@ -4,7 +4,7 @@ import { getClient } from '../lib/accounts/client';
 import { deleteMyAccount, type DeleteResult, type DeleteScope } from '../lib/accounts/auth';
 import { useAccount } from '../lib/accounts/useAccount';
 import { nativePlatform } from '../lib/native/platform';
-import { appleDisconnectSentence, DELETION_TIMING, type Platform } from '../lib/accounts/copy';
+import { appleDisconnectSentence, DELETE_EMAIL, DELETE_MAILTO, DELETION_TIMING, type Platform } from '../lib/accounts/copy';
 import { ConfirmSheet } from '../components/ConfirmSheet';
 import { features } from '../lib/features';
 import '../components/guestPrompt.css';
@@ -75,6 +75,7 @@ export function DeleteAccount({ onBack, onSignIn }: { onBack: () => void; /** Op
             ))}
           </div>
         )}
+        <p className="pf-note">You can also ask us to delete your account by email, without the app: <a className="pf-link" href={DELETE_MAILTO}>{DELETE_EMAIL}</a>.</p>
         <button className="pf-link" onClick={onBack}>Back to Ridgeline</button>
       </div>
       {ask && <ConfirmSheet title={deleteCopy(nativePlatform())[ask].title} body={deleteCopy(nativePlatform())[ask].warn} confirmLabel={deleteCopy(nativePlatform())[ask].button} cancelLabel="Keep my account" danger onConfirm={() => run(ask)} onCancel={() => setAsk(null)} />}
