@@ -22,6 +22,19 @@ export const PERMANENT = new Set(['RL003', '54000', '23514', '22001']);
 const iso = (ms: number) => new Date(ms).toISOString();
 type Row = Record<string, unknown>;
 
+/** Float residue (1e-17 from a subtraction) is refused by the database's json_ok check, and a refused hike would be parked for good. So before upload: any |x| < 1e-12
+ *  becomes 0, and a non-finite number is dropped (removed from an object; null inside an array, so positions do not shift). Applied to every JSON column. */
+export function cleanJson<T>(v: T): T {
+  if (typeof v === 'number') return (Number.isFinite(v) ? (Math.abs(v) < 1e-12 ? 0 : v) : null) as T;
+  if (Array.isArray(v)) return v.map((x) => cleanJson(x)) as T;
+  if (v && typeof v === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) { if (typeof x === 'number' && !Number.isFinite(x)) continue; out[k] = cleanJson(x); }
+    return out as T;
+  }
+  return v;
+}
+
 const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
 /**
@@ -36,17 +49,17 @@ export function activityToRow(userId: string, r: SyncRec, keepTracksLocal: boole
   const { id, trailId, startedAt, points, updatedAt: _u, editedAt: _e, trackOrigin: _t, summary: _s, ...rest } = a;
   void id; void _u; void _e; void _t; void _s;
   const stats = { ...rest, summary: points.length >= 2 ? { distanceM: trackDistance(points), durationMs: (a.endedAt ?? startedAt) - startedAt, climbM: activityClimb(a, a.snapshot).m } : a.summary };
-  const row: Row = { user_id: userId, id: a.id, trail_id: trailId ?? null, started_at: iso(startedAt), stats, updated_at: iso(r.updatedAt), deleted: false, epoch };
+  const row: Row = { user_id: userId, id: a.id, trail_id: trailId ?? null, started_at: iso(startedAt), stats: cleanJson(stats), updated_at: iso(r.updatedAt), deleted: false, epoch };
   // Only a route recorded on this phone is uploaded, once, trimmed. A route that came from the server is already trimmed: sending it again would cut 200 m off each end per edit.
-  if (!keepTracksLocal && points.length >= 2 && a.trackOrigin !== 'server') row.track = fitTrack(trimTrack(points)); // trimmed, thinned to fit the server cap; null when nothing is left
+  if (!keepTracksLocal && points.length >= 2 && a.trackOrigin !== 'server') row.track = cleanJson(fitTrack(trimTrack(points))); // trimmed, thinned to fit the server cap; null when nothing is left
   return row;
 }
 
 export function toRow(userId: string, r: SyncRec, keepTracksLocal: boolean, epoch = 0): Row {
   if (r.kind === 'activities') return activityToRow(userId, r, keepTracksLocal, epoch);
-  if (r.kind === 'settings') return { user_id: userId, data: r.payload ?? {}, updated_at: iso(r.updatedAt), epoch };
+  if (r.kind === 'settings') return { user_id: userId, data: cleanJson(r.payload ?? {}), updated_at: iso(r.updatedAt), epoch };
   const p = r.payload as { trail?: unknown; addedAt?: number } | null;
-  return { user_id: userId, trail_id: r.id, trail: r.deleted ? null : p?.trail ?? null, added_at: iso(p?.addedAt ?? r.updatedAt), updated_at: iso(r.updatedAt), deleted: r.deleted, epoch };
+  return { user_id: userId, trail_id: r.id, trail: r.deleted ? null : cleanJson(p?.trail ?? null), added_at: iso(p?.addedAt ?? r.updatedAt), updated_at: iso(r.updatedAt), deleted: r.deleted, epoch };
 }
 
 /** Returns null for a row that does not look right (it is skipped, never half-applied). */

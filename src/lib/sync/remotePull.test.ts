@@ -80,3 +80,26 @@ describe('pull pages by (synced_at, key), so rows that share one synced_at canno
     expect(PERMANENT.has('54000') && PERMANENT.has('RL003')).toBe(true);
   });
 });
+
+import { cleanJson, toRow } from './remote';
+describe('float residue is cleaned before upload (the database refuses |x| < 1e-12 and a refused hike would park for good)', () => {
+  it('cleanJson: tiny becomes 0, non-finite is dropped, normal values are untouched', () => {
+    expect(cleanJson({ a: 1e-13, b: -1e-13, c: NaN, d: Infinity, e: 0, f: 37.7749295, g: [1e-20, NaN, 5, { h: 1e-15, i: -Infinity }], s: 'x', n: null }))
+      .toEqual({ a: 0, b: 0, e: 0, f: 37.7749295, g: [0, null, 5, { h: 0 }], s: 'x', n: null });
+    expect(cleanJson(1e-12)).toBe(1e-12);
+  });
+  it('a hike with 1e-13 in its route and stats uploads as 0', () => {
+    const points = Array.from({ length: 120 }, (_, i) => ({ lon: -122.4, lat: 37.7 + i * 0.0001, alt: i === 60 ? 1e-13 : i === 61 ? NaN : 100, acc: 4.5, t: 1762800000000 + i * 5000 }));
+    const payload = { id: 'h1', name: 'x', startedAt: 1762800000000, updatedAt: 1, pausedMs: 1e-13, points };
+    const row = toRow('u', { kind: 'activities', id: 'h1', updatedAt: 1, syncedAt: 0, editedAt: 1, deleted: false, payload } as never, false) as { stats: Record<string, unknown>; track: Array<Record<string, unknown>> };
+    expect(row.stats.pausedMs).toBe(0);
+    expect(JSON.stringify(row.track)).not.toContain('e-13');
+    expect(row.track.some((p) => p.alt === 0)).toBe(true);
+    expect(row.track.every((p) => p.alt === undefined || Number.isFinite(p.alt as number))).toBe(true);
+  });
+  it('saved trails, shortlist and settings are cleaned too', () => {
+    const t = (kind: 'saved' | 'shortlist') => toRow('u', { kind, id: 'w1', updatedAt: 1, syncedAt: 0, editedAt: 1, deleted: false, payload: { trail: { len: 1e-13 }, addedAt: 1 } } as never, false) as { trail: { len: number } };
+    expect(t('saved').trail.len).toBe(0); expect(t('shortlist').trail.len).toBe(0);
+    expect((toRow('u', { kind: 'settings', id: 'settings', updatedAt: 1, syncedAt: 0, editedAt: 1, deleted: false, payload: { z: 1e-13 } } as never, false) as { data: { z: number } }).data.z).toBe(0);
+  });
+});
