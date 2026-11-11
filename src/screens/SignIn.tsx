@@ -7,7 +7,7 @@ import { useAccountsState } from '../lib/accounts/flags';
 import { DIFFERENT_ACCOUNT_MESSAGE, hadSession } from '../lib/accounts/session';
 import { nativePlatform } from '../lib/native/platform';
 import { GuestContinueDialog } from '../components/GuestContinueDialog';
-import { guestNoteShown, guestNoteText, markGuestNoteShown } from '../lib/accounts/guestContinue';
+import { guestNoteText, guestContinueTap, guestContinueClose } from '../lib/accounts/guestContinue';
 import '../components/guestPrompt.css';
 
 /**
@@ -42,10 +42,10 @@ export function SignIn({ returnTo, onDone, onBack, platform = nativePlatform() }
           ? <button className="pf-link" onClick={onBack}>Not now</button>
           : <>
               <div style={{ padding: '4px 14px 0' }}>
-                <button className="btn btn-outline" style={{ width: '100%' }} onClick={() => { if (guestNoteShown()) onBack(); else { markGuestNoteShown(); setNote(true); } }}>Continue without an account</button>
+                <button className="btn btn-outline" style={{ width: '100%' }} onClick={() => guestContinueTap(undefined, onBack, () => setNote(true))}>Continue without an account</button>
               </div>
               <p className="pf-note" style={{ margin: 0, paddingTop: 8 }}>{guestNoteText(platform)}</p>
-              {note && <GuestContinueDialog platform={platform} onClose={onBack} />}
+              {note && <GuestContinueDialog platform={platform} onClose={() => guestContinueClose(undefined, onBack)} />}
             </>}
       </div>
     </div>

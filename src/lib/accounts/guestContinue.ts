@@ -10,3 +10,8 @@ export const guestNoteText = (platform: 'ios' | 'android' | 'web'): string =>
 
 export const guestNoteShown = (s: Store | null = store()): boolean => { try { return s?.getItem(GUEST_NOTE_KEY) === '1'; } catch { return false; } };
 export function markGuestNoteShown(s: Store | null = store()) { try { s?.setItem(GUEST_NOTE_KEY, '1'); } catch { /* private mode: it may show again next launch */ } }
+
+/** Tap on "Continue without an account": the first time open the note (not yet marked), after that just continue. */
+export function guestContinueTap(s: Store | null = store(), onContinue: () => void, openNote: () => void) { if (guestNoteShown(s)) onContinue(); else openNote(); }
+/** The note was closed (Got it or Escape): only now is it marked seen, then continue. */
+export function guestContinueClose(s: Store | null = store(), onContinue: () => void) { markGuestNoteShown(s); onContinue(); }

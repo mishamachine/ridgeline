@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { SignIn } from './SignIn';
 import { GuestContinueDialog } from '../components/GuestContinueDialog';
 import { FLAGS_KEY } from '../lib/accounts/flags';
-import { GUEST_NOTE_KEY, guestNoteShown, guestNoteText, markGuestNoteShown } from '../lib/accounts/guestContinue';
+import { GUEST_NOTE_KEY, guestContinueClose, guestContinueTap, guestNoteShown, guestNoteText, markGuestNoteShown } from '../lib/accounts/guestContinue';
 
 function fakeStorage(init: Record<string, string> = {}) {
   const m = new Map(Object.entries(init));
@@ -39,6 +39,18 @@ describe('once per device', () => {
     const bad = { getItem: () => { throw new Error('x'); }, setItem: () => { throw new Error('x'); } };
     expect(guestNoteShown(bad)).toBe(false);
     expect(() => markGuestNoteShown(bad)).not.toThrow();
+  });
+});
+
+describe('tap logic', () => {
+  it('first tap opens the note without marking it; closing marks it and continues; later taps continue directly', () => {
+    const s = fakeStorage(); const back = vi.fn(); const open = vi.fn();
+    guestContinueTap(s, back, open);
+    expect(open).toHaveBeenCalledOnce(); expect(back).not.toHaveBeenCalled(); expect(guestNoteShown(s)).toBe(false);   // killed while open: still unseen
+    guestContinueClose(s, back);
+    expect(guestNoteShown(s)).toBe(true); expect(back).toHaveBeenCalledOnce();
+    guestContinueTap(s, back, open);
+    expect(open).toHaveBeenCalledOnce(); expect(back).toHaveBeenCalledTimes(2);
   });
 });
 
