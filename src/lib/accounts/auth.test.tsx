@@ -152,6 +152,35 @@ describe('while sign-in is paused only the account this phone already had may si
       expect(DIFFERENT_ACCOUNT_MESSAGE).toContain('ask for deletion by email');
     });
   });
+  it('a client that tells its listeners BEFORE signInWithIdToken returns cannot make a stranger look like the known account (round 8)', async () => {
+    await withStore(async () => {
+      const { markSession, lastUserId } = await import('./session');
+      const { rememberUser } = await import('./useAccount');
+      markSession('u-known');
+      const listeners: Array<(id: string) => void> = [(id) => rememberUser(id, false)];   // useAccount's listener, while paused: writes nothing
+      const noisy = (userId: string, remember: boolean) => {
+        const signOut = vi.fn(async () => ({}));
+        return { signOut, c: { auth: { signInWithIdToken: vi.fn(async () => { listeners.forEach((l) => l(userId)); if (remember) markSession(userId); return { data: { user: { id: userId } }, error: null }; }), signOut }, schema: () => ({ from: () => ({ upsert: async () => ({ error: null }) }) }), functions: { invoke: vi.fn() } } };
+      };
+      // Even a listener that DOES remember the new session first (the old bug) is not enough: the "who was here" snapshot is taken before the call.
+      const bad = noisy('u-stranger', true);
+      expect(await signInNative('google', bad.c as never, plugin({ idToken: 't' }), false)).toEqual({ ok: false, reason: 'different-account' });
+      expect(bad.signOut).toHaveBeenCalled();
+      markSession('u-known');
+      const good = noisy('u-known', true);
+      expect(await signInNative('google', good.c as never, plugin({ idToken: 't' }), false)).toEqual({ ok: true });
+      expect(good.signOut).not.toHaveBeenCalled();
+      expect(lastUserId()).toBe('u-known');
+    });
+  });
+  it('useAccount remembers an account only while sign-in is live', async () => {
+    await withStore(async () => {
+      const { rememberUser } = await import('./useAccount');
+      const { lastUserId } = await import('./session');
+      rememberUser('u-1', false); expect(lastUserId()).toBeNull();
+      rememberUser('u-1', true); expect(lastUserId()).toBe('u-1');
+    });
+  });
   it('the web redirect path does the same', async () => {
     await withStore(async () => {
       const { markSession } = await import('./session');
