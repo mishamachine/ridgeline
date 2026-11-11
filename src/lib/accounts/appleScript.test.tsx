@@ -153,7 +153,7 @@ describe('no Apple button, and so no request to appleid.cdn-apple.com, anywhere 
   });
   it('Profile › Account for a guest has one "Sign in" link and no provider buttons', () => {
     const row = renderToStaticMarkup(<AccountRow enabled onSignIn={() => {}} />);
-    expect(row).toContain('Not signed in. Your hikes are saved only on this phone.');
+    expect(row).toContain('Not signed in. Your hikes are saved only on this device.');   // tests run as the web build
     expect(row).toContain('>Sign in<');
     none(row);
     none(renderToStaticMarkup(<Profile onOpenBadges={() => {}} onReplayTour={() => {}} preset={{ activities: [], trails: [] }} />));

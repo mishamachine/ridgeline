@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { readFileSync } from 'node:fs';
 import { FLAGS_KEY, FLAGS_REFRESH_MS, FLAGS_URL, accountsLive, accountsState, readFlags, refreshFlags, remoteState } from './flags';
-import { AccountRow, PAUSED_NOTE } from '../../components/AccountRow';
+import { AccountRow, pausedNote } from '../../components/AccountRow';
 import { GuestPrompt } from '../../components/GuestPrompt';
 import { getClient } from './client';
 import { signIn } from './auth';
@@ -64,8 +64,8 @@ describe('paused: guest mode works exactly as today, sign-in is hidden, nothing 
     vi.stubGlobal('localStorage', s);
     try {
       const h = renderToStaticMarkup(<AccountRow build />);
-      expect(h).toContain('Sign-in is paused for now. Your hikes are safe on this phone.');
-      expect(PAUSED_NOTE).toBe('Sign-in is paused for now. Your hikes are safe on this phone.');
+      expect(h).toContain('Sign-in is paused for now. Your hikes are safe on this device.');   // tests run as the web build
+      expect(pausedNote('ios')).toBe('Sign-in is paused for now. Your hikes are safe on this phone.');
       expect(h).not.toContain('Sign in<');
       expect(h).not.toContain('Continue with Apple');
       expect(h).not.toContain('Delete');
@@ -77,7 +77,7 @@ describe('paused: guest mode works exactly as today, sign-in is hidden, nothing 
     try {
       const account = { signedIn: true, email: 'a@example.com', provider: 'google' as const, userId: 'u1' };
       const h = renderToStaticMarkup(<AccountRow build account={account} onOpenDelete={() => {}} />);
-      expect(h).toContain('Sign-in is paused for now. Your hikes are safe on this phone.');
+      expect(h).toContain('Sign-in is paused for now. Your hikes are safe on this device.');   // tests run as the web build
       expect(h).toContain('Delete my Ridgeline data');
       expect(h).toContain('Delete my whole account');
       expect(h).not.toContain('Sign in<');

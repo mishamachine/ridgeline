@@ -123,7 +123,7 @@ describe('accounts flag OFF (the shipped state): the app behaves as before', () 
   it('the Profile account row renders nothing', () => { expect(renderToStaticMarkup(<AccountRow />)).toBe(''); });
   it('with the flag on (preview only) it offers sign-in', () => {
     const h = renderToStaticMarkup(<AccountRow enabled />);
-    expect(h).toContain('Not signed in. Your hikes are saved only on this phone.');
+    expect(h).toContain('Not signed in. Your hikes are saved only on this device.');   // tests run as the web build
     expect(h).toContain('>Sign in<');
   });
 });
@@ -143,13 +143,13 @@ describe('while sign-in is paused only the account this phone already had may si
   });
   it('a DIFFERENT account is signed out again at once, and the person is told', async () => {
     await withStore(async () => {
-      const { markSession, DIFFERENT_ACCOUNT_MESSAGE } = await import('./session');
+      const { markSession, differentAccountMessage } = await import('./session');
       markSession('u-known');
       const { c, signOut } = clientFor('u-stranger');
       expect(await signInNative('apple', c as never, plugin({ idToken: 't' }), false)).toEqual({ ok: false, reason: 'different-account' });
       expect(signOut).toHaveBeenCalled();
-      expect(DIFFERENT_ACCOUNT_MESSAGE).toContain('not the account used on this phone');
-      expect(DIFFERENT_ACCOUNT_MESSAGE).toContain('ask for deletion by email');
+      expect(differentAccountMessage('ios')).toContain('not the account used on this phone');
+      expect(differentAccountMessage('ios')).toContain('ask for deletion by email');
     });
   });
   it('a client that tells its listeners BEFORE signInWithIdToken returns cannot make a stranger look like the known account (round 8)', async () => {

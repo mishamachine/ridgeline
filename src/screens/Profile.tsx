@@ -19,6 +19,7 @@ import { useAccount } from '../lib/accounts/useAccount';
 import { useAccountsState } from '../lib/accounts/flags';
 import { BadgeMedal } from './Badges';
 import './profile.css';
+import { deviceWord, thisDevice } from '../lib/native/deviceWord';
 
 const base = import.meta.env.BASE_URL ?? '/';
 
@@ -247,7 +248,7 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenDeleteAccount, onOpe
           </div>
           {confirmClear && (
             <div className="pf-confirm" role="alertdialog" aria-label="Clear offline maps?">
-              <p>Remove all saved trails and their offline maps from this phone? You can save them again with a signal.</p>
+              <p>Remove all saved trails and their offline maps from {thisDevice()}? You can save them again with a signal.</p>
               <div className="pf-actions" style={{ padding: 0 }}>
                 <button className="pf-btn danger" onClick={clearOffline}>Clear maps</button>
                 <button className="pf-btn" onClick={() => setConfirmClear(false)}>Keep them</button>
@@ -278,7 +279,7 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenDeleteAccount, onOpe
 
         <h2 className="pf-h">Back up &amp; restore</h2>
         <div className="pf-group">
-          <p className="pf-note" style={{ paddingTop: 12 }}>Save your hikes, saved trails and settings to a file, and load them back on this or another phone. No account needed. Offline map files are not included; save those trails offline again.</p>
+          <p className="pf-note" style={{ paddingTop: 12 }}>Save your hikes, saved trails and settings to a file, and load them back on this or another {deviceWord()}. No account needed. Offline map files are not included; save those trails offline again.</p>
           <div className="pf-actions">
             <button className="pf-btn solid" onClick={backUp}>Back up to a file</button>
             <button className="pf-btn" onClick={() => fileRef.current?.click()}>Restore from a file</button>
@@ -286,7 +287,7 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenDeleteAccount, onOpe
           </div>
           {pending && (
             <div className="pf-confirm" role="alertdialog" aria-label="Restore this backup?">
-              <p>This backup has {pending.activities.length} {pending.activities.length === 1 ? 'hike' : 'hikes'} and {trailCount(pending)} saved {trailCount(pending) === 1 ? 'trail' : 'trails'}. Restoring replaces hikes on this phone that have the same ID, and your current settings. Nothing else is removed.</p>
+              <p>This backup has {pending.activities.length} {pending.activities.length === 1 ? 'hike' : 'hikes'} and {trailCount(pending)} saved {trailCount(pending) === 1 ? 'trail' : 'trails'}. Restoring replaces hikes on {thisDevice()} that have the same ID, and your current settings. Nothing else is removed.</p>
               <div className="pf-actions" style={{ padding: 0 }}>
                 <button className="pf-btn solid" onClick={doRestore}>Restore</button>
                 <button className="pf-btn" onClick={() => setPending(null)}>Cancel</button>

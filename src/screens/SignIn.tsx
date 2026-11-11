@@ -4,11 +4,13 @@ import { ProviderButton } from '../components/ProviderButton';
 import { features } from '../lib/features';
 import { providersFor, signIn, type Provider, type ReturnTo } from '../lib/accounts/auth';
 import { useAccountsState } from '../lib/accounts/flags';
-import { DIFFERENT_ACCOUNT_MESSAGE, hadSession } from '../lib/accounts/session';
+import { differentAccountMessage, hadSession } from '../lib/accounts/session';
 import { nativePlatform } from '../lib/native/platform';
 import { GuestContinueDialog } from '../components/GuestContinueDialog';
 import { guestNoteText, guestContinueTap, guestContinueClose } from '../lib/accounts/guestContinue';
 import '../components/guestPrompt.css';
+import { thisDevice } from '../lib/native/deviceWord';
+import { focusLandingHeading } from '../lib/focusHeading';
 
 /**
  * THE sign-in screen: the only place the Apple and Google buttons exist (so Apple's web script is only ever requested here).
@@ -22,16 +24,19 @@ export function SignIn({ returnTo, onDone, onBack, platform = nativePlatform() }
   const [note, setNote] = useState(false);
   if (!allowed) return null;
 
+  /** Leaving as a guest: the button that had focus is about to disappear, so put focus on the heading of the screen the person lands on. */
+  const leave = () => { onBack(); focusLandingHeading(); };
+
   const go = async (p: Provider) => {
     setMsg('');
     const r = await signIn(p, features.accounts, returnTo);
     if (r.ok) { if (platform !== 'web') onDone(); return; }      // on the web the browser leaves for Apple or Google and comes back to the app
-    if (r.reason === 'failed') setMsg('Sign-in did not work. Your hikes are still safe on this phone.');
-    if (r.reason === 'different-account') setMsg(DIFFERENT_ACCOUNT_MESSAGE);
+    if (r.reason === 'failed') setMsg(`Sign-in did not work. Your hikes are still safe on ${thisDevice(platform)}.`);
+    if (r.reason === 'different-account') setMsg(differentAccountMessage(platform));
   };
 
   return (
-    <div className="screen pf">
+    <div className="screen pf" data-screen="sign-in">
       <PageHead title="Sign in" sub={forDelete ? 'Sign in again to the account you want to delete.' : 'Optional. Keep your hikes if you lose or switch phones.'} />
       <div className="pf-body">
         <div className="gp-btns" style={{ padding: '4px 14px' }}>
@@ -42,10 +47,10 @@ export function SignIn({ returnTo, onDone, onBack, platform = nativePlatform() }
           ? <button className="pf-link" onClick={onBack}>Not now</button>
           : <>
               <div style={{ padding: '4px 14px 0' }}>
-                <button className="btn btn-outline" style={{ width: '100%' }} onClick={() => guestContinueTap(undefined, onBack, () => setNote(true))}>Continue without an account</button>
+                <button className="btn btn-outline" style={{ width: '100%' }} onClick={() => guestContinueTap(undefined, leave, () => setNote(true))}>Continue without an account</button>
               </div>
               <p className="pf-note" style={{ margin: 0, paddingTop: 8 }}>{guestNoteText(platform)}</p>
-              {note && <GuestContinueDialog platform={platform} onClose={() => guestContinueClose(undefined, onBack)} />}
+              {note && <GuestContinueDialog platform={platform} onClose={() => guestContinueClose(undefined, leave)} />}
             </>}
       </div>
     </div>

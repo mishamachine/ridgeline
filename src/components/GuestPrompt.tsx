@@ -4,10 +4,11 @@ import { getSettings } from '../lib/settings';
 import { useAccount } from '../lib/accounts/useAccount';
 import { canShow, dismiss, loadPromptState, markShown, savePromptState, type PromptKind } from '../lib/accounts/prompt';
 import './guestPrompt.css';
+import { thisDevice } from '../lib/native/deviceWord';
 
 /** Final copy. A shared card (first hike that also earns the first badge) uses the hike headline. */
 export const PROMPT_HEADLINE: Record<PromptKind, string> = { save: 'Keep your saved trails', hike: 'Keep this hike', badge: 'Keep your badges' };
-export const PROMPT_BODY = "Right now they're saved only on this phone. Sign in to keep them if you lose or switch phones.";
+export const promptBody = (platform?: 'ios' | 'android' | 'web') => `Right now they're saved only on ${thisDevice(platform)}. Sign in to keep them if you lose or switch phones.`;
 const headlineFor = (kinds: PromptKind[]) => PROMPT_HEADLINE[kinds.includes('hike') ? 'hike' : kinds[0]];
 
 export interface GuestPromptProps {
@@ -51,7 +52,7 @@ export function GuestPrompt({ kinds, trigger, hikeActive = false, tone = 'light'
   return (
     <section className={`gp gp-${tone}${inList ? ' gp-in-list' : ''}`} aria-labelledby="gp-h">
       <h2 id="gp-h">{headlineFor(kinds)}</h2>
-      <p>{PROMPT_BODY}</p>
+      <p>{promptBody()}</p>
       <button className="gp-signin" onClick={onSignIn}>Sign in</button>
       <button className="gp-later" onClick={notNow}>Not now</button>
     </section>

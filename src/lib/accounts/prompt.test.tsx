@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { canShow, dismiss, EMPTY_PROMPT_STATE, loadPromptState, markShown, savePromptState, MAX_DISMISSALS, PROMPT_KEY, type PromptContext, type PromptState } from './prompt';
 import { ACCOUNTS_SECTION_HTML, accountsFlagOn, injectAccountsSection } from './privacyAccounts';
-import { GuestPrompt, PROMPT_BODY, PROMPT_HEADLINE } from '../../components/GuestPrompt';
+import { GuestPrompt, promptBody, PROMPT_HEADLINE } from '../../components/GuestPrompt';
 import { ProviderButton, googleArtwork } from '../../components/ProviderButton';
 import { createHash } from 'node:crypto';
 import { AccountRow } from '../../components/AccountRow';
@@ -77,7 +77,7 @@ describe('the card (preview with the flag on)', () => {
   });
   it('Profile › Account for a guest shows the final banner with a Sign in link; the providers appear after tapping it', () => {
     const h = renderToStaticMarkup(<AccountRow enabled />);
-    expect(h).toContain('Not signed in. Your hikes are saved only on this phone.');
+    expect(h).toContain('Not signed in. Your hikes are saved only on this device.');   // tests run as the web build
     expect(h).toContain('>Sign in<');
     expect(h).not.toContain('Continue with Apple');
   });
@@ -86,7 +86,7 @@ describe('the card (preview with the flag on)', () => {
 describe('final prompt copy', () => {
   it('headlines and body are verbatim', () => {
     expect(PROMPT_HEADLINE).toEqual({ save: 'Keep your saved trails', hike: 'Keep this hike', badge: 'Keep your badges' });
-    expect(PROMPT_BODY).toBe("Right now they're saved only on this phone. Sign in to keep them if you lose or switch phones.");
+    expect(promptBody('ios')).toBe("Right now they're saved only on this phone. Sign in to keep them if you lose or switch phones.");
   });
   it('Google uses its official artwork unmodified; Apple is Apple\'s own control (never drawn by us); both say "Sign in with" and are the same size', () => {
     const apple = renderToStaticMarkup(<ProviderButton provider="apple" platform="web" onClick={() => {}} />);

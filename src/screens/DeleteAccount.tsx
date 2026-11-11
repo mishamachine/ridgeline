@@ -8,6 +8,7 @@ import { appleDisconnectSentence, DELETE_EMAIL, DELETE_EMAIL_AFTER, DELETE_EMAIL
 import { ConfirmSheet } from '../components/ConfirmSheet';
 import { features } from '../lib/features';
 import '../components/guestPrompt.css';
+import { thisDevice } from '../lib/native/deviceWord';
 
 export const APPLE_MANUAL_LINE = 'To fully disconnect, also remove Ridgeline in your Apple ID settings › Sign in with Apple (appleid.apple.com).';
 
@@ -15,7 +16,7 @@ export const deleteCopy = (platform: Platform): Record<DeleteScope, { title: str
   data: {
     title: 'Delete my Ridgeline data',
     button: 'Delete my Ridgeline data',
-    warn: `This removes your saved trails, hike history, routes and settings from our servers. This phone is signed out and its copies are removed. Other phones that are still signed in should be signed out too, or they may upload their copies again. A hike being recorded on another phone is kept there and uploads again when it ends. Your sign-in stays, so your other B&B apps keep working. ${DELETION_TIMING}`,
+    warn: `This removes your saved trails, hike history, routes and settings from our servers. ${thisDevice(platform, true)} is signed out and its copies are removed. Other phones that are still signed in should be signed out too, or they may upload their copies again. A hike being recorded on another phone is kept there and uploads again when it ends. Your sign-in stays, so your other B&B apps keep working. ${DELETION_TIMING}`,
   },
   account: {
     title: 'Delete my whole account',
@@ -26,12 +27,12 @@ export const deleteCopy = (platform: Platform): Record<DeleteScope, { title: str
 /** Web and iOS wording (the default). */
 export const COPY = deleteCopy('web');
 
-export function resultText(scope: DeleteScope, r: DeleteResult): string {
+export function resultText(scope: DeleteScope, r: DeleteResult, platform: Platform = nativePlatform()): string {
   if (r.status === 'failed') return 'That did not go through, and nothing was deleted. Try again in a minute.';
   if (r.status === 'unconfirmed') return 'We couldn\u2019t confirm the delete. Try again.';
   if (r.status === 'reauth') return 'Sign in again to delete your account, then try again.';
   if (r.status === 'partial') return 'Your Ridgeline data was deleted, but we couldn\u2019t close your account. Try again.';
-  if (scope === 'data') return `Your Ridgeline data was deleted from our servers, and this phone is signed out with its copies removed. Sign out your other phones too, or they may upload their copies again. ${DELETION_TIMING}`;
+  if (scope === 'data') return `Your Ridgeline data was deleted from our servers, and ${thisDevice(platform)} is signed out with its copies removed. Sign out your other phones too, or they may upload their copies again. ${DELETION_TIMING}`;
   const base = `Your account is deleted. ${DELETION_TIMING}`;
   if (r.apple === 'revoked') return base + ' We also disconnected Ridgeline from your Apple ID.';
   if (r.apple === 'manual') return base + ' ' + APPLE_MANUAL_LINE;

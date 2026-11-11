@@ -3,6 +3,7 @@ import { listActivities, deleteActivity, putActivity, Activity } from '../lib/st
 import { addFix, newActivity, trackDistance, downloadGPX, keepAwake } from '../lib/tracker';
 import { duration, mi } from '../lib/format';
 import { ConfirmSheet } from '../components/ConfirmSheet';
+import { thisDevice } from '../lib/native/deviceWord';
 
 export function Record() {
   const [past, setPast] = useState<Activity[]>([]);
@@ -83,11 +84,11 @@ export function Record() {
         {past.length === 0 && <p className="empty" style={{ padding: '8px 0' }}>No hikes yet.</p>}
       </div>
 
-      {deleting && <ConfirmSheet title={`Delete ${deleting.name}?`} body="The recorded track is removed from this phone. This can’t be undone." confirmLabel="Delete hike" cancelLabel="Keep it" danger
+      {deleting && <ConfirmSheet title={`Delete ${deleting.name}?`} body={`The recorded track is removed from ${thisDevice()}. This can’t be undone.`} confirmLabel="Delete hike" cancelLabel="Keep it" danger
         onConfirm={() => { const id = deleting.id; setDeleting(null); remove(id); }} onCancel={() => setDeleting(null)} />}
       <div className="actions" style={{ gridTemplateColumns: '1fr' }}>
         {current
-          ? <button className="action dark" onClick={stop}><span>Stop and save</span><small>Saved on this phone</small></button>
+          ? <button className="action dark" onClick={stop}><span>Stop and save</span><small>Saved on {thisDevice()}</small></button>
           : <button className="action primary" onClick={start}><span>Start recording</span><small>Keeps the screen on</small></button>}
       </div>
     </>

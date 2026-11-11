@@ -32,7 +32,7 @@ describe('Profile › Account keeps reminding while sync is blocked, and shows t
     const waiting = renderToStaticMarkup(<AccountRow enabled account={acct('B')} ownerPending="B" fullNote={[]} />);
     expect(waiting).toContain('so nothing is syncing yet');
     expect(waiting).toContain('Add them to this account');
-    expect(waiting).toContain('Remove them from this phone');
+    expect(waiting).toContain('Remove them from this device')   // tests run as the web build;
     expect(renderToStaticMarkup(<AccountRow enabled account={acct('C')} ownerPending="B" fullNote={[]} />)).not.toContain('nothing is syncing yet');
     expect(renderToStaticMarkup(<AccountRow enabled account={acct('B')} ownerPending={null} fullNote={[]} />)).not.toContain('nothing is syncing yet');
   });

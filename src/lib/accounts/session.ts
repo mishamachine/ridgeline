@@ -1,3 +1,4 @@
+import { thisDevice } from '../native/deviceWord';
 // Remembers which account this phone last signed in with. While sign-in is paused, the sign-in screen opens only for someone who already has an account here
 // (to confirm who is deleting), and a re-sign-in that returns a DIFFERENT account is signed out again at once.
 const KEY = 'ridgeline:lastUserId';
@@ -10,4 +11,4 @@ export const hadSession = (s: Store | null = store()): boolean => lastUserId(s) 
 /** While paused, may this sign-in stand? Only if it is the account this phone already had. */
 export const isKnownAccount = (userId: string, s: Store | null = store()): boolean => lastUserId(s) === userId;
 
-export const DIFFERENT_ACCOUNT_MESSAGE = 'That is not the account used on this phone, so you were signed out. Sign in with the account you want to delete, or ask for deletion by email.';
+export const differentAccountMessage = (platform?: 'ios' | 'android' | 'web') => `That is not the account used on ${thisDevice(platform)}, so you were signed out. Sign in with the account you want to delete, or ask for deletion by email.`;

@@ -25,7 +25,7 @@ import { ConfirmSheet } from './components/ConfirmSheet';
 import { FindIcon, HikeIcon, ProfileIcon, SavedIcon } from './components/NavIcons';
 import { count } from './lib/counter';
 import { isCallbackPath, completeWebSignIn, takeReturn } from './lib/accounts/auth';
-import { DIFFERENT_ACCOUNT_MESSAGE } from './lib/accounts/session';
+import { differentAccountMessage } from './lib/accounts/session';
 import { getClient } from './lib/accounts/client';
 import { useAccount } from './lib/accounts/useAccount';
 import { startFlagRefresh, useAccountsState } from './lib/accounts/flags';
@@ -42,6 +42,7 @@ import { Saved } from './screens/Saved';
 import { Onboarding } from './screens/Onboarding';
 import { GuestPrompt } from './components/GuestPrompt';
 import type { PromptKind } from './lib/accounts/prompt';
+import { thisDevice } from './lib/native/deviceWord';
 
 // Screens people reach later load on demand (Find, Saved, Hike and the first-run tour stay in the first download);
 // each shows the static Bobo loading state for the moment it takes. Navigate and the maps carry MapLibre.
@@ -82,7 +83,7 @@ export function App() {
     if (!features.accounts) return;
     getClient(features.accounts)?.then(async (c) => {
       const r = await completeWebSignIn(c);
-      if (r === 'different-account') toast(DIFFERENT_ACCOUNT_MESSAGE);
+      if (r === 'different-account') toast(differentAccountMessage());
     }).finally(() => {
       // Back to where the person was: the delete page if they signed in again to delete, else Profile.
       const next: Route = takeReturn() === 'account-delete' ? { kind: 'account-delete' } : { kind: 'tab', tab: 'profile' };
@@ -334,9 +335,9 @@ export function App() {
         <div className="sheet-wrap">
           <div className="sheet" role="alertdialog" aria-modal="true" aria-labelledby="owner-title">
             <h2 id="owner-title" className="sheet-title">Hikes from another account</h2>
-            <p className="sheet-body">This phone still has saved trails and hikes from another account. Add them to this account, or remove them from this phone?</p>
+            <p className="sheet-body">{thisDevice(undefined, true)} still has saved trails and hikes from another account. Add them to this account, or remove them from {thisDevice()}?</p>
             <button className="btn btn-primary" onClick={() => { const u = account.userId!; clearNotNow(u); resolveOwnerMismatch(u, 'add').then(() => { setOwnerPending(null); refreshSaved(); }); }}>Add them to this account</button>
-            <button className="btn btn-outline" onClick={() => { const u = account.userId!; clearNotNow(u); resolveOwnerMismatch(u, 'remove').then(() => { setOwnerPending(null); refreshSaved(); setProfileVersion((v) => v + 1); }); }}>Remove them from this phone</button>
+            <button className="btn btn-outline" onClick={() => { const u = account.userId!; clearNotNow(u); resolveOwnerMismatch(u, 'remove').then(() => { setOwnerPending(null); refreshSaved(); setProfileVersion((v) => v + 1); }); }}>Remove them from {thisDevice()}</button>
             <button className="btn btn-outline" onClick={() => { saidNotNow(account.userId!); bumpOwner((n) => n + 1); }}>Not now (nothing is uploaded; Profile keeps a reminder)</button>
           </div>
         </div>
