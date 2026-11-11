@@ -14,8 +14,8 @@ export class StaleEpochError extends Error { constructor() { super('stale data e
 /** The server refuses writes while sign-in is paused (the pause switch). Not an error to show: sync simply waits. */
 export class PausedError extends Error { constructor() { super('sign-in is paused'); } }
 
-/** A row the server refused. `permanent` means retrying the same row will never work (a size or constraint refusal: 54000, 23514, 22001). */
-export interface PushFailure { id: string; permanent: boolean; /** The account is over a storage or row limit (54000). */ full?: boolean }
+/** A row the server refused. `permanent` means retrying the same row will never work (a size or constraint refusal: RL003, 23514, 22001). */
+export interface PushFailure { id: string; kind?: Kind; permanent: boolean; /** The account is over a storage or row limit (RL003). */ full?: boolean }
 
 export interface Remote {
   /** The person's data epoch (goes up when "Delete my Ridgeline data" runs). 0 when they have no profile yet. */
@@ -40,7 +40,7 @@ export const parkDelay = (tries: number) => Math.min(HOUR * 2 ** Math.max(0, tri
 /** How long a kind waits after a transient failure: 1 min, 2, 4 ... up to 15 min. */
 export const retryDelay = (tries: number) => Math.min(60_000 * 2 ** Math.max(0, tries - 1), 15 * 60_000);
 
-export interface SyncResult { pulled: number; pushed: number; failed: number; parked: number; deletedElsewhere: boolean; deferredWipe: boolean; ownerMismatch: boolean; /** The server refused something because the account is full. Nothing local is affected: it just is not uploaded. */ full: boolean }
+export interface SyncResult { pulled: number; pushed: number; failed: number; parked: number; deletedElsewhere: boolean; deferredWipe: boolean; ownerMismatch: boolean; /** The server refused something because the account is full. Nothing local is affected: it just is not uploaded. */ full: boolean; /** Which kinds of record were refused for that reason. */ fullKinds: Kind[] }
 export interface SyncOptions {
   kinds?: Kind[]; canPush?: () => boolean;
   /** False while a hike is being recorded: an incoming "deleted on another device" waits until it is finished. */
@@ -62,7 +62,7 @@ const deferKey = (u: string) => `sync:${u}:wipeDeferredAt`;
 export async function syncOnce(userId: string, local: LocalSource, remote: Remote, cursors: Cursors, opts: SyncOptions = {}): Promise<SyncResult> {
   const kinds = opts.kinds ?? KINDS;
   const now = (opts.now ?? Date.now)();
-  const res: SyncResult = { pulled: 0, pushed: 0, failed: 0, parked: 0, deletedElsewhere: false, deferredWipe: false, ownerMismatch: false, full: false };
+  const res: SyncResult = { pulled: 0, pushed: 0, failed: 0, parked: 0, deletedElsewhere: false, deferredWipe: false, ownerMismatch: false, full: false, fullKinds: [] };
 
   // -1. Whose copy is on this phone? Signing out with "Keep a copy" leaves the first account's data here. A DIFFERENT account must not receive it
   // silently: nothing syncs until the person chooses (add it to this account, or remove it).
@@ -137,7 +137,7 @@ export async function syncOnce(userId: string, local: LocalSource, remote: Remot
       await cursors.set(retryKey(userId, kind), transient.length ? now + retryDelay(tries) : 0);
       res.pushed += candidates.length - bad.size;
       res.failed += bad.size;
-      if (out.failed.some((f) => f.full)) res.full = true;
+      if (out.failed.some((f) => f.full)) { res.full = true; if (!res.fullKinds.includes(kind)) res.fullKinds.push(kind); }
       res.parked += Object.keys(parked).length;
     } else if (changed.length) {
       await cursors.set(key(userId, kind, 'push'), Math.max(mark, ...changed.map((r) => r.editedAt)));   // everything new was parked: move past it

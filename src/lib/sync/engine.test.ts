@@ -2,10 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { StaleEpochError, parkDelay, retryDelay, syncOnce, type Cursors, type Owner, type PushFailure, type Remote, type SyncOptions } from './engine';
 import { syncGate } from './gate';
 import { fitTrack, MAX_UPLOAD_POINTS } from './trim';
-import { FULL_NOTE, noteAccountFull, takeFullNote } from './fullNote';
+import { FULL_NOTE, FULL_NOTE_TRAILS, fullKindOf, fullText, noteAccountFull, takeFullNotes } from './fullNote';
 import type { LocalSource } from './local';
 import { winner, type Kind, type SyncRec } from './merge';
-import { activityToRow, fromRow, toRow } from './remote';
+import { activityToRow, fromRow, supabaseRemote, toRow } from './remote';
 import type { Activity } from '../store';
 
 // A fake server with the same rules as the SQL: synced_at set on every write, stale writes ignored, future clocks clamped,
@@ -444,7 +444,8 @@ describe('a full account never blocks or loses a hike', () => {
     expect(r).toMatchObject({ pushed: 0, failed: 1, full: true });
     expect(a.recs.get('activities/new-hike')!.payload).toEqual({ n: 'recorded after the cap' });   // the hike is on the phone, untouched
     expect(s.rows.has('activities/new-hike')).toBe(false);                                         // and not uploaded
-    if (r.full) noteAccountFull(store);
+    expect(r.fullKinds).toEqual(['activities']);
+    for (const k of r.fullKinds) noteAccountFull('u1', fullKindOf(k)!, store);
     // Parked, so passes in the next hour do not send it again (no retry storm).
     s.pushes.length = 0;
     await a.syncAs(s, 'u1', 2_000_000 + 60_000); await a.syncAs(s, 'u1', 2_000_000 + 120_000);
@@ -452,14 +453,36 @@ describe('a full account never blocks or loses a hike', () => {
     // More hikes while full: they record locally; more full signals do not bring the note back.
     s.fullIds.add('another'); a.put('activities', 'another', 3);
     const r2 = await a.syncAs(s, 'u1', 2_000_000 + 180_000);
-    if (r2.full) noteAccountFull(store);
+    for (const k of r2.fullKinds) noteAccountFull('u1', fullKindOf(k)!, store);
     expect(a.recs.has('activities/another')).toBe(true);
-    expect(takeFullNote(store)).toBe(true);                          // shown once...
-    expect(takeFullNote(store)).toBe(false);
-    noteAccountFull(store);                                          // ...and never comes back
-    expect(takeFullNote(store)).toBe(false);
+    expect(takeFullNotes('u1', store)).toEqual([FULL_NOTE]);         // shown once...
+    expect(takeFullNotes('u1', store)).toEqual([]);
+    noteAccountFull('u1', 'hikes', store);                           // ...and never comes back
+    expect(takeFullNotes('u1', store)).toEqual([]);
   });
-  it('the note says exactly what was asked', () => { expect(FULL_NOTE).toBe('Your account is full. New hikes are saved on this phone only.'); });
+  it('the note says exactly what was asked, and saved trails get their own wording (they are not hikes)', () => {
+    expect(FULL_NOTE).toBe('Your account is full. New hikes are saved on this phone only.');
+    expect(FULL_NOTE_TRAILS).toBe('Your account is full. New saved trails are kept on this phone only.');
+    expect(fullText(fullKindOf('activities')!)).toBe(FULL_NOTE);
+    expect(fullText(fullKindOf('saved')!)).toBe(FULL_NOTE_TRAILS);
+    expect(fullText(fullKindOf('shortlist')!)).toBe(FULL_NOTE_TRAILS);
+    expect(fullKindOf('settings')).toBeNull();
+  });
+  it('a full saved list says "saved trails" and is reported for its own kind', async () => {
+    const s = new Server(), a = new Phone();
+    s.fullIds.add('way/9'); a.put('shortlist', 'way/9', 1);
+    const r = await a.syncAs(s, 'u1', 1_000_000);
+    expect(r.fullKinds).toEqual(['shortlist']);
+    const store = mem(); noteAccountFull('u1', fullKindOf('shortlist')!, store);
+    expect(takeFullNotes('u1', store)).toEqual([FULL_NOTE_TRAILS]);
+  });
+  it('the note is kept per account: it shown for one account is still due for another on the same phone', () => {
+    const store = mem();
+    noteAccountFull('A', 'hikes', store); expect(takeFullNotes('A', store)).toEqual([FULL_NOTE]);
+    noteAccountFull('B', 'hikes', store); expect(takeFullNotes('B', store)).toEqual([FULL_NOTE]);
+    expect(takeFullNotes('A', store)).toEqual([]);
+    expect(takeFullNotes(null, store)).toEqual([]);
+  });
   it('a phone with only unedited settings does not count as holding another account\'s data', async () => {
     const s = new Server(), a = new Phone();
     a.ownerId = 'user-A';
@@ -468,5 +491,22 @@ describe('a full account never blocks or loses a hike', () => {
     const b = new Phone(); b.ownerId = 'user-A';
     b.recs.set('settings/settings', { kind: 'settings', id: 'settings', updatedAt: 5, editedAt: 5, deleted: false, payload: { units: 'metric' } });   // edited here
     expect((await b.syncAs(s, 'user-B', 10)).ownerMismatch).toBe(true);
+  });
+});
+
+describe('how the server\'s refusals are read, and how much a pull fetches', () => {
+  const failing = (code: string) => ({ schema: () => ({ from: () => ({ upsert: async () => ({ error: { code, message: 'x' } }) }) }) });
+  const rec = (id: string): SyncRec => ({ kind: 'shortlist', id, updatedAt: 1, editedAt: 1, deleted: false, payload: { trail: { id }, addedAt: 1 } });
+  it('RL003 (account full) and the check/size errors are permanent; RL003 is flagged as "full"; anything else is a passing failure', async () => {
+    for (const [code, permanent, full] of [['RL003', true, true], ['23514', true, false], ['22001', true, false], ['57014', false, false], ['40P01', false, false]] as const) {
+      const out = await supabaseRemote(failing(code) as never, 'u1', () => false).push('shortlist', [rec('w1')], 0);
+      expect(out.failed, code).toEqual([{ id: 'w1', permanent, full }]);
+    }
+  });
+  it('hikes are pulled 25 at a time (each can carry up to 1 MB of route), the rest 500', async () => {
+    const { pageSize } = await import('./remote');
+    expect(pageSize('activities')).toBe(25);
+    expect(pageSize('shortlist')).toBe(500);
+    expect(pageSize('saved')).toBe(500);
   });
 });
