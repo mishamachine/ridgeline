@@ -114,7 +114,7 @@ describe('the runbooks are in the repo and point at each other', () => {
     // step 2: the exact Gmail rule
     for (const s of ['Read the message in **RAW** format', 'added by `mx.google.com`, the topmost one', 'Ignore every other `Authentication-Results` header and every `ARC-*` header', '`dkim=pass` **and** `dmarc=pass`', '`header.from` equal to the domain', 'no delete']) expect(mail, s).toContain(s);
     // step 3 and 4
-    for (const s of ['read-only query', "If an account exists for this address, we've sent a confirmation to it.", 'privaterelay.appleid.com', "a **new** message to the account's email on file", '`DELETE RIDGELINE <code>`', '`DELETE ALL <code>`', 'woof.bobolearns.com', 'chess.bobolearns.com/privacy/', 'No valid code, no delete']) expect(mail, s).toContain(s);
+    for (const s of ['read-only query', "If an account exists for this address, we've sent a confirmation to it.", 'privaterelay.appleid.com', "a **new** message to the account's email on file", '`DELETE RIDGELINE <code>`', '`DELETE ALL <code>`', 'woof.bobolearns.com', 'chess.bobolearns.com/privacy/', 'Ruffspeak', 'Post & Pulse', 'Silly Travel Tool has its own separate sign-in', 'No valid code, no delete']) expect(mail, s).toContain(s);
     // step 5 and the timings
     for (const s of ['Never run ad-hoc SQL', 'admin-delete.yml', 'does **not** ask for a recent sign-in', 'within **2 days**', 'expires after **30 days**', 'within 7 days of it', 'one line with no personal data']) expect(mail, s).toContain(s);
     // templates for every branch
@@ -126,5 +126,16 @@ describe('the runbooks are in the repo and point at each other', () => {
     const emails = [...mail.matchAll(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g)].map((m) => m[0]);
     expect(new Set(emails)).toEqual(new Set(['machinemisha@gmail.com']));
     expect(mail).not.toMatch(/BEGIN PRIVATE KEY|sb_secret|eyJ[A-Za-z0-9_-]{20,}/);
+  });
+});
+
+describe('the delete-by-email runbook names exactly the apps on the shared sign-in (round 8)', () => {
+  const mail = readFileSync('docs/DELETE_BY_EMAIL.md', 'utf8');
+  it('lists Ruffspeak, the Hub, Post & Pulse and Fanday (only once live), and says Silly Travel Tool is a separate sign-in', () => {
+    const section = mail.slice(mail.indexOf('## Which apps a whole-account delete reaches'));
+    for (const s of ['Ruffspeak', 'BoboLearns Hub', 'Post & Pulse', 'once it is live, Fanday', 'does **not** reach Silly Travel Tool', 'Bobo Learns Chess']) expect(section, s).toContain(s);
+    const template = mail.slice(mail.indexOf('**D. Confirmation'), mail.indexOf('This code works once'));
+    expect(template).toContain('[add ", and Fanday" only once Fanday is live]');
+    expect(template).not.toMatch(/any other B&B app/);
   });
 });

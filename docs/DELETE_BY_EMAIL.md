@@ -39,7 +39,7 @@ Generate a random one-time code (at least 10 characters), store only its hash an
 
 The two options in the confirmation:
 - reply `DELETE RIDGELINE <code>` to delete Ridgeline data only (mode `data`);
-- reply `DELETE ALL <code>` to delete the whole account (mode `account`), which removes the sign-in and the data in Ridgeline, our language app (woof.bobolearns.com), the BoboLearns Hub sign-in and any other B&B app signed in to. Bobo Learns Chess doesn't use accounts; its anonymous data is covered at chess.bobolearns.com/privacy/.
+- reply `DELETE ALL <code>` to delete the whole account (mode `account`), which removes the sign-in and the data in Ridgeline, Ruffspeak (our language app, woof.bobolearns.com), the BoboLearns Hub sign-in, Post & Pulse and, once it is live, Fanday: the apps on the one shared B&B sign-in, and no others (see "Which apps a whole-account delete reaches" below). Bobo Learns Chess doesn't use accounts; its anonymous data is covered at chess.bobolearns.com/privacy/.
 
 A reply with a wrong, expired, already-used or missing code, or from a different address than the account's, gets template E and **never** a delete.
 
@@ -78,7 +78,7 @@ Keep them short and plain. Do not name the account or say whether one exists, ex
 >
 > Someone asked us to delete the Ridgeline account for this address. If that was you, reply to this message with one of these, exactly:
 > - `DELETE RIDGELINE <code>` to delete your Ridgeline data only (your sign-in stays);
-> - `DELETE ALL <code>` to delete your whole account: your sign-in and your data in Ridgeline, our language app (woof.bobolearns.com), the BoboLearns Hub sign-in and any other B&B app you've signed in to. This cannot be undone. (Bobo Learns Chess doesn't use accounts; to delete its anonymous data, see chess.bobolearns.com/privacy/.)
+> - `DELETE ALL <code>` to delete your whole account: your sign-in and your data in Ridgeline, Ruffspeak (our language app, woof.bobolearns.com), the BoboLearns Hub sign-in and Post & Pulse [add ", and Fanday" only once Fanday is live]. This cannot be undone. (Silly Travel Tool has its own separate sign-in and is not affected.) (Bobo Learns Chess doesn't use accounts; to delete its anonymous data, see chess.bobolearns.com/privacy/.)
 >
 > This code works once and expires in 30 days. If you didn't ask for this, ignore this message and nothing will be deleted.
 
@@ -106,3 +106,6 @@ Keep them short and plain. Do not name the account or say whether one exists, ex
 
 ## While sign-in is paused
 Email deletion still works: it uses the service role and none of the app's sign-in or sync. See [PAUSE.md](PAUSE.md).
+
+## Which apps a whole-account delete reaches
+`DELETE ALL` (mode `account`) removes the one sign-in that lives in the shared B&B project, so it reaches exactly the apps on that project: Ruffspeak, the BoboLearns Hub, Post & Pulse and, once it is live, Fanday. It does **not** reach Silly Travel Tool, which keeps its own sign-in in its own project, nor Bobo Learns Chess, which has no accounts. Keep this list, the in-app warning and the reply template in step; add Fanday to all three on the day it goes live, and not before.
