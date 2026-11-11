@@ -188,7 +188,7 @@ describe('privacy page', () => {
     expect(on.indexOf('Accounts (optional)')).toBeLessThan(on.indexOf('<h2>Your choices</h2>'));
   });
   it('carries the approved wording', () => {
-    for (const s of ['the first and last 200 m removed', 'Supabase (our database provider) stores your data in the United States (Oregon)', 'backup copies are erased within 7 days, when backups roll over',
+    for (const s of ['the first and last 200 m removed', 'Supabase (our database provider) stores your data in the United States (Oregon)', 'backup copies are erased within 8 days, when backups roll over',
       'Signing in to Ridgeline doesn\'t share your hikes with those apps', 'Usage counts are never linked to your account', 'we also tell Apple to disconnect Ridgeline', 'the name and profile picture Google or Apple share with us'])
       expect(ACCOUNTS_SECTION_HTML).toContain(s);
     expect(ACCOUNTS_SECTION_HTML).not.toMatch(/Babar|\[N\]|TODO/);

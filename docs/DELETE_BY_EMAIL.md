@@ -89,7 +89,7 @@ Keep them short and plain. Do not name the account or say whether one exists, ex
 > We couldn't use that reply, so nothing has been deleted. If the code in our confirmation has expired (it lasts 23 days), please write to us again and we'll start a new request. Otherwise reply to our confirmation message with the exact words and the code from it. You can also delete in the app (Profile › Account).
 
 **F. Done**
-> We have deleted your [Ridgeline data / account]. Deleting removes your data from our live systems, normally straight away and always within 7 days; backup copies are erased within 7 days, when backups roll over. [Whole account, Apple with a stored token: We also disconnected Ridgeline from your Apple ID.] [Whole account, Apple without a stored token: To fully disconnect, also remove Ridgeline in your Apple ID settings › Sign in with Apple (appleid.apple.com).] If you did not ask for this, tell us right away.
+> We have deleted your [Ridgeline data / account]. Deleting removes your data from our live systems, normally straight away and always within 7 days; backup copies are erased within 8 days, when backups roll over. [Whole account, Apple with a stored token: We also disconnected Ridgeline from your Apple ID.] [Whole account, Apple without a stored token: To fully disconnect, also remove Ridgeline in your Apple ID settings › Sign in with Apple (appleid.apple.com).] If you did not ask for this, tell us right away.
 
 **G. Partly done**
 > We deleted your Ridgeline data but could not yet close your account. We are finishing it and will write again when it is done.
@@ -107,6 +107,9 @@ Keep them short and plain. Do not name the account or say whether one exists, ex
 
 **Public repository note:** GitHub shows a workflow run's inputs on the run page, and this repository is public. The only input is the random request id: no user id, no email address and no mode ever appears in an input, an environment variable or a log, and the workflow prints only the last 4 characters of the request id and the status. If you would rather not use Actions at all, call the function from a private shell:
 `curl -X POST "$ADMIN_DELETE_URL" -H "x-admin-delete-secret: $ADMIN_DELETE_SECRET" -H 'content-type: application/json' --data '{"request_id":"<uuid>"}'`.
+
+## Backups: why the figure is 8 days
+The reply template F and every in-app and privacy sentence about timing come from ONE constant, `DELETION_TIMING` (`src/lib/accounts/copy.ts`); a future mailer must import it, not retype it. Its "backup copies are erased within 8 days" depends on Supabase **point-in-time recovery (PITR) being OFF** and **7 daily backups being kept**. Checked read-only on 10 November 2026: PITR off, 7 daily backups at about 00:40 UTC. **If PITR is turned on or the plan changes, re-check this line BEFORE making that change**, and change the constant and the templates in the same step.
 
 ## While sign-in is paused
 Email deletion still works: it uses the service role and none of the app's sign-in or sync. See [PAUSE.md](PAUSE.md).

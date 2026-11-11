@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { DELETION_TIMING } from './copy';
 import { ACCOUNTS_SECTION_HTML } from './privacyAccounts';
 import { DeleteAccount, deleteCopy, resultText } from '../../screens/DeleteAccount';
 import { STATIC_SWAPS } from './goLiveCopy';
 
-const SENTENCE = 'Deleting removes your data from our live systems, normally straight away and always within 7 days; backup copies are erased within 7 days, when backups roll over.';
+const SENTENCE = 'Deleting removes your data from our live systems, normally straight away and always within 7 days; backup copies are erased within 8 days, when backups roll over.';
 
 describe('the deletion-timing sentence is pinned, verbatim, in every place', () => {
   it('the constant is the approved sentence', () => { expect(DELETION_TIMING).toBe(SENTENCE); });
@@ -65,5 +66,28 @@ describe('deletion by email (Play needs a way to ask without the app): one sente
     expect(readFileSync('src/lib/accounts/privacyAccounts.ts', 'utf8')).toContain('${deleteEmailLineHtml()}');
     expect(readFileSync('src/lib/accounts/privacyAccounts.ts', 'utf8')).not.toContain("from your account's email address");
     expect(DELETE_EMAIL_BEFORE + 'machinemisha@gmail.com' + DELETE_EMAIL_AFTER).toBe(LINE);
+  });
+});
+
+describe('the deletion timing sentence (CBO ruling): one constant, eight days for backups, no other copy of the old wording', () => {
+  const NEWER = 'Deleting removes your data from our live systems, normally straight away and always within 7 days; backup copies are erased within 8 days, when backups roll over.';
+  it('the constant is the approved sentence, verbatim', () => { expect(DELETION_TIMING).toBe(NEWER); });
+  it('the privacy Accounts section, the delete screen, both confirmations and the runbook template all carry it', async () => {
+    const { ACCOUNTS_SECTION_HTML } = await import('./privacyAccounts');
+    expect(ACCOUNTS_SECTION_HTML).toContain(DELETION_TIMING);
+    const screen = readFileSync('src/screens/DeleteAccount.tsx', 'utf8');
+    expect(screen.match(/\$\{DELETION_TIMING\}/g)!.length).toBeGreaterThanOrEqual(4);   // the two warnings and the two results
+    expect(readFileSync('docs/DELETE_BY_EMAIL.md', 'utf8')).toContain(DELETION_TIMING);
+    for (const f of ['src/lib/accounts/privacyAccounts.ts', 'src/screens/DeleteAccount.tsx']) expect(readFileSync(f, 'utf8')).not.toContain('backup copies are erased');   // the words live in copy.ts only
+  });
+  it('the old seven-day backup wording exists nowhere in src/, public/ or docs/', () => {
+    const old = 'within 7 days' + ', when backups roll over';   // built in two pieces so this file does not contain it
+    const walk = (d: string): string[] => readdirSync(d).flatMap((n) => { const p = join(d, n); return statSync(p).isDirectory() ? (n === 'node_modules' ? [] : walk(p)) : [p]; });
+    const hits = ['src', 'public', 'docs'].flatMap(walk).filter((f) => /\.(ts|tsx|html|md|json|txt|css)$/.test(f) && readFileSync(f, 'utf8').includes(old));
+    expect(hits).toEqual([]);
+  });
+  it('the runbook says why 8: PITR off, 7 daily backups, re-check before any change', () => {
+    const mail = readFileSync('docs/DELETE_BY_EMAIL.md', 'utf8');
+    for (const s of ['point-in-time recovery (PITR) being OFF', '7 daily backups', 'Checked read-only on 10 November 2026', 're-check this line BEFORE making that change', 'a future mailer must import it']) expect(mail, s).toContain(s);
   });
 });
