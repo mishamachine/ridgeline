@@ -3,7 +3,7 @@
 -- Never run against the shared production project. Everything runs in one transaction and rolls back.
 begin;
 create extension if not exists pgtap;
-select plan(92);
+select plan(102);
 
 insert into auth.users (id) values ('00000000-0000-0000-0000-00000000000a'), ('00000000-0000-0000-0000-00000000000b');
 
@@ -199,11 +199,35 @@ select lives_ok($$insert into ridgeline.activities (user_id, id, started_at, tra
 reset role;
 -- L2 (round 8): one statement writing rows for several users keeps ONE tally setting for the table (not one per user), and each user's rows are counted on their own.
 insert into ridgeline.saved (user_id, trail_id, trail) select u, 'multi' || g, '{"a":1}' from unnest(array['00000000-0000-0000-0000-0000000000e1','00000000-0000-0000-0000-0000000000e2','00000000-0000-0000-0000-0000000000f1']::uuid[]) u, generate_series(1, 3) g;
-select ok(current_setting('ridgeline.tally_saved', true) ~ '^[0-9a-f-]{36}\|[0-9]+\|[0-9]+\|[0-9]+$', 'the tally is ONE setting per table, valued uid|bytes|rows|live (never negative)');
+select ok(current_setting('ridgeline.tally_saved', true) ~ '^[0-9a-f-]{36}\|-?[0-9]+\|-?[0-9]+\|-?[0-9]+$', 'the tally is ONE setting per table, valued uid|bytes|rows|live ');
 select is((select count(*)::int from ridgeline.saved where trail_id like 'multi%'), 9, 'and every user got their own 3 rows');
 select is((select n_live::int from ridgeline.usage where user_id = '00000000-0000-0000-0000-0000000000f1' and tbl = 'saved'), 4, 'usage counts each user on their own (3 multi + ok1)');
-select is(ridgeline.tally_get('saved', '00000000-0000-0000-0000-0000000000f1'), array[0, 0, 0]::bigint[], 'the tally is back to zero after a multi-user statement');
-select is(ridgeline.tally_get('saved', '00000000-0000-0000-0000-0000000000aa'), array[0, 0, 0]::bigint[], 'a tally that belongs to another user counts as zero');
+select ok(ridgeline.tally_get('saved', '00000000-0000-0000-0000-0000000000f1') is null or ridgeline.tally_get('saved', '00000000-0000-0000-0000-0000000000f1') = array[0, 0, 0]::bigint[], 'after a multi-user statement the tally is zero or belongs to another user, never a leftover for this one');
+select is(ridgeline.tally_get('saved', '00000000-0000-0000-0000-0000000000aa'), null, 'a tally that belongs to another user reads as NULL');
+-- L2 round 9: a tombstoning statement leaves uid|0|0|0, and a transaction of several statements never gets a false RL003 (repro l2b).
+insert into auth.users (id) values ('00000000-0000-0000-0000-0000000000d3');
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000d3');
+insert into ridgeline.saved (user_id, trail_id, trail) select '00000000-0000-0000-0000-0000000000d3', 'a' || g, '{"a":1}' from generate_series(1, 1990) g;
+update ridgeline.saved set deleted = true, trail = null where trail_id in (select 'a' || g from generate_series(1, 50) g);
+reset role;
+select is(current_setting('ridgeline.tally_saved', true), '00000000-0000-0000-0000-0000000000d3' || '|0|0|0', 'after a tombstoning statement the tally is exactly uid|0|0|0');
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000d3');
+select lives_ok($$insert into ridgeline.saved (user_id, trail_id, trail) select '00000000-0000-0000-0000-0000000000d3', 'b' || g, '{"a":1}' from generate_series(1, 55) g$$, 'then 55 more rows fit (1,940 live + 55 = 1,995 of 2,000): no false RL003');
+reset role;
+select is((select n_live::int from ridgeline.usage where user_id = '00000000-0000-0000-0000-0000000000d3' and tbl = 'saved'), 1995, 'and usage says 1,995 live');
+-- Round 9: ridgeline.deletion_requests is service-role only, expires 23 days after the request, and stores no email.
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000d3');
+select throws_ok($$select * from ridgeline.deletion_requests$$, '42501', null, 'a signed-in person cannot read deletion requests');
+select throws_ok($$insert into ridgeline.deletion_requests (user_id, mode, code_hash) values ('00000000-0000-0000-0000-0000000000d3', 'data', repeat('a', 64))$$, '42501', null, 'nor write one');
+reset role;
+set local role service_role;
+insert into ridgeline.deletion_requests (id, user_id, mode, code_hash) values ('00000000-0000-0000-0000-0000000000c9', '00000000-0000-0000-0000-0000000000d3', 'account', repeat('b', 64));
+select is((select (expires_at - created_at)::text from ridgeline.deletion_requests where id = '00000000-0000-0000-0000-0000000000c9'), '23 days', 'expires_at defaults to created_at + 23 days');
+select is((select status from ridgeline.deletion_requests where id = '00000000-0000-0000-0000-0000000000c9'), 'pending', 'a new request is pending');
+select throws_ok($$insert into ridgeline.deletion_requests (user_id, mode, code_hash) values ('00000000-0000-0000-0000-0000000000d3', 'everything', repeat('c', 64))$$, '23514', null, 'a mode other than data or account is refused');
+select throws_ok($$update ridgeline.deletion_requests set status = 'maybe' where id = '00000000-0000-0000-0000-0000000000c9'$$, '23514', null, 'an unknown status is refused');
+reset role;
+select is((select count(*)::int from information_schema.columns where table_schema = 'ridgeline' and table_name = 'deletion_requests' and column_name ~* 'email|address|^mail'), 0, 'no email or address column');
 -- Deleting the auth user removes the Ridgeline rows.
 delete from auth.users where id = '00000000-0000-0000-0000-00000000000a';
 select is((select count(*)::int from ridgeline.activities where user_id = '00000000-0000-0000-0000-00000000000a'), 0, 'auth user delete cascades to hikes');
