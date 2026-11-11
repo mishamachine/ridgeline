@@ -12,12 +12,13 @@ export const ACCOUNTS_SECTION_HTML = `<h2>Accounts (optional)</h2>
 <li>the trails you save and shortlist</li>
 <li>your hike history (date, time, distance, climb, the trail, and the route you walked, with the first and last 200 m removed)</li>
 <li>your settings</li>
+<li>sign-in records (when you signed in, and the IP address and browser used, kept by our database provider for security)</li>
 </ul>
 <p>We use these only to keep your hikes safe and on all your devices. You can keep routes on your phone only (Profile &rsaquo; Settings &rsaquo; &ldquo;Keep hike tracks on this phone only&rdquo;).</p>
 <p><strong>One account across our apps.</strong> Your sign-in is one account shared with our other apps (B&amp;B and Bobo Learns). Signing in to Ridgeline doesn't share your hikes with those apps. If you sign in with Google and Apple using the same email address, they become one account (this doesn't happen if you chose Apple's &ldquo;Hide My Email&rdquo;). Signing in doesn't add you to any mailing list or create anything in our other apps.</p>
 <p><strong>Who stores it.</strong> Supabase (our database provider) stores your data in the United States (Oregon). It's encrypted in transit. We don't sell it, and we don't use it for ads.</p>
 <p><strong>Deleting.</strong> In Profile &rsaquo; Account or at hike.bbprojectfactory.com/account/delete/ you can delete your Ridgeline data only, or your whole account across our apps. ${DELETION_TIMING} ${deleteEmailLineHtml()} If you delete your whole account and you signed in with Apple on an iPhone, we also tell Apple to disconnect Ridgeline. If you signed in with Apple on the web, or that doesn't work, to fully disconnect, also remove Ridgeline in your Apple ID settings &rsaquo; Sign in with Apple (appleid.apple.com).</p>
-<p><strong>Usage counts are separate.</strong> Usage counts are never linked to your account.</p>
+<p><strong>Usage counts.</strong> Our visit counter is never linked to your account.</p>
 
 `;
 
