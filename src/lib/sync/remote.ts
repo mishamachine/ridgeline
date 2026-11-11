@@ -17,12 +17,12 @@ const KEY_COL: Record<Kind, string> = { shortlist: 'trail_id', saved: 'trail_id'
 const quote = (v: string) => '"' + v.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
 /** Rows per pull page. Hikes carry routes (up to 1 MB each), so a page of them is small: 25 rows is at most about 25 MB. */
 export const pageSize = (kind: Kind) => (kind === 'activities' ? 25 : 500);
-/** Database refusals that retrying the same row can never fix: over a limit (RL003), a row or value too big (54000, 22001), a failed check (23514). */
-export const PERMANENT = new Set(['RL003', '54000', '23514', '22001']);
+/** Database refusals that retrying the same row can never fix: over a limit (RL003), a row or value too big (54000, 22001), a character the database cannot store (22P05, such as NUL), a failed check (23514). */
+export const PERMANENT = new Set(['RL003', '54000', '22P05', '23514', '22001']);
 const iso = (ms: number) => new Date(ms).toISOString();
 type Row = Record<string, unknown>;
 
-const CONTROL = /[\u0001-\u0008\u000b\u000c\u000e-\u001f]/g;
+const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g;
 /** Float residue (1e-17 from a subtraction) is refused by the database's json_ok check, and a refused hike would be parked for good. So before upload: any |x| < 1e-12
  *  becomes a plain 0 (a zero is always written as 0, never 0e-16383: the database refuses a zero with a long scale), and a non-finite number is dropped (removed from an object; null inside an array, so positions do not shift). Applied to every JSON column. */
 export function cleanJson<T>(v: T): T {

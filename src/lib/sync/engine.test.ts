@@ -550,8 +550,9 @@ describe('a full account never blocks or loses a hike', () => {
     expect(a.recs.has('activities/bad-1') && a.recs.has('activities/bad-2')).toBe(true);
     expect(s.rows.has('activities/fine')).toBe(true);
     noteParked('u1', 'hikes', r.checkParked.activities!, store);
-    noteParked('u1', 'hikes', 5, store);                                // a later count does not bring the note back
-    expect(takeParkedNotes('u1', store)).toEqual(["2 hikes couldn't be saved to your account and are on this phone only."]);
+    noteParked('u1', 'hikes', 5, store);                                // more rows parked before the note was shown: the count follows them
+    expect(takeParkedNotes('u1', store)).toEqual(["5 hikes couldn't be saved to your account and are on this phone only."]);
+    noteParked('u1', 'hikes', 9, store);                                // once shown, a later count does not bring the note back
     expect(takeParkedNotes('u1', store)).toEqual([]);
     expect(takeParkedNotes('u2', store)).toEqual([]);                   // per account
     s.pushes.length = 0;
@@ -657,7 +658,7 @@ describe('how the server\'s refusals are read, and how much a pull fetches', () 
   const failing = (code: string) => ({ schema: () => ({ from: () => ({ upsert: async () => ({ error: { code, message: 'x' } }) }) }) });
   const rec = (id: string): SyncRec => ({ kind: 'shortlist', id, updatedAt: 1, editedAt: 1, deleted: false, payload: { trail: { id }, addedAt: 1 } });
   it('RL003 (account full) and the check/size errors are permanent; RL003 is flagged as "full"; anything else is a passing failure', async () => {
-    for (const [code, permanent, full] of [['RL003', true, true], ['23514', true, false], ['22001', true, false], ['57014', false, false], ['40P01', false, false]] as const) {
+    for (const [code, permanent, full] of [['RL003', true, true], ['23514', true, false], ['22001', true, false], ['22P05', true, false], ['57014', false, false], ['40P01', false, false]] as const) {
       const out = await supabaseRemote(failing(code) as never, 'u1', () => false).push('shortlist', [rec('w1')], 0);
       expect(out.failed, code).toEqual([{ id: 'w1', permanent, full, check: code === '23514' }]);   // 23514 (a failed check) is the one that tells the person
     }

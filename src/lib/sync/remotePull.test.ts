@@ -135,3 +135,15 @@ describe('float residue is cleaned before upload (the database refuses |x| < 1e-
     expect((toRow('u', { kind: 'settings', id: 'settings', updatedAt: 1, syncedAt: 0, editedAt: 1, deleted: false, payload: { z: 1e-13 } } as never, false) as { data: { z: number } }).data.z).toBe(0);
   });
 });
+
+describe('round 9c: NUL is cleaned and 22P05 is permanent', () => {
+  it('a NUL (U+0000) in a name, a key or a trail becomes a space', () => {
+    expect(cleanJson({ ['k\u0000ey']: 'a\u0000b' })).toEqual({ 'k ey': 'a b' });
+    const row = toRow('u', { kind: 'activities', id: 'h9', updatedAt: 1, syncedAt: 0, editedAt: 1, deleted: false, payload: { id: 'h9', name: 'Trail\u0000Run', startedAt: 1762800000000, updatedAt: 1, points: [] } } as never, false) as { stats: { name: string } };
+    expect(row.stats.name).toBe('Trail Run');
+  });
+  it('22P05 (a character that cannot be stored) parks instead of retrying for ever', async () => {
+    const { PERMANENT } = await import('./remote');
+    expect(PERMANENT.has('22P05')).toBe(true);
+  });
+});
