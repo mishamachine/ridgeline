@@ -1,0 +1,50 @@
+# Delete an account for a deletion request received by email (docs/DELETE_BY_EMAIL.md, step 5). Run by hand by the owner's agent or the owner only.
+# It only calls the admin delete function with a secret kept in GitHub secrets, and prints the status. It uses no third-party actions.
+# NOTE: this repository is public and GitHub shows a run's inputs on the run page. The user id is a random identifier, not an email address, but do not
+# put anything else in the inputs, and see docs/DELETE_BY_EMAIL.md for the alternative of calling the function from a private shell.
+name: Admin delete
+
+on:
+  workflow_dispatch:
+    inputs:
+      user_id:
+        description: 'auth user id (uuid) of the account to delete'
+        required: true
+        type: string
+      mode:
+        description: 'data = Ridgeline data only; account = the whole account'
+        required: true
+        type: choice
+        options: [data, account]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: admin-delete
+  cancel-in-progress: false
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Call the admin delete function
+        env:
+          USER_ID: ${{ inputs.user_id }}
+          MODE: ${{ inputs.mode }}
+          ADMIN_DELETE_SECRET: ${{ secrets.ADMIN_DELETE_SECRET }}
+          ADMIN_DELETE_URL: ${{ vars.ADMIN_DELETE_URL }}
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$USER_ID"
+          [[ "$USER_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] || { echo "::error::user_id is not a uuid"; exit 1; }
+          [[ "$MODE" == "data" || "$MODE" == "account" ]] || { echo "::error::mode must be data or account"; exit 1; }
+          [ -n "$ADMIN_DELETE_SECRET" ] && [ -n "$ADMIN_DELETE_URL" ] || { echo "::error::ADMIN_DELETE_SECRET and the ADMIN_DELETE_URL variable must be set"; exit 1; }
+          http=$(curl -sS --max-time 120 -o out.json -w '%{http_code}' -X POST "$ADMIN_DELETE_URL" \
+            -H "x-admin-delete-secret: $ADMIN_DELETE_SECRET" -H 'content-type: application/json' \
+            --data "{\"user_id\":\"$USER_ID\",\"mode\":\"$MODE\"}")
+          status=$(jq -r '.status // "unknown"' out.json 2>/dev/null || echo unknown)
+          rm -f out.json
+          echo "account ending ...${USER_ID: -4}, mode $MODE, http $http, status $status"
+          [ "$status" = "ok" ]

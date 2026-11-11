@@ -35,21 +35,34 @@ describe('no "instantly", and no "straight away" outside that sentence, in any d
   });
 });
 
-describe('deletion by email (Play needs a way to ask without the app)', () => {
+describe('deletion by email (Play needs a way to ask without the app): one sentence, one source', () => {
+  const LINE = "You can also email machinemisha@gmail.com from your account's email address. We'll send a confirmation to that address, and once you confirm, we delete within 7 days. (If you signed in with Apple's Hide My Email, delete in Profile › Account instead.)";
   const MAIL = 'mailto:machinemisha@gmail.com?subject=Ridgeline%20account%20deletion';
-  it('the privacy Accounts section gives the address as a mailto link', () => {
-    expect(ACCOUNTS_SECTION_HTML).toContain(`<a href="${MAIL}">machinemisha@gmail.com</a>`);
-    expect(ACCOUNTS_SECTION_HTML).toContain('ask us to delete your account by email, without opening the app');
+  const plain = (html: string) => html.replace(/<[^>]*>/g, '').replace(/&rsaquo;/g, '›').replace(/&#x27;/g, "'");
+  it('the constant is the approved sentence, verbatim', async () => {
+    const { DELETE_EMAIL_LINE } = await import('./copy');
+    expect(DELETE_EMAIL_LINE).toBe(LINE);
   });
-  it('the /account/delete/ page gives it too', async () => {
+  it('the privacy Accounts section carries it, with the address as a mailto link', async () => {
+    const { deleteEmailLineHtml } = await import('./copy');
+    expect(ACCOUNTS_SECTION_HTML).toContain(deleteEmailLineHtml());
+    expect(plain(ACCOUNTS_SECTION_HTML)).toContain(LINE);
+    expect(ACCOUNTS_SECTION_HTML).toContain(`<a href="${MAIL}">machinemisha@gmail.com</a>`);
+    expect(ACCOUNTS_SECTION_HTML).not.toContain('without opening the app');   // the older sentence is gone
+  });
+  it('the /account/delete/ page carries it too', async () => {
     const { renderToStaticMarkup } = await import('react-dom/server');
     const html = renderToStaticMarkup(<DeleteAccount onBack={() => {}} />);
+    expect(plain(html)).toContain(LINE);
     expect(html).toContain(`href="${MAIL}"`);
-    expect(html).toContain('machinemisha@gmail.com');
   });
-  it('one source for the address', async () => {
-    const { DELETE_EMAIL, DELETE_MAILTO } = await import('./copy');
+  it('one source: both places are built from the same parts', async () => {
+    const { DELETE_EMAIL_BEFORE, DELETE_EMAIL_AFTER, DELETE_MAILTO } = await import('./copy');
     expect(DELETE_MAILTO).toBe(MAIL);
-    expect(DELETE_EMAIL).toBe('machinemisha@gmail.com');
+    expect(readFileSync('src/screens/DeleteAccount.tsx', 'utf8')).toContain('{DELETE_EMAIL_BEFORE}');
+    expect(readFileSync('src/screens/DeleteAccount.tsx', 'utf8')).not.toContain("from your account's email address");
+    expect(readFileSync('src/lib/accounts/privacyAccounts.ts', 'utf8')).toContain('${deleteEmailLineHtml()}');
+    expect(readFileSync('src/lib/accounts/privacyAccounts.ts', 'utf8')).not.toContain("from your account's email address");
+    expect(DELETE_EMAIL_BEFORE + 'machinemisha@gmail.com' + DELETE_EMAIL_AFTER).toBe(LINE);
   });
 });
