@@ -1,0 +1,118 @@
+# Deleting an account by email (runbook)
+
+For people who ask for deletion by email instead of in the app (Google Play requires a way to ask without the app). The published address is machinemisha@gmail.com; the delete page and the privacy Accounts section say:
+
+> You can also email machinemisha@gmail.com from your account's email address. We'll send a confirmation to that address. Once you confirm, we delete within 7 days, and never more than one month after your request. The confirmation code expires after 23 days. (If you signed in with Apple's Hide My Email, delete in Profile › Account instead.)
+
+**Who handles it:** the team member or agent that reads the mailbox handles each request from start to finish, and tells the owner afterwards (step 6). Nothing here is done ad hoc: the delete itself only ever runs through the admin delete path (step 5), which is the same code as the in-app delete.
+
+**Private log and the request table:** requests are logged in a private log kept outside this repository (mail thread id, date received, due dates, result), and each confirmed-or-pending request is one row in `ridgeline.deletion_requests` (service role only: id, user_id, mode, code_hash, created_at, expires_at, used_at, status, gmail_thread_id; no email address). **Never write the requester's email address, a code in clear text, or any token into the log, a ticket, the owner's note or this repository, and never put a user id in a workflow input, a log line or a chat.**
+
+**Clocks (the legal one-month clock runs from the first request):**
+- send the confirmation (step 4) within **2 days** of the request;
+- the code is single-use and expires **23 days after it was sent** (the row is inserted at the moment the confirmation is sent, and the table's `expires_at` defaults to `created_at + 23 days`, so "expires after 23 days" is literally true); close the request when `expires_at` passes with no valid confirmation, with a short note, and log it (step 7);
+- once a valid confirmation arrives, delete within **7 days** (step 5), and always within **one month of the first request**; a confirmation that arrives after the code expired gets a reply that the code expired, and a new request starts fresh (template E).
+
+## The 7 steps
+
+### 1. Intake
+Log the mail thread id, the date received, "confirmation due" (received + 2 days) and "close if unconfirmed" (set it from `expires_at` once the confirmation is sent: 23 days after the code was SENT, not after the request was received). Do not log the sender's address.
+
+### 2. Authenticity of the request
+Read the message in **RAW** format (the Gmail connector's raw format exposes the receiving server's header). Then:
+- Trust **only** the `Authentication-Results` header added by `mx.google.com`, the topmost one, added on receipt. **Ignore every other `Authentication-Results` header and every `ARC-*` header: a sender can forge those.**
+- Require `dkim=pass` **and** `dmarc=pass`, with `header.from` equal to the domain of the message's From address.
+- Anything else (`fail`, `none`, `temperror`, a mismatch, a missing header) means **no delete**. Send template A.
+
+### 3. Does the sender match an account? (read-only)
+Compare the verified From address, as an exact case-insensitive match, with `auth.users.email`. Use a read-only query that returns only whether there is one match and, if so, the user id and the sign-in providers:
+```sql
+select id, (select array_agg(provider) from auth.identities i where i.user_id = u.id) as providers
+from auth.users u where lower(email) = lower('<verified From address>');
+```
+- **Apple "Hide My Email" account** (`@privaterelay.appleid.com`, or the sender cannot be an exact match): do not delete by email. Send template C (use the in-app delete).
+- **No match, or more than one:** send template B (the generic reply). Never say whether an account exists.
+- **Exactly one match:** continue.
+
+### 4. Confirmation (a NEW message, not a reply)
+Generate a random one-time code (at least 10 characters). Insert the `ridgeline.deletion_requests` row at the moment you send the confirmation (so `created_at`, and `expires_at` 23 days later, run from when the code was sent), with the account's `user_id`, the **hash** of the code (never the code): the SHA-256 hex digest of the code, which is what you compare a reply's code against `code_hash` with, the Gmail thread id, `mode = 'data'` (the safe default) and `status = 'pending'`; `expires_at` is set by the table to 23 days after `created_at`. Then send a **new** message to the account's email on file (not a reply to the request) with template D. The code is single-use. No valid code, no delete.
+
+The two options in the confirmation:
+- reply `DELETE RIDGELINE <code>` to delete Ridgeline data only (mode `data`);
+- reply `DELETE ALL <code>` to delete the whole account (mode `account`), which removes the sign-in and the data in Ridgeline, Ruffspeak (our language app, woof.bobolearns.com), the BoboLearns Hub sign-in, Post & Pulse and, once it is live, Fanday: the apps on the one shared B&B sign-in, and no others (see "Which apps a whole-account delete reaches" below). Bobo Learns Chess doesn't use accounts; its anonymous data is covered at chess.bobolearns.com/privacy/.
+
+**The confirmation reply goes through the same check as the request.** Read it in RAW format and apply the step 2 rule: only the topmost `Authentication-Results` header added by `mx.google.com`, with `dkim=pass` **and** `dmarc=pass` and `header.from` equal to the From domain. A sender that fails DMARC (or any part of that check) gets the "use the in-app delete" reply (template A) and **never** a delete, even with a correct code.
+
+A reply with a wrong, expired, already-used or missing code, or from a different address than the account's, gets template E and **never** a delete. When a reply passes the check, matches the account's address, and carries the right code for an unexpired, unused request, set that row's `mode` to what was asked (`DELETE RIDGELINE` is `data`, `DELETE ALL` is `account`) and its `status` to `confirmed`. Nothing else may set `confirmed`.
+
+### 5. Execute (only through the admin delete path)
+Run the GitHub Actions workflow **Admin delete** (`.github/workflows/admin-delete.yml`) with the **request id** (the row's `id`, a random uuid) and nothing else, or call the `admin-delete-account` function directly from a private shell (see "Setup"). The function reads the request, takes the account and the mode from the row, and **refuses unless** the request is `confirmed`, unused and not expired, **and** the account has a Ridgeline profile (so a stray id cannot delete someone who never used Ridgeline). **Never run ad-hoc SQL for a deletion and never delete the auth user by hand:** the admin path is the same code as the in-app delete (`delete_user_data` in one transaction, the Apple revoke when a token is stored, the Vault secret, then the auth user), so the result is the same: `ok`, `partial` or `failed`. It marks the request used before it deletes, so a request runs once; a `partial` or `failed` run is released so the same request can be run again.
+- `ok`: finish (step 6).
+- `partial` (the data is gone but the account could not be closed): run it again; if it is still partial, keep the request open, log it, and tell the owner.
+- `failed`: nothing was deleted; run it again, and if it still fails tell the owner.
+- A refusal (`not_confirmed`, `used`, `expired`, `not_found`, or 404 for no Ridgeline account) means do not delete: check the request, and reply with template E or B as fits.
+
+The admin path does **not** ask for a recent sign-in: the one-time code sent to the account's own address replaces that check.
+
+### 6. Reply, log, tell the owner
+Send template F (or G if only some of it could be done), log the result, and tell the owner afterwards in **one line with no personal data** (for example "email deletion done, thread <id>, mode <data|account>").
+
+### 7. The clocks
+- A valid confirmation → delete within 7 days of it (step 5), and always within one month of the first request.
+- No valid confirmation by `expires_at` (23 days after the code was sent) → set the row's `status` to `closed`, close the request with template H and log it.
+- A confirmation that arrives after the code expired → template E (the code expired; a new request starts fresh by writing in again).
+
+## Reply templates
+Keep them short and plain. Do not name the account or say whether one exists, except in D, F and G.
+
+**A. The request could not be verified**
+> Subject: Your Ridgeline deletion request
+>
+> We could not verify that this message came from the address it says it did, so we have not deleted anything. You can delete your account yourself in the app (Profile › Account) or at hike.bbprojectfactory.com/account/delete/, or write to us again from your account's email address.
+
+**B. No account found (generic)**
+> If an account exists for this address, we've sent a confirmation to it.
+
+**C. Apple "Hide My Email" account**
+> Because you signed in with Apple's Hide My Email, we can't match this message to your account by email. Please delete it in the app (Profile › Account) or at hike.bbprojectfactory.com/account/delete/ while signed in with Apple.
+
+**D. Confirmation (a new message to the account's email on file)**
+> Subject: Confirm your Ridgeline deletion request
+>
+> Someone asked us to delete the Ridgeline account for this address. If that was you, reply to this message with one of these, exactly:
+> - `DELETE RIDGELINE <code>` to delete your Ridgeline data only (your sign-in stays);
+> - `DELETE ALL <code>` to delete your whole account: your sign-in and your data in Ridgeline, Ruffspeak (our language app, woof.bobolearns.com), the BoboLearns Hub sign-in and Post & Pulse [add ", and Fanday" only once Fanday is live]. This cannot be undone. (Silly Travel Tool has its own separate sign-in and is not affected.) (Bobo Learns Chess doesn't use accounts; to delete its anonymous data, see chess.bobolearns.com/privacy/.)
+>
+> This code works once and expires in 23 days. If you didn't ask for this, ignore this message and nothing will be deleted.
+
+**E. Code missing, wrong, used or expired**
+> We couldn't use that reply, so nothing has been deleted. If the code in our confirmation has expired (it lasts 23 days), please write to us again and we'll start a new request. Otherwise reply to our confirmation message with the exact words and the code from it. You can also delete in the app (Profile › Account).
+
+**F. Done**
+> We have deleted your [Ridgeline data / account]. Deleting removes your data from our live systems, normally straight away and always within 7 days; backup copies are erased within 8 days, when backups roll over. [Whole account, Apple with a stored token: We also disconnected Ridgeline from your Apple ID.] [Whole account, Apple without a stored token: To fully disconnect, also remove Ridgeline in your Apple ID settings › Sign in with Apple (appleid.apple.com).] If you did not ask for this, tell us right away.
+
+**G. Partly done**
+> We deleted your Ridgeline data but could not yet close your account. We are finishing it and will write again when it is done.
+
+**H. Closed without confirmation**
+> We didn't get a confirmation within 23 days, so we closed your deletion request and nothing was deleted. You can ask again at any time, or delete in the app (Profile › Account).
+
+## Setup (the owner does this once; nothing here is done by the build)
+1. Apply the migration that creates `ridgeline.deletion_requests` (it ships in the accounts migration; apply it as the owner, never an agent).
+2. Choose a long random value (at least 32 random bytes) for `ADMIN_DELETE_SECRET`. Do not put it in the repository, an issue or a chat.
+3. In Supabase (the shared project) add it as an Edge Function secret named `ADMIN_DELETE_SECRET`, next to the Apple secrets the in-app delete already uses (`APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY`, `APPLE_BUNDLE_ID`).
+4. Deploy the `admin-delete-account` function **with JWT verification off** (`supabase functions deploy admin-delete-account --no-verify-jwt`); it does its own check of the secret.
+5. In the GitHub repository create an **Environment** named `admin-delete`, restricted to the `main` branch (Deployment branches: selected branches, `main`). Put the secret `ADMIN_DELETE_SECRET` in that **environment** (not as a repository-wide secret), and add the function's URL as the Actions **variable** `ADMIN_DELETE_URL`. The workflow job declares `environment: admin-delete`, so only runs from `main` can read the secret. **No required reviewers are set, because the owner chose that agents handle deletions.** If the owner ever wants a per-run gate, add Required reviewers to that environment; nothing else changes.
+6. Test once with a throwaway account (both modes) before relying on it.
+
+**Public repository note:** GitHub shows a workflow run's inputs on the run page, and this repository is public. The only input is the random request id: no user id, no email address and no mode ever appears in an input, an environment variable or a log, and the workflow prints only the last 4 characters of the request id and the status. If you would rather not use Actions at all, call the function from a private shell:
+`curl -X POST "$ADMIN_DELETE_URL" -H "x-admin-delete-secret: $ADMIN_DELETE_SECRET" -H 'content-type: application/json' --data '{"request_id":"<uuid>"}'`.
+
+## Backups: why the figure is 8 days
+The reply template F and every in-app and privacy sentence about timing come from ONE constant, `DELETION_TIMING` (`src/lib/accounts/copy.ts`); a future mailer must import it, not retype it. Its "backup copies are erased within 8 days" depends on Supabase **point-in-time recovery (PITR) being OFF** and **7 daily backups being kept**. Checked read-only on 10 November 2026: PITR off, 7 daily backups at about 00:40 UTC. **If PITR is turned on or the plan changes, re-check this line BEFORE making that change**, and change the constant and the templates in the same step.
+
+## While sign-in is paused
+Email deletion still works: it uses the service role and none of the app's sign-in or sync. See [PAUSE.md](PAUSE.md).
+
+## Which apps a whole-account delete reaches
+`DELETE ALL` (mode `account`) removes the one sign-in that lives in the shared B&B project, so it reaches exactly the apps on that project: Ruffspeak, the BoboLearns Hub, Post & Pulse and, once it is live, Fanday. It does **not** reach Silly Travel Tool, which keeps its own sign-in in its own project, nor Bobo Learns Chess, which has no accounts. Keep this list, the in-app warning and the reply template in step; add Fanday to all three on the day it goes live, and not before.

@@ -13,6 +13,10 @@ import { shareApp } from '../lib/share';
 import { features } from '../lib/features';
 import { ChevronIcon } from '../components/Icons';
 import { PageHead } from '../components/PageHead';
+import { AccountRow } from '../components/AccountRow';
+import { pick, PROFILE_LOCATION_SENTENCE, PROFILE_LOCATION_SUMMARY } from '../lib/accounts/goLiveCopy';
+import { useAccount } from '../lib/accounts/useAccount';
+import { useAccountsState } from '../lib/accounts/flags';
 import { BadgeMedal } from './Badges';
 import './profile.css';
 
@@ -21,12 +25,21 @@ const base = import.meta.env.BASE_URL ?? '/';
 export interface ProfileProps {
   onOpenBadges: () => void;
   onReplayTour: () => void;
+  /** Opens the delete-account page (only used when accounts are on). */
+  onOpenDeleteAccount?: () => void;
+  /** Opens the sign-in screen. */
+  onOpenSignIn?: () => void;
   onOpenActivity?: (a: Activity) => void;
   /** Changes when the screen should re-read the phone (a hike just finished, or the tab was opened). */
   version?: number;
   /** Previews and tests only: skip reading the phone. */
   preset?: { activities: Activity[]; trails: BadgeTrail[] };
 }
+
+/** The delete-hike question. Signed in, the hike is removed everywhere, so the question says so. */
+export const hikeDeleteText = (signedIn: boolean) => signedIn
+  ? 'Delete this hike everywhere? It is removed from your account and from every phone you are signed in on. This cannot be undone.'
+  : 'Delete this hike from your phone? This cannot be undone.';
 
 const trailCount = (b: Backup) => new Set([...b.saved.map((x) => x.trail.id), ...b.shortlist.map((x) => x.trail.id)]).size;
 
@@ -38,9 +51,11 @@ function Switch({ on, onChange, label }: { on: boolean; onChange: (v: boolean) =
   );
 }
 
-export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, version, preset }: ProfileProps) {
+export function Profile({ onOpenBadges, onReplayTour, onOpenDeleteAccount, onOpenSignIn, onOpenActivity, version, preset }: ProfileProps) {
   const { activities, trails, reload } = useHikes(preset);
   const [settings, setSettings] = useSettings();
+  const accountsState = useAccountsState();   // off (not built in), unknown (flag not read yet), paused, or live
+  const signedIn = useAccount().signedIn;
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [storage, setStorage] = useState<{ used: number; quota: number } | null>(null);
   const [savedCount, setSavedCount] = useState(0);
@@ -61,7 +76,7 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, version, p
   const badges = computeBadges(activities, trails);
   const next = nextBadge(badges);
   const earned = badges.filter((b) => b.earned).length;
-  const recorded = activities.filter((a) => a.points.length >= 2);
+  const recorded = activities.filter((a) => a.points.length >= 2 || !!a.summary); // a hike with no route here but a summary came from another phone
   const first = recorded.length ? new Date(Math.min(...recorded.map((a) => a.startedAt))) : null;
 
   async function remove(id: string) {
@@ -140,11 +155,15 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, version, p
         <div className="pf-group">
           {recorded.length === 0 && <p className="pf-empty">No hikes yet. Start one from a trail and it is saved here, on your phone.</p>}
           {recorded.map((a) => {
-            const canOpen = !!onOpenActivity && !!a.trailId;
+            const summaryOnly = a.points.length < 2 && !!a.summary;
+            const canOpen = !!onOpenActivity && !!a.trailId && !summaryOnly;
+            const distM = summaryOnly ? a.summary!.distanceM : trackDistance(a.points);
+            const mins = summaryOnly ? a.summary!.durationMs / 60000 : ((a.endedAt ?? a.startedAt) - a.startedAt) / 60000;
             const info = (
               <>
                 <b>{a.name}</b>
-                <small>{distanceValue(trackDistance(a.points), u)} {distanceUnit(u)} · {duration(((a.endedAt ?? a.startedAt) - a.startedAt) / 60000)} · {new Date(a.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{a.unfinished ? ' · Unfinished' : ''}</small>
+                <small>{distanceValue(distM, u)} {distanceUnit(u)} · {duration(mins)}{summaryOnly ? ` · ${climbValue(a.summary!.climbM, u)} ${climbUnit(u)} climbed` : ''} · {new Date(a.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{a.unfinished ? ' · Unfinished' : ''}</small>
+                {summaryOnly && <small>Route kept on your other phone</small>}
               </>
             );
             return (
@@ -165,7 +184,7 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, version, p
                 )}
                 {confirmDelete === a.id && (
                   <div className="pf-confirm" role="alertdialog" aria-label={`Delete ${a.name}?`}>
-                    <p>Delete this hike from your phone? This cannot be undone.</p>
+                    <p>{hikeDeleteText(signedIn)}</p>
                     <div className="pf-actions" style={{ padding: 0 }}>
                       <button className="pf-btn danger" onClick={() => remove(a.id)}>Delete hike</button>
                       <button className="pf-btn" onClick={() => setConfirmDelete(null)}>Keep it</button>
@@ -179,10 +198,24 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, version, p
 
         <h2 className="pf-h">Settings</h2>
         <div className="pf-group">
-          <div className="pf-row pf-static" aria-label="Account: not signed in, optional">
-            <span>Account</span><span className="val">Not signed in · optional</span>
-          </div>
-          <p className="pf-note pf-static" style={{ margin: 0, paddingTop: 8 }}>Ridgeline works without an account. Optional sign-in may come later; nothing to do now.</p>
+          {accountsState !== 'off' ? <AccountRow onOpenDelete={onOpenDeleteAccount} onSignIn={onOpenSignIn} /> : (
+            <>
+              <div className="pf-row pf-static" aria-label="Account: not signed in, optional">
+                <span>Account</span><span className="val">Not signed in · optional</span>
+              </div>
+              <p className="pf-note pf-static" style={{ margin: 0, paddingTop: 8 }}>Ridgeline works without an account. Optional sign-in may come later; nothing to do now.</p>
+            </>
+          )}
+
+          {accountsState === 'live' && (
+            <>
+              <div className="pf-row">
+                <span>Keep hike tracks on this phone only</span>
+                <Switch on={settings.keepTracksLocal} onChange={(v) => setSettings({ keepTracksLocal: v })} label="Keep hike tracks on this phone only" />
+              </div>
+              <p className="pf-note" style={{ margin: 0 }}>When you are signed in, hike routes are not uploaded. Your hike list and stats still sync; the first and last 200 m of any route are always left out.</p>
+            </>
+          )}
 
           <div className="pf-row">
             <span>Voice directions</span>
@@ -223,9 +256,9 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, version, p
           )}
 
           <details className="pf-row" style={{ display: 'block', padding: 0 }}>
-            <summary className="pf-row" style={{ borderBottom: 0, cursor: 'pointer', listStyle: 'none' }}><span>Location &amp; privacy</span><span className="val">Stays on your phone</span></summary>
+            <summary className="pf-row" style={{ borderBottom: 0, cursor: 'pointer', listStyle: 'none' }}><span>Location &amp; privacy</span><span className="val">{pick(PROFILE_LOCATION_SUMMARY)}</span></summary>
             <div className="pf-credits">
-              <p>Ridgeline uses your location to centre the map when you open it or tap Locate, and your precise location while you navigate or record a hike. It stops when you finish. In the web version, location stops when your screen locks, so Ridgeline keeps the screen on. Your location is never sent to our servers.</p>
+              <p>Ridgeline uses your location to centre the map when you open it or tap Locate, and your precise location while you navigate or record a hike. It stops when you finish. In the web version, location stops when your screen locks, so Ridgeline keeps the screen on. {pick(PROFILE_LOCATION_SENTENCE)}</p>
               <a className="pf-link" href={`${base}privacy/`}>Read the privacy policy</a>
             </div>
           </details>

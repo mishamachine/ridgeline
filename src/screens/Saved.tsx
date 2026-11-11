@@ -12,7 +12,7 @@ import { A2HS_TIP, isIOS, isStandalone } from '../lib/pwa';
 import { mb } from '../lib/format';
 import type { Trail } from '../lib/trails';
 
-interface Props { visible: boolean; version: number; onOpen: (t: Trail) => void; onChange: () => void; onFind: () => void }
+interface Props { visible: boolean; version: number; onOpen: (t: Trail) => void; onChange: () => void; onFind: () => void; /** Guest sign-in card slot; gets `true` once something is saved. */ renderPrompt?: (hasItems: boolean) => React.ReactNode }
 
 function Download({ trail, onDone }: { trail: Trail; onDone: () => void }) {
   const dl = useDownload(trail, onDone);
@@ -27,7 +27,7 @@ function Download({ trail, onDone }: { trail: Trail; onDone: () => void }) {
   );
 }
 
-export function Saved({ visible, version, onOpen, onChange, onFind }: Props) {
+export function Saved({ visible, version, onOpen, onChange, onFind, renderPrompt }: Props) {
   const [items, setItems] = useState<SavedItem[] | null>(null);
   const [storage, setStorage] = useState<{ used: number; quota: number } | null>(null);
   const [removing, setRemoving] = useState<SavedItem | null>(null);
@@ -60,6 +60,8 @@ export function Saved({ visible, version, onOpen, onChange, onFind }: Props) {
           <button className="btn btn-primary" onClick={() => shareShortlist(items.map((i) => i.trail))}><ShareIcon size={20} /> Share list</button>
         </div>
       )}
+
+      {renderPrompt?.(!!items && items.length > 0)}
 
       <div className="page-list">
         {items === null && <Placeholder title="Loading…" />}

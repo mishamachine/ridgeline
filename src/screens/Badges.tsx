@@ -1,3 +1,4 @@
+import { pick, BADGES_FOOTER } from '../lib/accounts/goLiveCopy';
 import { useMemo } from 'react';
 import type { Activity } from '../lib/store';
 import { Badge, BadgeId, BadgeTrail, computeBadges, nextBadge } from '../lib/badges';
@@ -90,7 +91,7 @@ export function Badges({ onBack, preset }: { onBack?: () => void; preset?: { act
           </li>
         ))}
       </ul>
-      <p className="bd-foot">Badges are earned from hikes you record. Kept on your phone; no account.</p>
+      <p className="bd-foot">Badges are earned from hikes you record. {pick(BADGES_FOOTER)}</p>
     </div>
   );
 }

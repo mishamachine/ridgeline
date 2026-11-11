@@ -1,9 +1,11 @@
 /// <reference types="vitest/config" />
-import { copyFileSync, existsSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { accountsFlagOn, injectAccountsSection } from './src/lib/accounts/privacyAccounts';
+import { applyStaticSwaps, STATIC_SWAPS } from './src/lib/accounts/goLiveCopy';
 
 // BASE_PATH is set at deploy time for GitHub Pages (e.g. "/ridgeline/").
 const base = process.env.BASE_PATH ?? '/';
@@ -17,6 +19,25 @@ const spaFallback: Plugin = {
   closeBundle() {
     const dir = outDir;
     if (existsSync(join(dir, 'index.html'))) copyFileSync(join(dir, 'index.html'), join(dir, '404.html'));
+  },
+};
+
+// The privacy page gets its "Accounts" section only when features.accounts is true: the text ships with the behaviour, never before it.
+let privacyOut = 'dist';
+const privacyAccounts: Plugin = {
+  name: 'privacy-accounts',
+  apply: 'build',
+  configResolved(config) { privacyOut = join(config.root, config.build.outDir); },
+  closeBundle() {
+    const f = join(privacyOut, 'privacy', 'index.html');
+    if (!existsSync(f)) return;
+    const on = accountsFlagOn(readFileSync(join('src', 'lib', 'features.ts'), 'utf8'));
+    writeFileSync(f, injectAccountsSection(readFileSync(f, 'utf8'), on));
+    // The support page and llms.txt: the same go-live wording, only when accounts are on.
+    for (const file of new Set(STATIC_SWAPS.map((x) => x.file))) {
+      const g = join(privacyOut, file);
+      if (existsSync(g)) writeFileSync(g, applyStaticSwaps(file, readFileSync(g, 'utf8'), on));
+    }
   },
 };
 
@@ -38,9 +59,13 @@ export default defineConfig(({ mode }) => ({
   base,
   test: { exclude: ['node_modules/**', 'dist/**', 'e2e/**', 'test-results/**'] }, // e2e/ is Playwright's (npm run e2e)
   // Dev only: set TRAILS_PROXY=https://<host> to read hosted trail cells from a live site.
+  // supabase-js only loads after someone signs in, so it gets its own named chunk and stays out of the service-worker precache
+  // (see globIgnores below): the PWA's first install does not download it.
+  build: { rolldownOptions: { output: { codeSplitting: { groups: [{ name: 'supabase', test: /node_modules[\\/]@supabase[\\/]/ }] } } } },
   server: process.env.TRAILS_PROXY ? { proxy: { '/trails': { target: process.env.TRAILS_PROXY, changeOrigin: true } } } : {},
   plugins: [
     react(),
+    privacyAccounts,
     {
       // The GitHub Pages copy (BASE_PATH other than "/") must not compete with the canonical host.
       name: 'noindex-pages-copy',
@@ -59,6 +84,7 @@ export default defineConfig(({ mode }) => ({
       injectRegister: false, // registration lives in src/lib/swUpdate.ts
       injectManifest: {
         globPatterns: ['**/*.{js,mjs,css,html,svg,png,woff2,webmanifest}'],
+        globIgnores: ['**/supabase-*.js'],
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
       },
       manifest: {
