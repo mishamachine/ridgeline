@@ -29,17 +29,17 @@ describe('the different-account choice is remembered per account', () => {
 
 describe('Profile › Account keeps reminding while sync is blocked, and shows the full note once', () => {
   it('a persistent note with both choices for the account that is waiting; none for anyone else', () => {
-    const waiting = renderToStaticMarkup(<AccountRow enabled account={acct('B')} ownerPending="B" fullNote={false} />);
+    const waiting = renderToStaticMarkup(<AccountRow enabled account={acct('B')} ownerPending="B" fullNote={[]} />);
     expect(waiting).toContain('so nothing is syncing yet');
     expect(waiting).toContain('Add them to this account');
     expect(waiting).toContain('Remove them from this phone');
-    expect(renderToStaticMarkup(<AccountRow enabled account={acct('C')} ownerPending="B" fullNote={false} />)).not.toContain('nothing is syncing yet');
-    expect(renderToStaticMarkup(<AccountRow enabled account={acct('B')} ownerPending={null} fullNote={false} />)).not.toContain('nothing is syncing yet');
+    expect(renderToStaticMarkup(<AccountRow enabled account={acct('C')} ownerPending="B" fullNote={[]} />)).not.toContain('nothing is syncing yet');
+    expect(renderToStaticMarkup(<AccountRow enabled account={acct('B')} ownerPending={null} fullNote={[]} />)).not.toContain('nothing is syncing yet');
   });
   it('the account-full note, verbatim, only when it is due', () => {
     expect(FULL_NOTE).toBe('Your account is full. New hikes are saved on this phone only.');
-    expect(renderToStaticMarkup(<AccountRow enabled account={acct('B')} ownerPending={null} fullNote />)).toContain('Your account is full. New hikes are saved on this phone only.');
-    expect(renderToStaticMarkup(<AccountRow enabled account={acct('B')} ownerPending={null} fullNote={false} />)).not.toContain('Your account is full');
+    expect(renderToStaticMarkup(<AccountRow enabled account={acct('B')} ownerPending={null} fullNote={[FULL_NOTE]} />)).toContain('Your account is full. New hikes are saved on this phone only.');
+    expect(renderToStaticMarkup(<AccountRow enabled account={acct('B')} ownerPending={null} fullNote={[]} />)).not.toContain('Your account is full');
   });
   it('the sign-out question says a kept copy can go to whichever account signs in next, and the delete warning mentions a hike in progress elsewhere', () => {
     expect(readFileSync('src/components/AccountRow.tsx', 'utf8')).toContain('A kept copy can be added to whichever account signs in next.');
@@ -50,6 +50,6 @@ describe('Profile › Account keeps reminding while sync is blocked, and shows t
 describe('PAUSE.md lists every exception', () => {
   const doc = readFileSync('docs/PAUSE.md', 'utf8');
   it('names each one', () => {
-    for (const s of ['The exceptions while paused', 'Delete.', 'Re-signing in to confirm a delete', 'only on a phone that already has, or had, an account session', 'never creates a new account', 'writes no profile row', 'The session itself', 'Reading the flag file']) expect(doc).toContain(s);
+    for (const s of ['The exceptions while paused', 'Delete.', 'Re-signing in to confirm a delete', 'only on a phone that already has, or had, an account session', 'signs it out again at once', 'writes no profile row', 'The session itself', 'Reading the flag file']) expect(doc).toContain(s);
   });
 });

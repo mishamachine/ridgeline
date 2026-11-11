@@ -63,6 +63,15 @@ create table ridgeline.apple_tokens (
   created_at timestamptz not null default now()
 );
 
+-- Store the big columns UNCOMPRESSED (TOAST "external"). By default Postgres compresses them, and a size cap that counts the stored size would then count the
+-- compressed bytes: a 1,000,004-byte track of repeated values is stored as about 11 KB, so one account could hold gigabytes of raw data, and a page of
+-- rows could build a response hundreds of MB large. With external storage the stored size IS the raw size, so the caps mean what they say.
+alter table ridgeline.activities alter column track set storage external;
+alter table ridgeline.activities alter column stats set storage external;
+alter table ridgeline.saved      alter column trail set storage external;
+alter table ridgeline.shortlist  alter column trail set storage external;
+alter table ridgeline.settings   alter column data  set storage external;
+
 -- Per-user usage, kept by deltas. One row per user and table: stored bytes, rows (tombstones included) and live rows. The limits below read this row
 -- instead of scanning the table (a whole-row size sum reads every stored route), and a trigger after each write keeps it current in the same
 -- transaction, under the same per-user advisory lock. Clients have no grant on it.
@@ -77,17 +86,21 @@ create table ridgeline.usage (
 
 -- Row limits mirror backup.ts (5,000 hikes, 2,000 saved trails; shortlist capped at 5,000). Three caps per user and table:
 --   live rows (not deleted) up to the limit; ALL rows, tombstones included, up to twice the limit; total stored bytes up to a cap.
--- A route is at most 1 MB (about 8,000 points; the app thins longer ones before upload), so the byte cap is what bounds a user's storage:
--- 25 MB of hikes, 25 MB each of saved trails and shortlist. A write that GROWS a row (an update or an upsert) is checked against the cap too.
--- Size of a row = the stored size of its big columns (read without fetching them) plus 200 bytes of overhead.
+-- A route is at most 1 MB (about 8,000 points; the app thins longer ones before upload). The byte cap bounds a user's storage: 25 MB of hikes, 25 MB each of saved
+-- trails and shortlist. A write that GROWS a row (an update or an upsert) is checked against the cap too. A refused write raises RL003 ("account full").
+-- Size of a row = the stored size of its big columns (uncompressed, see above; read without fetching them) plus 200 bytes of overhead.
 -- Args: limit, name of the key column, byte cap. An upsert that updates an existing row is never blocked by the row counts.
--- The BEFORE trigger is an early exit only: it sees the usage as it was at the START of the statement, so one statement writing many rows would pass it.
--- The real enforcement is track_usage (AFTER each row, usage already moved): it raises 54000 when bytes, live rows or total rows went up and are over the
--- cap, which aborts and rolls back the whole statement.
+-- One statement can write many rows, and the usage row only moves AFTER each row (track_usage), so:
+--   * enforce_row_limit keeps a running tally (a transaction-local setting per table and user) of what this statement has written but track_usage has not yet
+--     counted, and refuses at the FIRST row where usage + tally + this row crosses a cap: an over-cap statement stops early instead of writing everything first;
+--   * track_usage is the authority: after moving the usage row it raises RL003 if a cap is crossed, which aborts and rolls back the whole statement.
+create function ridgeline.tally_key(tbl text, uid uuid) returns text language sql immutable set search_path = '' as $$ select 'ridgeline.t_' || md5(tbl || ':' || uid::text) $$;
+
 create function ridgeline.enforce_row_limit() returns trigger
 language plpgsql security definer set search_path = '' as $$
 declare lim int := tg_argv[0]::int; keycol text := tg_argv[1]; maxbytes bigint := tg_argv[2]::bigint;
-        u ridgeline.usage; found boolean; nb bigint := 0; ob bigint := 0; delta bigint;
+        u ridgeline.usage; found boolean; nb bigint := 0; ob bigint := 0; d_bytes bigint; d_rows int := 0; d_live int := 0;
+        tk text := ridgeline.tally_key(tg_table_name, new.user_id); tl text[]; t_bytes bigint := 0; t_rows int := 0; t_live int := 0;
         is_dead boolean := coalesce((to_jsonb(new)->>'deleted')::boolean, false);
 begin
   if tg_table_name = 'activities' then nb := 200 + coalesce(pg_column_size(new.track), 0) + coalesce(pg_column_size(new.stats), 0);
@@ -95,31 +108,37 @@ begin
   else nb := pg_column_size(new); end if;
   perform pg_advisory_xact_lock(hashtextextended(tg_table_name || ':' || new.user_id::text, 0));
   select * into u from ridgeline.usage where user_id = new.user_id and tbl = tg_table_name;
+  tl := string_to_array(coalesce(nullif(current_setting(tk, true), ''), '0|0|0'), '|');
+  t_bytes := tl[1]::bigint; t_rows := tl[2]::int; t_live := tl[3]::int;
   if tg_op = 'INSERT' then
     execute format('select exists(select 1 from %I.%I where user_id = $1 and %I::text = $2)', tg_table_schema, tg_table_name, keycol)
       into found using new.user_id, to_jsonb(new)->>keycol;
     if found then return new; end if;               -- the upsert path: the row exists, the UPDATE that follows does the accounting
-    if coalesce(u.n_rows, 0) >= 2 * lim then raise exception 'ridgeline: total row limit (%) reached for %', 2 * lim, tg_table_name using errcode = '54000'; end if;
-    if not is_dead and coalesce(u.n_live, 0) >= lim then raise exception 'ridgeline: row limit (%) reached for %', lim, tg_table_name using errcode = '54000'; end if;
-    delta := nb;
+    if coalesce(u.n_rows, 0) + t_rows >= 2 * lim then raise exception 'ridgeline: total row limit (%) reached for %', 2 * lim, tg_table_name using errcode = 'RL003'; end if;
+    if not is_dead and coalesce(u.n_live, 0) + t_live >= lim then raise exception 'ridgeline: row limit (%) reached for %', lim, tg_table_name using errcode = 'RL003'; end if;
+    d_bytes := nb; d_rows := 1; d_live := case when is_dead then 0 else 1 end;
   else
     if tg_table_name = 'activities' then ob := 200 + coalesce(pg_column_size(old.track), 0) + coalesce(pg_column_size(old.stats), 0);
     elsif tg_table_name in ('saved', 'shortlist') then ob := 200 + coalesce(pg_column_size(old.trail), 0);
     else ob := pg_column_size(old); end if;
-    if coalesce((to_jsonb(old)->>'deleted')::boolean, false) and not is_dead and coalesce(u.n_live, 0) >= lim then   -- a revival adds a live row
-      raise exception 'ridgeline: row limit (%) reached for %', lim, tg_table_name using errcode = '54000';
+    d_live := (case when is_dead then 0 else 1 end) - (case when coalesce((to_jsonb(old)->>'deleted')::boolean, false) then 0 else 1 end);
+    if d_live > 0 and coalesce(u.n_live, 0) + t_live >= lim then   -- a revival adds a live row
+      raise exception 'ridgeline: row limit (%) reached for %', lim, tg_table_name using errcode = 'RL003';
     end if;
-    delta := nb - ob;
+    d_bytes := nb - ob;
   end if;
-  if delta > 0 and coalesce(u.bytes, 0) + delta > maxbytes then raise exception 'ridgeline: storage limit reached for %', tg_table_name using errcode = '54000'; end if;
+  if d_bytes > 0 and coalesce(u.bytes, 0) + t_bytes + d_bytes > maxbytes then raise exception 'ridgeline: storage limit reached for %', tg_table_name using errcode = 'RL003'; end if;
+  -- This row passes: add it to the statement's tally (track_usage takes it back out once the usage row has it).
+  perform set_config(tk, (t_bytes + d_bytes) || '|' || (t_rows + d_rows) || '|' || (t_live + d_live), true);
   return new;
 end $$;
 
--- After every write that really happened: move the usage row by the change (deltas, never a scan).
+-- After every write that really happened: move the usage row by the change (deltas, never a scan), take the row back out of the statement's tally, and enforce the caps.
 create function ridgeline.track_usage() returns trigger
 language plpgsql security definer set search_path = '' as $$
 declare uid uuid; nb bigint := 0; ob bigint := 0; d_rows int := 0; d_live int := 0;
         lim int := tg_argv[0]::int; maxbytes bigint := tg_argv[1]::bigint; cur record;
+        tk text; tl text[];
 begin
   if tg_op <> 'DELETE' then
     uid := new.user_id;
@@ -146,10 +165,14 @@ begin
   insert into ridgeline.usage as u (user_id, tbl, bytes, n_rows, n_live) values (uid, tg_table_name, nb - ob, d_rows, d_live)
     on conflict (user_id, tbl) do update set bytes = u.bytes + (nb - ob), n_rows = u.n_rows + d_rows, n_live = u.n_live + d_live
     returning u.bytes, u.n_rows, u.n_live into cur;
+  -- The row is counted now: take it back out of the tally (it was added by enforce_row_limit with the same numbers).
+  tk := ridgeline.tally_key(tg_table_name, uid);
+  tl := string_to_array(coalesce(nullif(current_setting(tk, true), ''), '0|0|0'), '|');
+  perform set_config(tk, (tl[1]::bigint - (nb - ob)) || '|' || (tl[2]::int - d_rows) || '|' || (tl[3]::int - d_live), true);
   -- The real cap check: usage now includes every row written so far by this statement.
-  if nb - ob > 0 and cur.bytes > maxbytes then raise exception 'ridgeline: storage limit reached for %', tg_table_name using errcode = '54000'; end if;
-  if d_live > 0 and cur.n_live > lim then raise exception 'ridgeline: row limit (%) reached for %', lim, tg_table_name using errcode = '54000'; end if;
-  if d_rows > 0 and cur.n_rows > 2 * lim then raise exception 'ridgeline: total row limit (%) reached for %', 2 * lim, tg_table_name using errcode = '54000'; end if;
+  if nb - ob > 0 and cur.bytes > maxbytes then raise exception 'ridgeline: storage limit reached for %', tg_table_name using errcode = 'RL003'; end if;
+  if d_live > 0 and cur.n_live > lim then raise exception 'ridgeline: row limit (%) reached for %', lim, tg_table_name using errcode = 'RL003'; end if;
+  if d_rows > 0 and cur.n_rows > 2 * lim then raise exception 'ridgeline: total row limit (%) reached for %', 2 * lim, tg_table_name using errcode = 'RL003'; end if;
   return new;
 end $$;
 
@@ -236,7 +259,7 @@ end $$;
 
 revoke execute on function ridgeline.store_apple_token(uuid, text), ridgeline.read_apple_token(uuid), ridgeline.delete_apple_token(uuid) from public, anon, authenticated;
 grant  execute on function ridgeline.store_apple_token(uuid, text), ridgeline.read_apple_token(uuid), ridgeline.delete_apple_token(uuid) to service_role;
-revoke execute on function ridgeline.enforce_row_limit(), ridgeline.track_usage() from public, anon, authenticated;
+revoke execute on function ridgeline.enforce_row_limit(), ridgeline.track_usage(), ridgeline.tally_key(text, uuid) from public, anon, authenticated;
 alter table ridgeline.usage enable row level security;
 revoke all on ridgeline.usage from public, anon, authenticated;
 grant select, insert, update, delete on ridgeline.usage to service_role;

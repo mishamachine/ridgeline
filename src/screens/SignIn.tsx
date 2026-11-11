@@ -4,7 +4,7 @@ import { ProviderButton } from '../components/ProviderButton';
 import { features } from '../lib/features';
 import { providersFor, signIn, type Provider, type ReturnTo } from '../lib/accounts/auth';
 import { useAccountsState } from '../lib/accounts/flags';
-import { hadSession } from '../lib/accounts/session';
+import { DIFFERENT_ACCOUNT_MESSAGE, hadSession } from '../lib/accounts/session';
 import { nativePlatform } from '../lib/native/platform';
 import '../components/guestPrompt.css';
 
@@ -24,6 +24,7 @@ export function SignIn({ returnTo, onDone, onBack, platform = nativePlatform() }
     const r = await signIn(p, features.accounts, returnTo);
     if (r.ok) { if (platform !== 'web') onDone(); return; }      // on the web the browser leaves for Apple or Google and comes back to the app
     if (r.reason === 'failed') setMsg('Sign-in did not work. Your hikes are still safe on this phone.');
+    if (r.reason === 'different-account') setMsg(DIFFERENT_ACCOUNT_MESSAGE);
   };
 
   return (

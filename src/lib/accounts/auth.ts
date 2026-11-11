@@ -8,10 +8,11 @@ import { getClient } from './client';
 import { accountsLive } from './flags';
 import { makeNonce } from './nonce';
 import { syncGate } from '../sync/gate';
+import { isKnownAccount, markSession } from './session';
 import { ensureProfile } from './profile';
 
 export type Provider = 'google' | 'apple';
-export type SignInResult = { ok: true } | { ok: false; reason: 'cancelled' | 'unavailable' | 'failed' };
+export type SignInResult = { ok: true } | { ok: false; reason: 'cancelled' | 'unavailable' | 'failed' | 'different-account' };
 
 /** What the native plugin gives back. Narrowed so tests can fake it. */
 export interface NativeLogin {
@@ -46,7 +47,10 @@ export async function signInNative(provider: Provider, c: SupabaseClient, plugin
   if (!r.idToken) return { ok: false, reason: 'failed' };
   const { data, error } = await c.auth.signInWithIdToken({ provider, token: r.idToken, nonce: nonce.raw });
   if (error || !data.user) return { ok: false, reason: 'failed' };
-  try { await ensureProfile(c, data.user.id, live); } catch { /* retried on next launch (ensureProfile is idempotent) */ }
+  // While sign-in is paused only the account this phone already had may sign in (to confirm a delete). Anyone else is signed out again at once.
+  if (!live && !isKnownAccount(data.user.id)) { try { await c.auth.signOut(); } catch { /* signed out locally anyway */ } return { ok: false, reason: 'different-account' }; }
+  if (live) markSession(data.user.id);
+  try { await ensureProfile(c, data.user.id, live); } catch { /* made at the next sync, once per launch (runSync calls ensureProfile; it is idempotent) */ }
   if (provider === 'apple' && r.authorizationCode) {
     // Lets "Delete my whole account" tell Apple to disconnect Ridgeline. Best effort: sign-in already worked.
     try { await c.functions.invoke('apple-token', { body: { code: r.authorizationCode } }); } catch { /* fallback is logged server-side at delete time */ }
@@ -102,10 +106,12 @@ export async function signOut(enabled?: boolean): Promise<void> {
 }
 
 /** On /auth/callback: let supabase-js swap the code for a session, make the profile, then send the person home. */
-export async function completeWebSignIn(c: SupabaseClient, live: boolean = accountsLive()): Promise<boolean> {
+export async function completeWebSignIn(c: SupabaseClient, live: boolean = accountsLive()): Promise<boolean | 'different-account'> {
   const { data } = await c.auth.getSession();
   if (!data.session) return false;
-  try { await ensureProfile(c, data.session.user.id, live); } catch { /* retried next launch */ }
+  if (!live && !isKnownAccount(data.session.user.id)) { try { await c.auth.signOut(); } catch { /* ignore */ } return 'different-account'; }
+  if (live) markSession(data.session.user.id);
+  try { await ensureProfile(c, data.session.user.id, live); } catch { /* made at the next sync, once per launch */ }
   return true;
 }
 

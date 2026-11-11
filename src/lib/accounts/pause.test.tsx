@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { readFileSync } from 'node:fs';
 import { FLAGS_KEY, FLAGS_REFRESH_MS, FLAGS_URL, accountsLive, accountsState, readFlags, refreshFlags, remoteState } from './flags';
 import { AccountRow, PAUSED_NOTE } from '../../components/AccountRow';
 import { GuestPrompt } from '../../components/GuestPrompt';
@@ -96,5 +97,20 @@ describe('paused: guest mode works exactly as today, sign-in is hidden, nothing 
   });
   it('the delete page stays reachable while paused (people can always delete)', () => {
     expect(parseRoute('/account/delete/', '', '/', false, true)).toEqual({ kind: 'account-delete' });
+  });
+});
+
+describe('the runbooks are in the repo and point at each other', () => {
+  const pause = readFileSync('docs/PAUSE.md', 'utf8');
+  const mail = readFileSync('docs/DELETE_BY_EMAIL.md', 'utf8');
+  it('PAUSE.md links the email-deletion runbook and states the paused sign-in rule exactly', () => {
+    expect(pause).toContain('[DELETE_BY_EMAIL.md](DELETE_BY_EMAIL.md)');
+    expect(pause).toContain('returns a DIFFERENT account, the app signs it out again at once and says so');
+    expect(pause).toContain('What this does not prevent');
+    expect(pause).not.toContain('never creates a new account');
+  });
+  it('DELETE_BY_EMAIL.md covers the owner, the identity check, the exact steps, the reply and the 7-day rule', () => {
+    for (const s of ['the owner/operator', 'must come FROM the address on the account', 'privaterelay.appleid.com', "select ridgeline.delete_user_data('<uid>')", 'ridgeline.read_apple_token', 'revokeAppleToken', "ridgeline.delete_apple_token('<uid>')", 'auth.admin.deleteUser', 'Reply (template)', 'within 7 days', 'production action']) expect(mail, s).toContain(s);
+    expect(mail).toContain('[PAUSE.md](PAUSE.md)');
   });
 });
