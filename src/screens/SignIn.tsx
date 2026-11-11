@@ -6,6 +6,8 @@ import { providersFor, signIn, type Provider, type ReturnTo } from '../lib/accou
 import { useAccountsState } from '../lib/accounts/flags';
 import { DIFFERENT_ACCOUNT_MESSAGE, hadSession } from '../lib/accounts/session';
 import { nativePlatform } from '../lib/native/platform';
+import { GuestContinueDialog } from '../components/GuestContinueDialog';
+import { guestNoteText, guestContinueTap, guestContinueClose } from '../lib/accounts/guestContinue';
 import '../components/guestPrompt.css';
 
 /**
@@ -17,6 +19,7 @@ export function SignIn({ returnTo, onDone, onBack, platform = nativePlatform() }
   const forDelete = returnTo === 'account-delete';
   const allowed = state === 'live' || (forDelete && features.accounts && hadSession());
   const [msg, setMsg] = useState('');
+  const [note, setNote] = useState(false);
   if (!allowed) return null;
 
   const go = async (p: Provider) => {
@@ -35,7 +38,15 @@ export function SignIn({ returnTo, onDone, onBack, platform = nativePlatform() }
           {providersFor(platform).map((p) => <ProviderButton key={p} provider={p} platform={platform} forDelete={forDelete} onClick={() => go(p)} />)}
         </div>
         {msg && <p className="pf-note" role="status">{msg}</p>}
-        <button className="pf-link" onClick={onBack}>Not now</button>
+        {forDelete
+          ? <button className="pf-link" onClick={onBack}>Not now</button>
+          : <>
+              <div style={{ padding: '4px 14px 0' }}>
+                <button className="btn btn-outline" style={{ width: '100%' }} onClick={() => guestContinueTap(undefined, onBack, () => setNote(true))}>Continue without an account</button>
+              </div>
+              <p className="pf-note" style={{ margin: 0, paddingTop: 8 }}>{guestNoteText(platform)}</p>
+              {note && <GuestContinueDialog platform={platform} onClose={() => guestContinueClose(undefined, onBack)} />}
+            </>}
       </div>
     </div>
   );
