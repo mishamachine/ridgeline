@@ -3,7 +3,7 @@
 -- Never run against the shared production project. Everything runs in one transaction and rolls back.
 begin;
 create extension if not exists pgtap;
-select plan(102);
+select plan(107);
 
 insert into auth.users (id) values ('00000000-0000-0000-0000-00000000000a'), ('00000000-0000-0000-0000-00000000000b');
 
@@ -197,11 +197,19 @@ select ok((with a as (select pg_temp.pts() p), t0 as (select clock_timestamp() c
 select lives_ok($$insert into ridgeline.activities (user_id, id, started_at, track) values ('00000000-0000-0000-0000-0000000000f1', 'big', now(), pg_temp.pts())$$, 'an 8,000-point route is accepted');
 
 reset role;
+-- Round 9b: a zero with a huge scale is refused too (0e-16383 is ~20 bytes stored and prints 16 KB).
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000f1');
+select throws_ok($$insert into ridgeline.saved (user_id, trail_id, trail) values ('00000000-0000-0000-0000-0000000000f1', 'z1', '{"a": 0e-16383}')$$, '23514', null, 'a zero with scale 16383 is refused');
+select throws_ok($$insert into ridgeline.shortlist (user_id, trail_id, trail) values ('00000000-0000-0000-0000-0000000000f1', 'z2', '[-0e-16383]')$$, '23514', null, 'a negative zero with scale 16383 inside an array is refused');
+select throws_ok($$insert into ridgeline.settings (user_id, data) values ('00000000-0000-0000-0000-0000000000f1', '{"a": {"b": [1, {"c": 0e-30}]}}')$$, '23514', null, 'a nested zero with scale 30 is refused');
+select lives_ok($$insert into ridgeline.saved (user_id, trail_id, trail) values ('00000000-0000-0000-0000-0000000000f1', 'z3', '{"a": 0, "b": 0.0, "c": 0.00000000000000000000, "d": [0e-5]}')$$, 'ordinary zeros (scale up to 20) are accepted');
+select ok(ridgeline.json_ok('0e-20') and not ridgeline.json_ok('0e-21') and not ridgeline.json_ok('[0e-16383]'), 'json_ok edge: 0e-20 passes, 0e-21 and 0e-16383 fail');
+reset role;
 -- L2 (round 8): one statement writing rows for several users keeps ONE tally setting for the table (not one per user), and each user's rows are counted on their own.
 insert into ridgeline.saved (user_id, trail_id, trail) select u, 'multi' || g, '{"a":1}' from unnest(array['00000000-0000-0000-0000-0000000000e1','00000000-0000-0000-0000-0000000000e2','00000000-0000-0000-0000-0000000000f1']::uuid[]) u, generate_series(1, 3) g;
 select ok(current_setting('ridgeline.tally_saved', true) ~ '^[0-9a-f-]{36}\|-?[0-9]+\|-?[0-9]+\|-?[0-9]+$', 'the tally is ONE setting per table, valued uid|bytes|rows|live ');
 select is((select count(*)::int from ridgeline.saved where trail_id like 'multi%'), 9, 'and every user got their own 3 rows');
-select is((select n_live::int from ridgeline.usage where user_id = '00000000-0000-0000-0000-0000000000f1' and tbl = 'saved'), 4, 'usage counts each user on their own (3 multi + ok1)');
+select is((select n_live::int from ridgeline.usage where user_id = '00000000-0000-0000-0000-0000000000f1' and tbl = 'saved'), 5, 'usage counts each user on their own (3 multi + ok1 + z3)');
 select ok(ridgeline.tally_get('saved', '00000000-0000-0000-0000-0000000000f1') is null or ridgeline.tally_get('saved', '00000000-0000-0000-0000-0000000000f1') = array[0, 0, 0]::bigint[], 'after a multi-user statement the tally is zero or belongs to another user, never a leftover for this one');
 select is(ridgeline.tally_get('saved', '00000000-0000-0000-0000-0000000000aa'), null, 'a tally that belongs to another user reads as NULL');
 -- L2 round 9: a tombstoning statement leaves uid|0|0|0, and a transaction of several statements never gets a false RL003 (repro l2b).
