@@ -108,8 +108,9 @@ set local role service_role;
 select ridgeline.store_apple_token('00000000-0000-0000-0000-00000000000b', 'refresh-token-2');
 select ridgeline.delete_apple_token('00000000-0000-0000-0000-00000000000b');
 reset role;
-select is((select count(*)::int from vault.secrets where name like 'ridgeline_deleted_%'), 1, 'fallback: the secret still exists, renamed (so the delete really was refused)');
-select is((select decrypted_secret from vault.decrypted_secrets where name like 'ridgeline_deleted_%'), 'deleted', 'fallback: its value is overwritten');
+-- These two prove the fallback by taking delete rights away from postgres, which only works when the test runs as supabase_admin (see tests/README.md); under any other role they are skipped, not failed.
+select case when current_user = 'supabase_admin' then is((select count(*)::int from vault.secrets where name like 'ridgeline_deleted_%'), 1, 'fallback: the secret still exists, renamed (so the delete really was refused)') else skip('needs the supabase_admin superuser (the revoke above only bites for it)', 1) end;
+select case when current_user = 'supabase_admin' then is((select decrypted_secret from vault.decrypted_secrets where name like 'ridgeline_deleted_%'), 'deleted', 'fallback: its value is overwritten') else skip('needs the supabase_admin superuser (the revoke above only bites for it)', 1) end;
 select is((select count(*)::int from vault.secrets where name like '%00000000-0000-0000-0000-00000000000b%'), 0, 'fallback: no secret name carries the user id');
 select is((select count(*)::int from vault.decrypted_secrets where decrypted_secret = 'refresh-token-2'), 0, 'fallback: the token value is gone');
 select is((select count(*)::int from ridgeline.apple_tokens where user_id = '00000000-0000-0000-0000-00000000000b'), 0, 'fallback: the reference row is gone');
