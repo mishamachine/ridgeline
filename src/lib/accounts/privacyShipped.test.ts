@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { ACCOUNTS_SECTION_HTML, APPLE_PRIVACY_LINE, accountsFlagOn, injectAccountsSection } from './privacyAccounts';
+import { buildPrivacyPage } from './goLiveCopy';
 
 // One source of truth for the Accounts section: the page that ships always carries it exactly as the code has it.
 describe('the shipped privacy page carries the Accounts section exactly as the code has it', () => {
@@ -10,7 +11,7 @@ describe('the shipped privacy page carries the Accounts section exactly as the c
     if (page.includes('Accounts (optional)')) expect(page).toContain(ACCOUNTS_SECTION_HTML);
   });
   it('with the flag on, the page that is built has the section and the Apple line, whichever way it got there', () => {
-    const built = injectAccountsSection(page, true);
+    const built = buildPrivacyPage(page, true);
     expect(built).toContain(APPLE_PRIVACY_LINE);
     expect(built).toContain(ACCOUNTS_SECTION_HTML);
   });

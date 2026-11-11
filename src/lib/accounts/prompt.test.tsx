@@ -183,7 +183,8 @@ describe('privacy page', () => {
   });
   it('gets the Accounts section before "Your choices" when the flag is on', () => {
     const on = injectAccountsSection(page, true);
-    expect(on).toContain('Accounts (optional).');
+    expect(on).toContain('<h2>Accounts (optional)</h2>');
+    expect(on.match(/Accounts \(optional\)/g)).toHaveLength(1);   // the heading only: no second bold copy right under it
     expect(on.indexOf('Accounts (optional)')).toBeLessThan(on.indexOf('<h2>Your choices</h2>'));
   });
   it('carries the approved wording', () => {

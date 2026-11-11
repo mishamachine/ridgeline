@@ -6,6 +6,7 @@ import { accountsLive } from './flags';
 import { vi } from 'vitest';
 import { handleAppleKey, newToken, placeholderShowing } from '../../components/AppleButton';
 import { APPLE_PRIVACY_LINE, ACCOUNTS_SECTION_HTML } from './privacyAccounts';
+import { buildPrivacyPage } from './goLiveCopy';
 import { FLAGS_KEY } from './flags';
 
 // A document that only counts the script tags it is given (any request to Apple's CDN starts with one).
@@ -65,7 +66,11 @@ describe('the privacy line names the host the app really loads', () => {
   it('the host in the line equals the host of the script URL (if one changes, this fails)', () => {
     const host = new URL(APPLE_JS_URL).hostname;
     expect(APPLE_PRIVACY_LINE).toContain(`(${host})`);
-    expect(ACCOUNTS_SECTION_HTML).toContain(APPLE_PRIVACY_LINE);
+    // The Apple row is an entry in the outside-services LIST of the page that ships with accounts on.
+    const built = buildPrivacyPage(readFileSync('public/privacy/index.html', 'utf8'), true);
+    const list = built.slice(built.indexOf('<h2>Services your device contacts</h2>'), built.indexOf('<h2>', built.indexOf('<h2>Services your device contacts</h2>') + 5));
+    expect(list).toContain(`<li>${APPLE_PRIVACY_LINE}</li>`);
+    expect(ACCOUNTS_SECTION_HTML).not.toContain(APPLE_PRIVACY_LINE);   // one place only
   });
 });
 

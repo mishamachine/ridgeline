@@ -1,6 +1,10 @@
 // Copy that changes when accounts go on. Every line has an OFF text (true today) and an ON text (true once sign-in is live), chosen by
 // features.accounts, so none of it can be ahead of the feature. Static pages get the same swap at build time (vite.config.ts).
 import { features } from '../features';
+import { APPLE_PRIVACY_LINE, injectAccountsSection } from './privacyAccounts';
+
+/** The go-live date shown as "Last updated" on the privacy page when accounts are on. Change it here on the day of the flip. */
+export const GO_LIVE_DATE = '12 November 2026';
 
 export interface Pair { off: string; on: string }
 
@@ -39,7 +43,42 @@ export const STATIC_SWAPS: Swap[] = [
   { file: 'llms.txt',
     from: 'No accounts. Saved trails, recordings and live GPS position stay on the device; place searches',
     to: 'Accounts are optional (Google or Apple). Without one, saved trails, recordings and live GPS position stay on the device; if you sign in, saved trails, hike history and routes (minus the first and last 200 m) are also stored in your account, and your live position is never sent to our servers. Place searches' },
+  // The privacy page (wording is the approved rewrite draft, verbatim). Each OFF line is the text on the page today; each swap throws if it has drifted.
+  { file: 'privacy/index.html',
+    from: '<meta name="description" content="Ridgeline has no accounts and no ads. Your location, recorded hikes and saved trails stay on your device. Here is exactly which outside services your device contacts.">',
+    to: '<meta name="description" content="Ridgeline has no ads and works without an account. If you don\'t sign in, your hikes and saved trails stay on your device. If you do, we keep them safe for you. Here is exactly what we store and which services your device contacts.">' },
+  { file: 'privacy/index.html', from: 'Last updated 10 November 2026', to: `Last updated ${GO_LIVE_DATE}` },
+  { file: 'privacy/index.html',
+    from: "Ridgeline has no accounts and no ads, and we don't sell your data. Your location, recorded hikes and saved trails stay on your device.",
+    to: "Ridgeline has no ads, and we don't sell your data. You can use it without an account, and then your location, recorded hikes and saved trails stay on your device. If you choose to sign in with Google or Apple, we store your email address, the name and picture Google or Apple share with us, your saved trails, hike history and the routes you walked (minus the first and last 200 m) so they're on all your devices. See Accounts below." },
+  { file: 'privacy/index.html',
+    from: 'Your location is never sent to our servers.</li>',
+    to: "Your live location is never sent to our servers. If you're signed in, the route of a finished hike is saved to your account (minus the first and last 200 m), unless you turn on 'Keep hike tracks on this phone only'.</li>" },
+  { file: 'privacy/index.html',
+    from: "Clearing the site's data in your browser (or deleting the app from your Home Screen) deletes all of this. We can't recover it, because we never had it.",
+    to: "If you're not signed in, clearing the site's data in your browser (or deleting the app) deletes all of this, and we can't recover it, because we never had it. If you're signed in, your account copy stays until you delete it (see Deleting)." },
+  // The outside-services LIST: Supabase, Google/Apple sign-in, and the Apple button on the web.
+  { file: 'privacy/index.html',
+    from: '<li><strong>Our web hosts (Hostinger and GitHub Pages)</strong>, which keep standard server logs: IP address, browser type and pages loaded.</li>',
+    to: `<li><strong>Supabase</strong> (our database, United States/Oregon).</li>
+<li><strong>Google/Apple sign-in</strong> (only when you sign in).</li>
+<li>${APPLE_PRIVACY_LINE}</li>
+<li><strong>Our web hosts (Hostinger and GitHub Pages)</strong>, which keep standard server logs: IP address, browser type and pages loaded.</li>` },
+  { file: 'privacy/index.html',
+    from: 'No accounts, no email, no payments, no ads, no sale or sharing of personal data, and no tracking across other apps or sites.',
+    to: 'Accounts are optional. No payments, no ads, no marketing email, no sale or sharing of personal data, and no tracking across other apps or sites.' },
+  { file: 'privacy/index.html',
+    from: "We hold no personal data on our servers anyway.",
+    to: 'If we learn that a child under that age has an account, we delete it.' },
+  { file: 'privacy/index.html',
+    from: 'and delete everything by removing the app or clearing site data.',
+    to: "and delete everything: if you're not signed in, by removing the app or clearing site data; if you're signed in, in Profile &rsaquo; Account or at hike.bbprojectfactory.com/account/delete/." },
 ];
+
+/** The privacy page exactly as it ships: the Accounts section first, then the go-live swaps. With accounts off it is the page unchanged. */
+export function buildPrivacyPage(html: string, on: boolean): string {
+  return applyStaticSwaps('privacy/index.html', injectAccountsSection(html, on), on);
+}
 
 /** Applies the swaps for `file` when accounts are on. Throws if a source line has drifted, so the swap can never silently miss. */
 export function applyStaticSwaps(file: string, text: string, on: boolean): string {
