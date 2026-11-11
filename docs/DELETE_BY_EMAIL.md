@@ -10,13 +10,13 @@ For people who ask for deletion by email instead of in the app (Google Play requ
 
 **Clocks (the legal one-month clock runs from the first request):**
 - send the confirmation (step 4) within **2 days** of the request;
-- the code is single-use and expires after **23 days** (the table's `expires_at` defaults to `created_at + 23 days`); with no valid confirmation by day 23, close the request with a short note and log it (step 7);
+- the code is single-use and expires **23 days after it was sent** (the row is inserted at the moment the confirmation is sent, and the table's `expires_at` defaults to `created_at + 23 days`, so "expires after 23 days" is literally true); close the request when `expires_at` passes with no valid confirmation, with a short note, and log it (step 7);
 - once a valid confirmation arrives, delete within **7 days** (step 5), and always within **one month of the first request**; a confirmation that arrives after the code expired gets a reply that the code expired, and a new request starts fresh (template E).
 
 ## The 7 steps
 
 ### 1. Intake
-Log the mail thread id, the date received, "confirmation due" (received + 2 days) and "close if unconfirmed" (received + 23 days). Do not log the sender's address.
+Log the mail thread id, the date received, "confirmation due" (received + 2 days) and "close if unconfirmed" (set it from `expires_at` once the confirmation is sent: 23 days after the code was SENT, not after the request was received). Do not log the sender's address.
 
 ### 2. Authenticity of the request
 Read the message in **RAW** format (the Gmail connector's raw format exposes the receiving server's header). Then:
@@ -35,7 +35,7 @@ from auth.users u where lower(email) = lower('<verified From address>');
 - **Exactly one match:** continue.
 
 ### 4. Confirmation (a NEW message, not a reply)
-Generate a random one-time code (at least 10 characters). Insert a `ridgeline.deletion_requests` row with the account's `user_id`, the **hash** of the code (never the code), the Gmail thread id, `mode = 'data'` (the safe default) and `status = 'pending'`; `expires_at` is set by the table to 23 days after `created_at`. Then send a **new** message to the account's email on file (not a reply to the request) with template D. The code is single-use. No valid code, no delete.
+Generate a random one-time code (at least 10 characters). Insert the `ridgeline.deletion_requests` row at the moment you send the confirmation (so `created_at`, and `expires_at` 23 days later, run from when the code was sent), with the account's `user_id`, the **hash** of the code (never the code): the SHA-256 hex digest of the code, which is what you compare a reply's code against `code_hash` with, the Gmail thread id, `mode = 'data'` (the safe default) and `status = 'pending'`; `expires_at` is set by the table to 23 days after `created_at`. Then send a **new** message to the account's email on file (not a reply to the request) with template D. The code is single-use. No valid code, no delete.
 
 The two options in the confirmation:
 - reply `DELETE RIDGELINE <code>` to delete Ridgeline data only (mode `data`);
@@ -59,7 +59,7 @@ Send template F (or G if only some of it could be done), log the result, and tel
 
 ### 7. The clocks
 - A valid confirmation → delete within 7 days of it (step 5), and always within one month of the first request.
-- No valid confirmation by day 23 → set the row's `status` to `closed`, close the request with template H and log it.
+- No valid confirmation by `expires_at` (23 days after the code was sent) → set the row's `status` to `closed`, close the request with template H and log it.
 - A confirmation that arrives after the code expired → template E (the code expired; a new request starts fresh by writing in again).
 
 ## Reply templates

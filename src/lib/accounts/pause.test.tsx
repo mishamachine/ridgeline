@@ -116,7 +116,7 @@ describe('the runbooks are in the repo and point at each other', () => {
     // step 3 and 4
     for (const s of ['read-only query', "If an account exists for this address, we've sent a confirmation to it.", 'privaterelay.appleid.com', "a **new** message to the account's email on file", '`DELETE RIDGELINE <code>`', '`DELETE ALL <code>`', 'woof.bobolearns.com', 'chess.bobolearns.com/privacy/', 'Ruffspeak', 'Post & Pulse', 'Silly Travel Tool has its own separate sign-in', 'No valid code, no delete']) expect(mail, s).toContain(s);
     // step 5 and the timings
-    for (const s of ['Never run ad-hoc SQL', 'admin-delete.yml', 'does **not** ask for a recent sign-in', 'within **2 days**', 'expires after **23 days**', 'within 7 days of it', 'one line with no personal data']) expect(mail, s).toContain(s);
+    for (const s of ['Never run ad-hoc SQL', 'admin-delete.yml', 'does **not** ask for a recent sign-in', 'within **2 days**', 'expires **23 days after it was sent**', 'within 7 days of it', 'one line with no personal data']) expect(mail, s).toContain(s);
     // templates for every branch
     for (const t of ['**A. The request could not be verified**', '**B. No account found (generic)**', '**C. Apple "Hide My Email" account**', '**D. Confirmation', '**E. Code missing, wrong, used or expired**', '**F. Done**', '**G. Partly done**', '**H. Closed without confirmation**']) expect(mail, t).toContain(t);
     expect(mail).toContain('[PAUSE.md](PAUSE.md)');
@@ -156,7 +156,7 @@ describe('round 9: the runbook for request ids, the 23-day code, the Environment
     for (const s of ['`ridgeline.deletion_requests`', 'service role only', 'the **hash** of the code (never the code)', '`created_at + 23 days`', 'no email address', 'Nothing else may set `confirmed`']) expect(mail, s).toContain(s);
   });
   it('the CBO timings: code expires at day 23; delete within 7 days of confirmation and within one month of the request; late confirmation gets the expired reply', () => {
-    for (const s of ['**23 days**', 'always within **one month of the first request**', 'a new request starts fresh', 'No valid confirmation by day 23', 'expires in 23 days', 'within 23 days, so we closed', 'it lasts 23 days']) expect(mail, s).toContain(s);
+    for (const s of ['**23 days after it was sent**', '23 days after it was sent', 'when `expires_at` passes', 'not after the request was received', 'always within **one month of the first request**', 'a new request starts fresh', 'No valid confirmation by `expires_at` (23 days after the code was sent)', 'expires in 23 days', 'within 23 days, so we closed', 'it lasts 23 days']) expect(mail, s).toContain(s);
     expect(mail).not.toMatch(/30 days|30-day/);
   });
   it('step 4: the confirmation reply passes the same RAW Authentication-Results check, and a DMARC failure gets the in-app reply', () => {
@@ -166,5 +166,20 @@ describe('round 9: the runbook for request ids, the 23-day code, the Environment
   it('setup: the admin-delete Environment restricted to main, secret in the environment, no required reviewers, a reviewer can be added', () => {
     const setup = mail.slice(mail.indexOf('## Setup'));
     for (const s of ['Environment** named `admin-delete`', 'restricted to the `main` branch', 'in that **environment** (not as a repository-wide secret)', '`environment: admin-delete`', 'No required reviewers are set', 'add Required reviewers to that environment']) expect(setup, s).toContain(s);
+  });
+});
+
+describe('round 9c: the clock and the hash', () => {
+  const mail = readFileSync('docs/DELETE_BY_EMAIL.md', 'utf8');
+  it('expiry runs from when the code was SENT (so the public "expires after 23 days" is true), and the hash is SHA-256 hex compared with code_hash', () => {
+    for (const s of ['expires **23 days after it was sent**', 'the moment you send the confirmation', 'the SHA-256 hex digest of the code', '`code_hash`', 'not after the request was received']) expect(mail, s).toContain(s);
+    expect(mail).not.toContain('(received + 23 days)');
+  });
+  it('the admin function logs release_failed when a release or done update fails', () => {
+    const src = readFileSync('supabase/functions/admin-delete-account/index.ts', 'utf8');
+    expect(src).toContain('release_failed');
+    expect(src).toContain('finishError');
+    expect(src).toContain('releaseError');
+    expect(src.split('\n').filter((l) => /console\.log/.test(l) && /requestId|userId|secret/i.test(l.replace(/\/\/.*$/, '').replace(/ev:.*$/, ''))).length).toBe(0);
   });
 });
