@@ -2,6 +2,8 @@
 import { haversine } from '../geo';
 import type { TrackPoint } from '../store';
 
+// The privacy page and the sign-in screens say routes are saved "minus the first and last 200 m". That copy depends on this being at least 200 m:
+// never lower it without changing the copy first (a test pins the value).
 export const TRIM_M = 200;
 
 /**
