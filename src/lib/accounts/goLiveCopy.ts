@@ -65,6 +65,12 @@ export const STATIC_SWAPS: Swap[] = [
 <li>${APPLE_PRIVACY_LINE}</li>
 <li><strong>Our web hosts (Hostinger and GitHub Pages)</strong>, which keep standard server logs: IP address, browser type and pages loaded.</li>` },
   { file: 'privacy/index.html',
+    from: '<strong>Recorded hikes and GPX files.</strong> These are saved on your device. They leave it only if you choose to export them.',
+    to: "<strong>Recorded hikes and GPX files.</strong> These are saved on your device. If you're not signed in, they leave it only if you choose to export them. If you're signed in, your hike history and routes (minus the first and last 200 m) also sync to our servers (see Accounts)." },
+  { file: 'privacy/index.html',
+    from: '<strong>Saved trails and offline maps.</strong> These are stored on your device.',
+    to: "<strong>Saved trails and offline maps.</strong> Offline maps are stored on your device only. If you're signed in, your list of saved trails also syncs to your account." },
+  { file: 'privacy/index.html',
     from: 'No accounts, no email, no payments, no ads, no sale or sharing of personal data, and no tracking across other apps or sites.',
     to: 'Accounts are optional. No payments, no ads, no marketing email, no sale or sharing of personal data, and no tracking across other apps or sites.' },
   { file: 'privacy/index.html',

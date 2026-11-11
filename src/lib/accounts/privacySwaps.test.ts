@@ -37,6 +37,8 @@ describe('flag on: none of the old sentences survive', () => {
       'We hold no personal data on our servers anyway.',
       'and delete everything by removing the app or clearing site data.',
       'Ridgeline has no accounts and no ads. Your location,',
+      'These are saved on your device. They leave it only if you choose to export them.',
+      'These are stored on your device.</li>',
     ]) expect(on, old).not.toContain(old);
   });
 });
@@ -47,13 +49,15 @@ describe('flag on: the seven line rewrites, verbatim', () => {
     ['L38 (with the CBO addition)', "Ridgeline has no ads, and we don't sell your data. You can use it without an account, and then your location, recorded hikes and saved trails stay on your device. If you choose to sign in with Google or Apple, we store your email address, the name and picture Google or Apple share with us, your saved trails, hike history and the routes you walked (minus the first and last 200 m) so they're on all your devices. See Accounts below."],
     ['L44', "Your live location is never sent to our servers. If you're signed in, the route of a finished hike is saved to your account (minus the first and last 200 m), unless you turn on 'Keep hike tracks on this phone only'."],
     ['L48', "If you're not signed in, clearing the site's data in your browser (or deleting the app) deletes all of this, and we can't recover it, because we never had it. If you're signed in, your account copy stays until you delete it (see Deleting)."],
+    ['L45', "Recorded hikes and GPX files. These are saved on your device. If you're not signed in, they leave it only if you choose to export them. If you're signed in, your hike history and routes (minus the first and last 200 m) also sync to our servers (see Accounts)."],
+    ['L46', "Saved trails and offline maps. Offline maps are stored on your device only. If you're signed in, your list of saved trails also syncs to your account."],
     ['L76', 'Accounts are optional. No payments, no ads, no marketing email, no sale or sharing of personal data, and no tracking across other apps or sites.'],
     ['L79', 'If we learn that a child under that age has an account, we delete it.'],
     ['L82', "and delete everything: if you're not signed in, by removing the app or clearing site data; if you're signed in, in Profile › Account or at hike.bbprojectfactory.com/account/delete/."],
   ])('%s', (_n, text) => { expect(_n === 'L8 meta' ? on : onText).toContain(text); });
   it('the page swaps are all registered for privacy/index.html and each one applies exactly once', () => {
     const swaps = STATIC_SWAPS.filter((s) => s.file === 'privacy/index.html');
-    expect(swaps).toHaveLength(9);   // meta, date, L38, L44, L48, the list entries, L76, L79, L82
+    expect(swaps).toHaveLength(11);   // meta, date, L38, L44, L48, the list entries, L45, L46, L76, L79, L82
     for (const s of swaps) { expect(page.split(s.from).length - 1, s.from.slice(0, 40)).toBe(1); expect(s.to).not.toBe(s.from); }
   });
   it('a drifted source line fails the build loudly instead of silently missing', () => {
@@ -99,5 +103,30 @@ describe('flag on: the outside-services LIST, the Apple row, the date and the se
   it('does NOT carry the mailer\'s "scrambled code" sentence (it ships with the mailer PR)', () => {
     expect(on).not.toMatch(/scrambled/i);
     expect(onText).not.toMatch(/HMAC|scrambled code/i);
+  });
+});
+
+describe('the claims in L45 and L46 are true in the code', () => {
+  it('an uploaded route has NOTHING within 200 m of where the hike started or ended (so the first and last 200 m are never sent)', async () => {
+    const { activityToRow } = await import('../sync/remote');
+    // A 3 km walk north in 10 m steps, with a loop back past the start at the end.
+    const pts = Array.from({ length: 301 }, (_, i) => ({ lon: -122.4, lat: 37.7 + i * 0.00009, alt: 100, acc: 5, t: 1762800000000 + i * 5000 }));
+    const row = activityToRow('u', { kind: 'activities', id: 'h', updatedAt: 1, syncedAt: 0, editedAt: 1, deleted: false, payload: { id: 'h', name: 'x', startedAt: 1762800000000, updatedAt: 1, points: pts } } as never, false) as { track: Array<{ lat: number }> };
+    const metres = (a: number, b: number) => Math.abs(a - b) * 111_195;
+    expect(row.track.length).toBeGreaterThan(200);
+    for (const p of row.track) { expect(metres(p.lat, pts[0].lat)).toBeGreaterThanOrEqual(200); expect(metres(p.lat, pts[300].lat)).toBeGreaterThanOrEqual(200); }
+    expect(row.track.length).toBeLessThan(301 - 2 * 18);   // roughly 20 points (200 m) gone at each end
+  });
+  it('a hike too short to keep 2 points outside both circles uploads no route at all', async () => {
+    const { activityToRow } = await import('../sync/remote');
+    const pts = Array.from({ length: 30 }, (_, i) => ({ lon: -122.4, lat: 37.7 + i * 0.00002, alt: 100, acc: 5, t: 1762800000000 + i * 5000 }));
+    const row = activityToRow('u', { kind: 'activities', id: 'h', updatedAt: 1, syncedAt: 0, editedAt: 1, deleted: false, payload: { id: 'h', name: 'x', startedAt: 1762800000000, updatedAt: 1, points: pts } } as never, false) as { track?: unknown };
+    expect(row.track ?? null).toBeNull();
+  });
+  it('a saved trail syncs as its route data only: never the offline-map tile list or sizes', () => {
+    const local = readFileSync('src/lib/sync/local.ts', 'utf8');
+    expect(local).toContain("{ trail: s.trail, addedAt: s.savedAt }");
+    const remote = readFileSync('src/lib/sync/remote.ts', 'utf8');
+    expect(remote).not.toMatch(/tileKeys|bytes\b/);
   });
 });
