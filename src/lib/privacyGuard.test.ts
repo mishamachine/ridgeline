@@ -44,6 +44,7 @@ describe('deleting by email', () => {
   it('the page gives the address as a mailto link, for requests made without the app', () => {
     const page = readFileSync('public/privacy/index.html', 'utf8');
     expect(page).toContain('<a href="mailto:machinemisha@gmail.com?subject=Ridgeline%20account%20deletion">machinemisha@gmail.com</a>');
-    expect(page).toContain('ask us to delete your account by email, without opening the app');
+    expect(page).toContain("from your account's email address. We'll send a confirmation to that address, and once you confirm, we delete within 7 days. (If you signed in with Apple's Hide My Email, delete in Profile &rsaquo; Account instead.)");
+    expect(page).not.toContain('without opening the app');
   });
 });
