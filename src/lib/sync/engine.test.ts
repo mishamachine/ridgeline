@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { StaleEpochError, parkDelay, retryDelay, syncOnce, type Cursors, type Owner, type PushFailure, type Remote, type SyncOptions } from './engine';
 import { syncGate } from './gate';
 import { fitTrack, MAX_UPLOAD_POINTS } from './trim';
-import { FULL_NOTE, FULL_NOTE_TRAILS, fullKindOf, fullText, noteAccountFull, takeFullNotes } from './fullNote';
+import { FULL_NOTE_HIKES, FULL_NOTE_SAVED, FULL_NOTE_SHORTLIST, fullKindOf, fullText, noteAccountFull, takeFullNotes } from './fullNote';
 import type { LocalSource } from './local';
 import { winner, type Kind, type SyncRec } from './merge';
 import { activityToRow, fromRow, supabaseRemote, toRow } from './remote';
@@ -455,31 +455,44 @@ describe('a full account never blocks or loses a hike', () => {
     const r2 = await a.syncAs(s, 'u1', 2_000_000 + 180_000);
     for (const k of r2.fullKinds) noteAccountFull('u1', fullKindOf(k)!, store);
     expect(a.recs.has('activities/another')).toBe(true);
-    expect(takeFullNotes('u1', store)).toEqual([FULL_NOTE]);         // shown once...
+    expect(takeFullNotes('u1', store)).toEqual([FULL_NOTE_HIKES]);      // shown once...
     expect(takeFullNotes('u1', store)).toEqual([]);
     noteAccountFull('u1', 'hikes', store);                           // ...and never comes back
     expect(takeFullNotes('u1', store)).toEqual([]);
   });
-  it('the note says exactly what was asked, and saved trails get their own wording (they are not hikes)', () => {
-    expect(FULL_NOTE).toBe('Your account is full. New hikes are saved on this phone only.');
-    expect(FULL_NOTE_TRAILS).toBe('Your account is full. New saved trails stay on this phone only.');
-    expect(fullText(fullKindOf('activities')!)).toBe(FULL_NOTE);
-    expect(fullText(fullKindOf('saved')!)).toBe(FULL_NOTE_TRAILS);
-    expect(fullText(fullKindOf('shortlist')!)).toBe(FULL_NOTE_TRAILS);
+  it('the three final lines, verbatim, one per type', () => {
+    expect(FULL_NOTE_HIKES).toBe('Your account has no room for more hikes. New hikes are saved on this phone only.');
+    expect(FULL_NOTE_SAVED).toBe('Your account has no room for more saved trails. New saved trails stay on this phone only.');
+    expect(FULL_NOTE_SHORTLIST).toBe('Your account has no room for more shortlisted trails. New ones stay on this phone only.');
+    expect(fullText(fullKindOf('activities')!)).toBe(FULL_NOTE_HIKES);
+    expect(fullText(fullKindOf('saved')!)).toBe(FULL_NOTE_SAVED);
+    expect(fullText(fullKindOf('shortlist')!)).toBe(FULL_NOTE_SHORTLIST);
     expect(fullKindOf('settings')).toBeNull();
   });
-  it('a full saved list says "saved trails" and is reported for its own kind', async () => {
+  it('only the full types show, each its own line, stacked, never combined, each once', () => {
+    const store = mem();
+    noteAccountFull('u1', 'shortlist', store);
+    expect(takeFullNotes('u1', store)).toEqual([FULL_NOTE_SHORTLIST]);                 // only the full type
+    noteAccountFull('u1', 'saved', store); noteAccountFull('u1', 'hikes', store);
+    expect(takeFullNotes('u1', store)).toEqual([FULL_NOTE_HIKES, FULL_NOTE_SAVED]);    // two full types: two lines, stacked
+    expect(takeFullNotes('u1', store)).toEqual([]);
+    const all = mem();
+    for (const k of ['shortlist', 'saved', 'hikes'] as const) noteAccountFull('u2', k, all);
+    expect(takeFullNotes('u2', all)).toEqual([FULL_NOTE_HIKES, FULL_NOTE_SAVED, FULL_NOTE_SHORTLIST]);
+    expect([FULL_NOTE_HIKES, FULL_NOTE_SAVED, FULL_NOTE_SHORTLIST].every((l) => !l.includes('Your account is full'))).toBe(true);   // the old wording is gone
+  });
+  it('a full shortlist is reported for its own kind and says "shortlisted trails"', async () => {
     const s = new Server(), a = new Phone();
     s.fullIds.add('way/9'); a.put('shortlist', 'way/9', 1);
     const r = await a.syncAs(s, 'u1', 1_000_000);
     expect(r.fullKinds).toEqual(['shortlist']);
     const store = mem(); noteAccountFull('u1', fullKindOf('shortlist')!, store);
-    expect(takeFullNotes('u1', store)).toEqual([FULL_NOTE_TRAILS]);
+    expect(takeFullNotes('u1', store)).toEqual([FULL_NOTE_SHORTLIST]);
   });
   it('the note is kept per account: it shown for one account is still due for another on the same phone', () => {
     const store = mem();
-    noteAccountFull('A', 'hikes', store); expect(takeFullNotes('A', store)).toEqual([FULL_NOTE]);
-    noteAccountFull('B', 'hikes', store); expect(takeFullNotes('B', store)).toEqual([FULL_NOTE]);
+    noteAccountFull('A', 'hikes', store); expect(takeFullNotes('A', store)).toEqual([FULL_NOTE_HIKES]);
+    noteAccountFull('B', 'hikes', store); expect(takeFullNotes('B', store)).toEqual([FULL_NOTE_HIKES]);
     expect(takeFullNotes('A', store)).toEqual([]);
     expect(takeFullNotes(null, store)).toEqual([]);
   });
