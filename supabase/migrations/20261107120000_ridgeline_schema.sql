@@ -16,6 +16,8 @@ grant usage on schema ridgeline to authenticated, service_role;
 create function ridgeline.json_ok(j jsonb) returns boolean language sql immutable set search_path = '' as $$
   select j is null
      or (not jsonb_path_exists(j, 'strict $.** ? (@.type() == "number" && (@ > 1e15 || @ < -1e15 || (@ != 0 && @ < 1e-12 && @ > -1e-12)))')
+         -- a ZERO can still carry a huge scale (0e-16383 is about 20 bytes stored and prints 16 KB): a zero may have at most 20 decimal places
+         and not exists (select 1 from jsonb_path_query(j, 'strict $.** ? (@.type() == "number" && @ == 0)') v where scale(v::numeric) > 20)
          and not jsonb_path_exists(j, 'strict $.** ? (@.type() == "string" && @ like_regex "[\u0001-\u0008\u000b\u000c\u000e-\u001f]")'))
 $$;
 grant execute on function ridgeline.json_ok(jsonb) to authenticated, service_role;
