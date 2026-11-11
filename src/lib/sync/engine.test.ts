@@ -529,7 +529,7 @@ describe('a full account never blocks or loses a hike', () => {
     expect(FULL_NOTE_HIKES).toBe('Your account has no room for more hikes. New hikes are saved on this phone only.');
     expect(FULL_NOTE_SAVED).toBe('Your account has no room for more saved trails. New saved trails stay on this phone only.');
     expect(FULL_NOTE_SHORTLIST).toBe('Your account has no room for more shortlisted trails. New ones stay on this phone only.');
-    // On the web the same three lines say "this device" (round 8; wording pending sign-off).
+    // On the web the same three lines say "this device" (round 8; wording approved).
     expect(FULL_NOTE_HIKES_WEB).toBe('Your account has no room for more hikes. New hikes are saved on this device only.');
     expect(FULL_NOTE_SAVED_WEB).toBe('Your account has no room for more saved trails. New saved trails stay on this device only.');
     expect(FULL_NOTE_SHORTLIST_WEB).toBe('Your account has no room for more shortlisted trails. New ones stay on this device only.');
