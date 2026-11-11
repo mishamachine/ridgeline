@@ -2,18 +2,25 @@
 // stops (the refused row is parked, so it is not retried in a storm). This remembers that a note is waiting and that it was shown once.
 import { useEffect, useState } from 'react';
 import type { Kind } from './merge';
+import { nativePlatform } from '../native/platform';
 
 /** The final wording, one line per type of record (never a combined sentence). */
 export const FULL_NOTE_HIKES = 'Your account has no room for more hikes. New hikes are saved on this phone only.';
 export const FULL_NOTE_SAVED = 'Your account has no room for more saved trails. New saved trails stay on this phone only.';
 export const FULL_NOTE_SHORTLIST = 'Your account has no room for more shortlisted trails. New ones stay on this phone only.';
+/** The same lines on the web, where the copy lives in the browser, not on a phone (pending sign-off; swap here and nowhere else). */
+export const FULL_NOTE_HIKES_WEB = 'Your account has no room for more hikes. New hikes are saved on this device only.';
+export const FULL_NOTE_SAVED_WEB = 'Your account has no room for more saved trails. New saved trails stay on this device only.';
+export const FULL_NOTE_SHORTLIST_WEB = 'Your account has no room for more shortlisted trails. New ones stay on this device only.';
 export const FULL_EVENT = 'ridgeline:account-full';
 
 export type FullKind = 'hikes' | 'saved' | 'shortlist';
 export const FULL_KINDS: FullKind[] = ['hikes', 'saved', 'shortlist'];
 /** Which note a kind of record needs. Settings are tiny and never fill an account. */
 export const fullKindOf = (k: Kind): FullKind | null => (k === 'activities' ? 'hikes' : k === 'saved' ? 'saved' : k === 'shortlist' ? 'shortlist' : null);
-export const fullText = (k: FullKind) => (k === 'hikes' ? FULL_NOTE_HIKES : k === 'saved' ? FULL_NOTE_SAVED : FULL_NOTE_SHORTLIST);
+export const fullText = (k: FullKind, web: boolean = nativePlatform() === 'web') =>
+  web ? (k === 'hikes' ? FULL_NOTE_HIKES_WEB : k === 'saved' ? FULL_NOTE_SAVED_WEB : FULL_NOTE_SHORTLIST_WEB)
+      : (k === 'hikes' ? FULL_NOTE_HIKES : k === 'saved' ? FULL_NOTE_SAVED : FULL_NOTE_SHORTLIST);
 
 type Store = Pick<Storage, 'getItem' | 'setItem'>;
 const store = (): Store | null => { try { return localStorage; } catch { return null; } };

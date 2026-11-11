@@ -1,8 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+// These tests pin the phone wording; the web wording is pinned in its own test below.
+vi.mock('../native/platform', () => ({ nativePlatform: () => 'ios', isNative: () => true }));
 import { StaleEpochError, parkDelay, retryDelay, syncOnce, type Cursors, type Owner, type PushFailure, type Remote, type SyncOptions } from './engine';
 import { syncGate } from './gate';
 import { fitTrack, MAX_UPLOAD_POINTS } from './trim';
-import { FULL_NOTE_HIKES, FULL_NOTE_SAVED, FULL_NOTE_SHORTLIST, fullKindOf, fullText, noteAccountFull, takeFullNotes } from './fullNote';
+import { FULL_NOTE_HIKES, FULL_NOTE_HIKES_WEB, FULL_NOTE_SAVED, FULL_NOTE_SAVED_WEB, FULL_NOTE_SHORTLIST, FULL_NOTE_SHORTLIST_WEB, fullKindOf, fullText, noteAccountFull, takeFullNotes } from './fullNote';
 import type { LocalSource } from './local';
 import { winner, type Kind, type SyncRec } from './merge';
 import { activityToRow, fromRow, supabaseRemote, toRow } from './remote';
@@ -538,6 +541,14 @@ describe('a full account never blocks or loses a hike', () => {
     expect(FULL_NOTE_HIKES).toBe('Your account has no room for more hikes. New hikes are saved on this phone only.');
     expect(FULL_NOTE_SAVED).toBe('Your account has no room for more saved trails. New saved trails stay on this phone only.');
     expect(FULL_NOTE_SHORTLIST).toBe('Your account has no room for more shortlisted trails. New ones stay on this phone only.');
+    // On the web the same three lines say "this device" (round 8; wording pending sign-off).
+    expect(FULL_NOTE_HIKES_WEB).toBe('Your account has no room for more hikes. New hikes are saved on this device only.');
+    expect(FULL_NOTE_SAVED_WEB).toBe('Your account has no room for more saved trails. New saved trails stay on this device only.');
+    expect(FULL_NOTE_SHORTLIST_WEB).toBe('Your account has no room for more shortlisted trails. New ones stay on this device only.');
+    expect(fullText('hikes', true)).toBe(FULL_NOTE_HIKES_WEB);
+    expect(fullText('saved', true)).toBe(FULL_NOTE_SAVED_WEB);
+    expect(fullText('shortlist', true)).toBe(FULL_NOTE_SHORTLIST_WEB);
+    expect([FULL_NOTE_HIKES_WEB, FULL_NOTE_SAVED_WEB, FULL_NOTE_SHORTLIST_WEB].some((l) => l.includes('phone'))).toBe(false);
     expect(fullText(fullKindOf('activities')!)).toBe(FULL_NOTE_HIKES);
     expect(fullText(fullKindOf('saved')!)).toBe(FULL_NOTE_SAVED);
     expect(fullText(fullKindOf('shortlist')!)).toBe(FULL_NOTE_SHORTLIST);
