@@ -8,7 +8,7 @@ import { getClient } from './client';
 import { accountsLive } from './flags';
 import { makeNonce } from './nonce';
 import { syncGate } from '../sync/gate';
-import { isKnownAccount, markSession } from './session';
+import { lastUserId, markSession } from './session';
 import { ensureProfile } from './profile';
 
 export type Provider = 'google' | 'apple';
@@ -45,12 +45,15 @@ export async function signInNative(provider: Provider, c: SupabaseClient, plugin
   let r: { idToken: string | null; authorizationCode?: string };
   try { r = await plugin.login(provider, nonce.hashed); } catch (e) { return { ok: false, reason: cancelled(e) ? 'cancelled' : 'failed' }; }
   if (!r.idToken) return { ok: false, reason: 'failed' };
+  // Who was here BEFORE this sign-in. Taken first: signInWithIdToken tells the auth listeners before it returns, and anything that remembers the session
+  // there would otherwise make every account look like the one already on this phone.
+  const prev = lastUserId();
   const { data, error } = await c.auth.signInWithIdToken({ provider, token: r.idToken, nonce: nonce.raw });
   if (error || !data.user) return { ok: false, reason: 'failed' };
   // While sign-in is paused only the account this phone already had may sign in (to confirm a delete). Anyone else is signed out again at once.
-  if (!live && !isKnownAccount(data.user.id)) { try { await c.auth.signOut(); } catch { /* signed out locally anyway */ } return { ok: false, reason: 'different-account' }; }
+  if (!live && prev !== data.user.id) { try { await c.auth.signOut(); } catch { /* signed out locally anyway */ } return { ok: false, reason: 'different-account' }; }
   if (live) markSession(data.user.id);
-  try { await ensureProfile(c, data.user.id, live); } catch { /* made at the next sync, once per launch (runSync calls ensureProfile; it is idempotent) */ }
+  try { await ensureProfile(c, data.user.id, live); } catch { /* the profile is made at the next sync (runSync calls ensureProfile, which is idempotent), once per launch */ }
   if (provider === 'apple' && r.authorizationCode) {
     // Lets "Delete my whole account" tell Apple to disconnect Ridgeline. Best effort: sign-in already worked.
     try { await c.functions.invoke('apple-token', { body: { code: r.authorizationCode } }); } catch { /* fallback is logged server-side at delete time */ }
@@ -107,9 +110,10 @@ export async function signOut(enabled?: boolean): Promise<void> {
 
 /** On /auth/callback: let supabase-js swap the code for a session, make the profile, then send the person home. */
 export async function completeWebSignIn(c: SupabaseClient, live: boolean = accountsLive()): Promise<boolean | 'different-account'> {
+  const prev = lastUserId();   // before anything can remember the new session
   const { data } = await c.auth.getSession();
   if (!data.session) return false;
-  if (!live && !isKnownAccount(data.session.user.id)) { try { await c.auth.signOut(); } catch { /* ignore */ } return 'different-account'; }
+  if (!live && prev !== data.session.user.id) { try { await c.auth.signOut(); } catch { /* ignore */ } return 'different-account'; }
   if (live) markSession(data.session.user.id);
   try { await ensureProfile(c, data.session.user.id, live); } catch { /* made at the next sync, once per launch */ }
   return true;
