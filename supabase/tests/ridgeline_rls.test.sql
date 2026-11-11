@@ -3,7 +3,7 @@
 -- Never run against the shared production project. Everything runs in one transaction and rolls back.
 begin;
 create extension if not exists pgtap;
-select plan(75);
+select plan(92);
 
 insert into auth.users (id) values ('00000000-0000-0000-0000-00000000000a'), ('00000000-0000-0000-0000-00000000000b');
 
@@ -160,7 +160,7 @@ select is((select string_agg(a.attrelid::regclass::text || '.' || a.attname || '
            where (a.attrelid, a.attname) in (('ridgeline.activities'::regclass, 'track'), ('ridgeline.activities'::regclass, 'stats'), ('ridgeline.saved'::regclass, 'trail'), ('ridgeline.shortlist'::regclass, 'trail'), ('ridgeline.settings'::regclass, 'data'))),
           'ridgeline.activities.stats=e,ridgeline.activities.track=e,ridgeline.saved.trail=e,ridgeline.settings.data=e,ridgeline.shortlist.trail=e', 'the five big columns use external (uncompressed) storage');
 insert into auth.users (id) values ('00000000-0000-0000-0000-0000000000e1');
-insert into ridgeline.activities (user_id, id, started_at, track) values ('00000000-0000-0000-0000-0000000000e1', 'big', now(), (select jsonb_agg(123456789012345678901234567890123456::numeric) from generate_series(1, 35700)));   -- about 1,000,000 raw bytes of a very repetitive track
+insert into ridgeline.activities (user_id, id, started_at, track) values ('00000000-0000-0000-0000-0000000000e1', 'big', now(), jsonb_build_array(pg_temp.blob(31000)));   -- about 1,000,000 raw bytes in one long string (a route of numbers over 1e15 is now refused)
 select ok((select pg_column_size(track) from ridgeline.activities where user_id = '00000000-0000-0000-0000-0000000000e1' and id = 'big') > 990000, 'a ~1 MB raw track is STORED at ~1 MB (not compressed down to ~11 KB)');
 select ok((select bytes from ridgeline.usage where user_id = '00000000-0000-0000-0000-0000000000e1' and tbl = 'activities') > 990000, 'and usage counts about 1 MB for it');
 
@@ -178,6 +178,32 @@ select ok((select last_value from ridgeline.zz_attempts) < 450, 'and it stopped 
 select is((select count(*)::int from ridgeline.saved where user_id = '00000000-0000-0000-0000-0000000000e2'), 0, 'and wrote nothing');
 drop trigger saved_aa_attempts on ridgeline.saved;
 
+-- H1 (round 8): json_ok refuses number bombs and control characters; real shapes pass; it stays fast on a real-size route.
+reset role;
+insert into auth.users (id) values ('00000000-0000-0000-0000-0000000000f1');
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000f1');
+select throws_ok($$insert into ridgeline.saved (user_id, trail_id, trail) values ('00000000-0000-0000-0000-0000000000f1', 'bomb', '{"a": 1e100000}')$$, '23514', null, 'saved.trail: a huge-exponent number is refused');
+select throws_ok($$insert into ridgeline.shortlist (user_id, trail_id, trail) values ('00000000-0000-0000-0000-0000000000f1', 'bomb', '{"a": [1, {"b": -1e100000}]}')$$, '23514', null, 'shortlist.trail: a huge negative number nested in an array is refused');
+select throws_ok($$insert into ridgeline.activities (user_id, id, started_at, track) values ('00000000-0000-0000-0000-0000000000f1', 'bomb', now(), '[{"lat": 1, "lon": 1e100000}]')$$, '23514', null, 'activities.track: a bomb in a point is refused');
+select throws_ok($$insert into ridgeline.activities (user_id, id, started_at, stats) values ('00000000-0000-0000-0000-0000000000f1', 'bomb2', now(), '{"name": "x", "d": 1e-100}')$$, '23514', null, 'activities.stats: a nonzero number below 1e-12 is refused');
+select throws_ok($$insert into ridgeline.settings (user_id, data) values ('00000000-0000-0000-0000-0000000000f1', '{"units": 1e16}')$$, '23514', null, 'settings.data: a number over 1e15 is refused');
+select throws_ok($$insert into ridgeline.saved (user_id, trail_id, trail) values ('00000000-0000-0000-0000-0000000000f1', 'ctl', '{"name": "a\u0001b"}')$$, '23514', null, 'a control character in a string is refused');
+select lives_ok($$insert into ridgeline.saved (user_id, trail_id, trail) values ('00000000-0000-0000-0000-0000000000f1', 'ok1', '{"name": "Tab\there\nnewline\rreturn", "lat": 37.7749295, "lon": -122.4194155, "alt": -0.5, "acc": 0, "t": 1762800000000, "len": 12.5, "tiny0": 0}')$$, 'tab, newline, return, a ms timestamp, a negative elevation and 0 are accepted');
+select lives_ok($$insert into ridgeline.activities (user_id, id, started_at, stats, track) values ('00000000-0000-0000-0000-0000000000f1', 'real1', now(), '{"name": "Hike", "pausedMs": 120000, "withDog": true, "endedAt": 1762803600000, "snapshot": {"lengthKm": 8.4, "gainM": 412.3}}', '[{"lon": -122.4194155, "lat": 37.7749295, "alt": 12.25, "acc": 4.5, "t": 1762800000000}]')$$, 'a real hike (route point, stats, snapshot) is accepted');
+select ok(ridgeline.json_ok(null) and ridgeline.json_ok('{}') and ridgeline.json_ok('[]') and ridgeline.json_ok('1e-12') and ridgeline.json_ok('1e15') and not ridgeline.json_ok('1e-13') and not ridgeline.json_ok('-1e15001'), 'json_ok edges: null, empty, 1e-12 and 1e15 pass; 1e-13 and -1e15001 fail');
+create function pg_temp.pts() returns jsonb language sql as $$ select jsonb_agg(jsonb_build_object('lon', -122.4 + g * 0.00001, 'lat', 37.7 + g * 0.00001, 'alt', 100 + g * 0.01, 'acc', 4.5, 't', 1762800000000 + g * 5000)) from generate_series(1, 8000) g $$;
+select ok((select clock_timestamp() from (select ridgeline.json_ok(pg_temp.pts())) x) is not null, 'json_ok runs on an 8,000-point route');
+select ok((with a as (select pg_temp.pts() p), t0 as (select clock_timestamp() c from a), r as (select ridgeline.json_ok(p) ok from a) select ok and (clock_timestamp() - (select c from t0)) < interval '1 second' from r), 'json_ok on 8,000 points returns true in under a second');
+select lives_ok($$insert into ridgeline.activities (user_id, id, started_at, track) values ('00000000-0000-0000-0000-0000000000f1', 'big', now(), pg_temp.pts())$$, 'an 8,000-point route is accepted');
+
+reset role;
+-- L2 (round 8): one statement writing rows for several users keeps ONE tally setting for the table (not one per user), and each user's rows are counted on their own.
+insert into ridgeline.saved (user_id, trail_id, trail) select u, 'multi' || g, '{"a":1}' from unnest(array['00000000-0000-0000-0000-0000000000e1','00000000-0000-0000-0000-0000000000e2','00000000-0000-0000-0000-0000000000f1']::uuid[]) u, generate_series(1, 3) g;
+select ok(current_setting('ridgeline.tally_saved', true) ~ '^[0-9a-f-]{36}\|[0-9]+\|[0-9]+\|[0-9]+$', 'the tally is ONE setting per table, valued uid|bytes|rows|live (never negative)');
+select is((select count(*)::int from ridgeline.saved where trail_id like 'multi%'), 9, 'and every user got their own 3 rows');
+select is((select n_live::int from ridgeline.usage where user_id = '00000000-0000-0000-0000-0000000000f1' and tbl = 'saved'), 4, 'usage counts each user on their own (3 multi + ok1)');
+select is(ridgeline.tally_get('saved', '00000000-0000-0000-0000-0000000000f1'), array[0, 0, 0]::bigint[], 'the tally is back to zero after a multi-user statement');
+select is(ridgeline.tally_get('saved', '00000000-0000-0000-0000-0000000000aa'), array[0, 0, 0]::bigint[], 'a tally that belongs to another user counts as zero');
 -- Deleting the auth user removes the Ridgeline rows.
 delete from auth.users where id = '00000000-0000-0000-0000-00000000000a';
 select is((select count(*)::int from ridgeline.activities where user_id = '00000000-0000-0000-0000-00000000000a'), 0, 'auth user delete cascades to hikes');
