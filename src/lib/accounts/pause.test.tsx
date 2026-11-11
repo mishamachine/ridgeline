@@ -109,8 +109,22 @@ describe('the runbooks are in the repo and point at each other', () => {
     expect(pause).toContain('What this does not prevent');
     expect(pause).not.toContain('never creates a new account');
   });
-  it('DELETE_BY_EMAIL.md covers the owner, the identity check, the exact steps, the reply and the 7-day rule', () => {
-    for (const s of ['the owner/operator', 'must come FROM the address on the account', 'privaterelay.appleid.com', "select ridgeline.delete_user_data('<uid>')", 'ridgeline.read_apple_token', 'revokeAppleToken', "ridgeline.delete_apple_token('<uid>')", 'auth.admin.deleteUser', 'Reply (template)', 'within 7 days', 'production action']) expect(mail, s).toContain(s);
+  it('DELETE_BY_EMAIL.md has the 7 steps, the Gmail rule, the timings, the options and a template for each branch', () => {
+    for (const s of ['### 1. Intake', '### 2. Authenticity', '### 3. Does the sender match an account', '### 4. Confirmation (a NEW message, not a reply)', '### 5. Execute', '### 6. Reply, log, tell the owner', '### 7. The clocks']) expect(mail, s).toContain(s);
+    // step 2: the exact Gmail rule
+    for (const s of ['Read the message in **RAW** format', 'added by `mx.google.com`, the topmost one', 'Ignore every other `Authentication-Results` header and every `ARC-*` header', '`dkim=pass` **and** `dmarc=pass`', '`header.from` equal to the domain', 'no delete']) expect(mail, s).toContain(s);
+    // step 3 and 4
+    for (const s of ['read-only query', "If an account exists for this address, we've sent a confirmation to it.", 'privaterelay.appleid.com', "a **new** message to the account's email on file", '`DELETE RIDGELINE <code>`', '`DELETE ALL <code>`', 'woof.bobolearns.com', 'chess.bobolearns.com/privacy/', 'No valid code, no delete']) expect(mail, s).toContain(s);
+    // step 5 and the timings
+    for (const s of ['Never run ad-hoc SQL', 'admin-delete.yml', 'does **not** ask for a recent sign-in', 'within **2 days**', 'expires after **30 days**', 'within 7 days of it', 'one line with no personal data']) expect(mail, s).toContain(s);
+    // templates for every branch
+    for (const t of ['**A. The request could not be verified**', '**B. No account found (generic)**', '**C. Apple "Hide My Email" account**', '**D. Confirmation', '**E. Code missing, wrong, used or expired**', '**F. Done**', '**G. Partly done**', '**H. Closed without confirmation**']) expect(mail, t).toContain(t);
     expect(mail).toContain('[PAUSE.md](PAUSE.md)');
+  });
+  it('is safe to publish: no internal names, no address but the published one, no secret values', () => {
+    expect(mail).not.toMatch(/babar|jazari|florence|nizam|tenzing|\bmisha\b/i);
+    const emails = [...mail.matchAll(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g)].map((m) => m[0]);
+    expect(new Set(emails)).toEqual(new Set(['machinemisha@gmail.com']));
+    expect(mail).not.toMatch(/BEGIN PRIVATE KEY|sb_secret|eyJ[A-Za-z0-9_-]{20,}/);
   });
 });
