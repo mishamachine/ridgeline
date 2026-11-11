@@ -12,6 +12,10 @@ export const FULL_NOTE_SHORTLIST = 'Your account has no room for more shortliste
 export const FULL_NOTE_HIKES_WEB = 'Your account has no room for more hikes. New hikes are saved on this device only.';
 export const FULL_NOTE_SAVED_WEB = 'Your account has no room for more saved trails. New saved trails stay on this device only.';
 export const FULL_NOTE_SHORTLIST_WEB = 'Your account has no room for more shortlisted trails. New ones stay on this device only.';
+/** The note for rows the database refused for their content (23514): kept on this device, shown once per account and kind. Wording is the CBO's, verbatim. */
+const PARKED_WORDS: Record<FullKind, [one: string, many: string]> = { hikes: ['hike', 'hikes'], saved: ['saved trail', 'saved trails'], shortlist: ['shortlisted trail', 'shortlisted trails'] };
+export const parkedText = (k: FullKind, n: number, web: boolean = nativePlatform() === 'web') =>
+  `${n} ${PARKED_WORDS[k][n === 1 ? 0 : 1]} couldn't be saved to your account and ${n === 1 ? 'is' : 'are'} on this ${web ? 'device' : 'phone'} only.`;
 export const FULL_EVENT = 'ridgeline:account-full';
 
 export type FullKind = 'hikes' | 'saved' | 'shortlist';
@@ -23,6 +27,7 @@ export const fullText = (k: FullKind, web: boolean = nativePlatform() === 'web')
       : (k === 'hikes' ? FULL_NOTE_HIKES : k === 'saved' ? FULL_NOTE_SAVED : FULL_NOTE_SHORTLIST);
 
 type Store = Pick<Storage, 'getItem' | 'setItem'>;
+const pkey = (userId: string, k: FullKind) => `ridgeline:parkedNote:${userId}:${k}`;
 const store = (): Store | null => { try { return localStorage; } catch { return null; } };
 const key = (userId: string, k: FullKind) => `ridgeline:fullNote:${userId}:${k}`;
 const read = (s: Store | null, userId: string, k: FullKind): 'pending' | 'shown' | null => { try { const v = s?.getItem(key(userId, k)); return v === 'pending' || v === 'shown' ? v : null; } catch { return null; } };
@@ -39,12 +44,28 @@ export function takeFullNotes(userId: string | null, s: Store | null = store()):
   return out;
 }
 
+/** The sync pass found n rows of this kind refused for their content. Marks the note as waiting (with the count), unless it was already shown for that account. */
+export function noteParked(userId: string, kind: FullKind, n: number, s: Store | null = store()) {
+  if (n < 1) return;
+  try { if (s?.getItem(pkey(userId, kind))) return; s?.setItem(pkey(userId, kind), 'pending:' + n); } catch { return; }
+  try { window.dispatchEvent(new Event(FULL_EVENT)); } catch { /* no window */ }
+}
+/** The parked-row notes due now for this account, each exactly once, in the order hikes, saved trails, shortlist. */
+export function takeParkedNotes(userId: string | null, s: Store | null = store()): string[] {
+  if (!userId) return [];
+  const out: string[] = [];
+  for (const k of FULL_KINDS) {
+    try { const v = s?.getItem(pkey(userId, k)); if (v && v.startsWith('pending:')) { s?.setItem(pkey(userId, k), 'shown'); out.push(parkedText(k, Number(v.slice(8)))); } } catch { /* ignore */ }
+  }
+  return out;
+}
+
 /** React: the notes to show for this account (each appears once, from the moment the account fills up, and never again after that). */
 export function useFullNotes(userId: string | null): string[] {
-  const [shown, setShown] = useState<string[]>(() => takeFullNotes(userId));
+  const [shown, setShown] = useState<string[]>(() => [...takeFullNotes(userId), ...takeParkedNotes(userId)]);
   useEffect(() => {
-    setShown(takeFullNotes(userId));
-    const on = () => { const t = takeFullNotes(userId); if (t.length) setShown((s) => [...s, ...t.filter((x) => !s.includes(x))]); };
+    setShown([...takeFullNotes(userId), ...takeParkedNotes(userId)]);
+    const on = () => { const t = [...takeFullNotes(userId), ...takeParkedNotes(userId)]; if (t.length) setShown((s) => [...s, ...t.filter((x) => !s.includes(x))]); };
     window.addEventListener(FULL_EVENT, on);
     return () => window.removeEventListener(FULL_EVENT, on);
   }, [userId]);

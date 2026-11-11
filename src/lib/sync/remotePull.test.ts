@@ -5,7 +5,7 @@ type R = Record<string, unknown>;
 const T = '2026-11-10T10:00:00.123456+00:00';
 
 /** A fake of the PostgREST query builder that understands what pull uses: gt, or(gt/eq keyset), order (two columns), limit. It records every request. */
-function fake(rows: R[], keyCol: string, log: string[] = []) {
+function fake(rows: R[], keyCol: string, log: string[] = [], onRequest?: (n: number) => void) {
   const q = {
     _gt: null as string | null, _or: null as string | null,
     select() { return q; },
@@ -13,6 +13,7 @@ function fake(rows: R[], keyCol: string, log: string[] = []) {
     or(expr: string) { q._or = expr; return q; },
     order() { return q; },
     limit(n: number) {
+      onRequest?.(log.length);
       log.push(q._or ?? 'gt:' + q._gt);
       if (log.length > 200) throw new Error('INFINITE LOOP: ' + log.length + ' page requests');
       let d = [...rows];
@@ -70,10 +71,21 @@ describe('pull pages by (synced_at, key), so rows that share one synced_at canno
     expect(out).toHaveLength(1200);
     expect(log).toHaveLength(3);
   });
-  it('a server that keeps returning the same full page makes pull stop with an error, not loop', async () => {
+  it('50 hikes with one synced_at plus a re-upload of 3 of them while paging: every hike arrives, no error, and the re-uploaded ones come with their newest data', async () => {
+    const rows = Array.from({ length: 50 }, (_, i) => hike(i));
+    const log: string[] = [];
+    // After the first page (25 rows) has been served, another phone re-uploads h003, h010 and h040: their synced_at moves forward.
+    const out = await fake(rows, 'id', log, (n) => { if (n === 1) for (const id of ['h003', 'h010', 'h040']) { const r = rows.find((x) => x.id === id)!; r.synced_at = '2026-11-10T10:00:01.000001+00:00'; r.stats = { name: 'new', endedAt: 1 }; } }).pull('activities', 0);
+    expect(new Set(out.map((r) => r.id)).size).toBe(50);
+    const re = out.find((r) => r.id === 'h003')!;
+    expect(re.payload).toBeTruthy();
+    expect((re.payload as { name?: string }).name).toBe('new');
+    expect(log.length).toBeLessThan(10);
+  });
+  it('a server that ignores the cursor and keeps returning the same full page makes pull stop with an error, not loop', async () => {
     const same = Array.from({ length: 25 }, (_, i) => hike(i));
     const c = { schema: () => ({ from: () => { const q: Record<string, unknown> = {}; for (const m of ['select', 'gt', 'or', 'order']) q[m] = () => q; q.limit = () => Promise.resolve({ data: same, error: null }); return q; } }) } as never;
-    await expect(supabaseRemote(c, 'u', () => false).pull('activities', 0)).rejects.toThrow(/added no new rows/);
+    await expect(supabaseRemote(c, 'u', () => false).pull('activities', 0)).rejects.toThrow(/cursor did not move/);
   });
   it('54000 and RL003 are permanent refusals', async () => {
     const { PERMANENT } = await import('./remote');
@@ -82,6 +94,21 @@ describe('pull pages by (synced_at, key), so rows that share one synced_at canno
 });
 
 import { cleanJson, toRow } from './remote';
+describe('control characters (round 9)', () => {
+  it('cleanJson turns them into a space in strings and in object keys, and keeps tab, newline and carriage return', () => {
+    expect(cleanJson({ ['k\u0001ey']: 'a\u0001b\u0008c\u000bd\u000ce\u000ef\u001fg', ok: 'tab\there\nnew\rline' }))
+      .toEqual({ 'k ey': 'a b c d e f g', ok: 'tab\there\nnew\rline' });
+    expect(cleanJson(['x\u0002y', { n: 'p\u0003q' }])).toEqual(['x y', { n: 'p q' }]);
+  });
+  it('a hike whose name has a control character uploads with a space', () => {
+    const payload = { id: 'h2', name: 'Trail\u0001Run', startedAt: 1762800000000, updatedAt: 1, points: [] };
+    const row = toRow('u', { kind: 'activities', id: 'h2', updatedAt: 1, syncedAt: 0, editedAt: 1, deleted: false, payload } as never, false) as { stats: { name: string } };
+    expect(row.stats.name).toBe('Trail Run');
+    const trail = toRow('u', { kind: 'saved', id: 'w', updatedAt: 1, syncedAt: 0, editedAt: 1, deleted: false, payload: { trail: { name: 'a\u0007b' }, addedAt: 1 } } as never, false) as { trail: { name: string } };
+    expect(trail.trail.name).toBe('a b');
+  });
+});
+
 describe('float residue is cleaned before upload (the database refuses |x| < 1e-12 and a refused hike would park for good)', () => {
   it('cleanJson: tiny becomes 0, non-finite is dropped, normal values are untouched', () => {
     expect(cleanJson({ a: 1e-13, b: -1e-13, c: NaN, d: Infinity, e: 0, f: 37.7749295, g: [1e-20, NaN, 5, { h: 1e-15, i: -Infinity }], s: 'x', n: null }))

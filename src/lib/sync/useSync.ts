@@ -5,7 +5,7 @@ import { getClient } from '../accounts/client';
 import { getSettings } from '../settings';
 import { syncOnce, StaleEpochError, type Cursors, type Owner } from './engine';
 import { isHikeActive } from '../swUpdate';
-import { fullKindOf, noteAccountFull } from './fullNote';
+import { fullKindOf, noteAccountFull, noteParked } from './fullNote';
 import { ensureProfile } from '../accounts/profile';
 import { idbLocal } from './local';
 import { supabaseRemote } from './remote';
@@ -17,7 +17,7 @@ const profiled = new Set<string>();
 const OWNER_KEY = 'sync:owner';
 export const idbOwner: Owner = { get: async () => (await get<string>(OWNER_KEY)) ?? null, set: (id) => set(OWNER_KEY, id) };
 
-export interface PassOutcome { pulled: number; deletedElsewhere: boolean; ownerMismatch?: boolean; retrySoon?: boolean; full?: boolean; fullKinds?: Kind[] }
+export interface PassOutcome { pulled: number; deletedElsewhere: boolean; ownerMismatch?: boolean; retrySoon?: boolean; full?: boolean; fullKinds?: Kind[]; checkParked?: Partial<Record<Kind, number>> }
 
 /** One sync pass for the signed-in user, under the delete gate. Never throws; a failure just means "try again later". */
 export async function runSync(userId: string): Promise<PassOutcome> {
@@ -28,7 +28,7 @@ export async function runSync(userId: string): Promise<PassOutcome> {
       if (!c) return none;
       if (!profiled.has(userId)) { await ensureProfile(c, userId).then(() => profiled.add(userId)).catch(() => {}); }   // once per launch: a profile that failed at sign-in is made at the next sync
       const r = await syncOnce(userId, idbLocal, supabaseRemote(c, userId, () => getSettings().keepTracksLocal), cursors, { canPush: () => !syncGate.paused, canWipe: () => !isHikeActive(), owner: idbOwner });
-      return { pulled: r.pulled, deletedElsewhere: r.deletedElsewhere, ownerMismatch: r.ownerMismatch, full: r.full, fullKinds: r.fullKinds };
+      return { pulled: r.pulled, deletedElsewhere: r.deletedElsewhere, ownerMismatch: r.ownerMismatch, full: r.full, fullKinds: r.fullKinds, checkParked: r.checkParked };
     } catch (e) {
       // A refused write means the data was deleted elsewhere while this pass ran: the next pass will see the new epoch and clear this phone.
       if (e instanceof StaleEpochError) return { ...none, retrySoon: true } as PassOutcome;
@@ -60,6 +60,7 @@ export function useSync(userId: string | null, onPulled: () => void, onDeletedEl
       runSync(userId).then((o) => {
         if (o.ownerMismatch) { cbOwner.current(); return; }
         if (o.full) { for (const k of o.fullKinds ?? []) { const fk = fullKindOf(k); if (fk) noteAccountFull(userId, fk); } cbFull.current(); }
+        for (const [k, n] of Object.entries(o.checkParked ?? {})) { const fk = fullKindOf(k as Kind); if (fk && n) noteParked(userId, fk, n); }
         if (o.deletedElsewhere) { cbDel.current(); cb.current(); }
         else if (o.pulled) cb.current();
         if ((o as PassOutcome & { retrySoon?: boolean }).retrySoon) setTimeout(go, 1500);
