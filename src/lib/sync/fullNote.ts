@@ -6,7 +6,7 @@ import type { Kind } from './merge';
 /** Hikes (the PM's wording, verbatim). */
 export const FULL_NOTE = 'Your account is full. New hikes are saved on this phone only.';
 /** Saved trails and the shortlist. */
-export const FULL_NOTE_TRAILS = 'Your account is full. New saved trails are kept on this phone only.';
+export const FULL_NOTE_TRAILS = 'Your account is full. New saved trails stay on this phone only.';
 export const FULL_EVENT = 'ridgeline:account-full';
 
 export type FullKind = 'hikes' | 'trails';
