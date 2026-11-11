@@ -152,8 +152,8 @@ describe('the Saved tab leaves nothing behind when the prompt is not shown', () 
 
 describe('deleting a hike while signed in', () => {
   it('says it is deleted everywhere, on all signed-in phones', () => {
-    expect(hikeDeleteText(true)).toBe('Delete this hike everywhere? It is removed from your account and from every phone you are signed in on. This cannot be undone.');
-    expect(hikeDeleteText(false)).toBe('Delete this hike from your phone? This cannot be undone.');
+    expect(hikeDeleteText(true, 'ios')).toBe('Delete this hike everywhere? It is removed from your account and from every phone you are signed in on. This cannot be undone.');
+    expect(hikeDeleteText(false, 'ios')).toBe('Delete this hike from your phone? This cannot be undone.');
   });
 });
 
@@ -163,7 +163,7 @@ describe('Profile shows a hike whose route lives on another phone', () => {
   it('as a summary row with the date, distance, time and climb and the note', () => {
     const h = renderToStaticMarkup(<Profile onOpenBadges={() => {}} onReplayTour={() => {}} preset={{ activities: [a as never], trails: [trail as never] }} />);
     expect(h).toContain('Rattlesnake Ledge');
-    expect(h).toContain('Route kept on your other phone');
+    expect(h).toContain('Route kept on your other device')   // tests run as the web build;
     expect(h).toContain('3.8 mi');
     expect(h).toContain('3 h 0 min');
     expect(h).toContain('climbed');

@@ -9,7 +9,7 @@ import { nativePlatform } from '../lib/native/platform';
 import { GuestContinueDialog } from '../components/GuestContinueDialog';
 import { guestNoteText, guestContinueTap, guestContinueClose } from '../lib/accounts/guestContinue';
 import '../components/guestPrompt.css';
-import { thisDevice } from '../lib/native/deviceWord';
+import { localize, thisDevice } from '../lib/native/deviceWord';
 import { focusLandingHeading } from '../lib/focusHeading';
 
 /**
@@ -37,7 +37,7 @@ export function SignIn({ returnTo, onDone, onBack, platform = nativePlatform() }
 
   return (
     <div className="screen pf" data-screen="sign-in">
-      <PageHead title="Sign in" sub={forDelete ? 'Sign in again to the account you want to delete.' : 'Optional. Keep your hikes if you lose or switch phones.'} />
+      <PageHead title="Sign in" sub={forDelete ? 'Sign in again to the account you want to delete.' : localize('Optional. Keep your hikes if you lose or switch phones.', platform)} />
       <div className="pf-body">
         <div className="gp-btns" style={{ padding: '4px 14px' }}>
           {providersFor(platform).map((p) => <ProviderButton key={p} provider={p} platform={platform} forDelete={forDelete} onClick={() => go(p)} />)}

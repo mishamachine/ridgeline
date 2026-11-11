@@ -7,6 +7,7 @@ import { BackIcon } from '../components/Icons';
 import { Placeholder } from '../components/Bobo';
 import boboUrl from '../assets/trail-bobo.svg';
 import './profile.css';
+import { localize } from '../lib/native/deviceWord';
 
 const PATHS: Record<BadgeId, string> = {
   'first-trail': 'M3 19l6-9 4 6 3-4 5 7z',
@@ -91,7 +92,7 @@ export function Badges({ onBack, preset }: { onBack?: () => void; preset?: { act
           </li>
         ))}
       </ul>
-      <p className="bd-foot">Badges are earned from hikes you record. {pick(BADGES_FOOTER)}</p>
+      <p className="bd-foot">Badges are earned from hikes you record. {localize(pick(BADGES_FOOTER))}</p>
     </div>
   );
 }

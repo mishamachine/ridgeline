@@ -9,6 +9,7 @@ import voiceArt from '../assets/onboard-voice.svg';
 import badgesArt from '../assets/onboard-badges.svg';
 import boboUrl from '../assets/trail-bobo.svg';
 import './profile.css';
+import { localize } from '../lib/native/deviceWord';
 
 export interface Card { id: 'find' | 'offline' | 'forks' | 'badges' | 'location'; tag: string; title: string; body: string; art: string; alt: string }
 
@@ -21,15 +22,15 @@ export function onboardingCards(f: { voice: boolean; screenOff: boolean; badges:
       : 'Ridgeline buzzes if you go off route and keeps the screen on while you hike.';
   const cards: Card[] = [
     { id: 'find', tag: 'Find', title: 'Great hikes, minutes away', body: 'Find trails near you. See the length, the climb and the time before you go.', art: findArt, alt: 'A map with trail pins' },
-    { id: 'offline', tag: 'Offline', title: 'Works with no signal', body: 'Tap Save offline the night before. The map and route live on your phone.', art: offlineArt, alt: 'A phone with a saved map' },
+    { id: 'offline', tag: 'Offline', title: 'Works with no signal', body: 'Tap Save offline the night before. ' + localize('The map and route live on your phone.'), art: offlineArt, alt: 'A phone with a saved map' },
     { id: 'forks', tag: f.voice ? 'Voice' : 'Directions', title: f.voice ? 'Bobo talks you through the forks' : 'Keep your eyes on the trail', body: forks, art: voiceArt, alt: 'Bobo at a fork in the trail' },
   ];
-  if (f.badges) cards.push({ id: 'badges', tag: 'Badges', title: 'Collect badges, share Ridgeline', body: 'Earn badges for classics, early starts and more. ' + pick(TOUR_BADGES_SENTENCE) + ' Share Ridgeline with a friend any time from Profile.', art: badgesArt, alt: 'Badges on a trail' });
+  if (f.badges) cards.push({ id: 'badges', tag: 'Badges', title: 'Collect badges, share Ridgeline', body: 'Earn badges for classics, early starts and more. ' + localize(pick(TOUR_BADGES_SENTENCE)) + ' Share Ridgeline with a friend any time from Profile.', art: badgesArt, alt: 'Badges on a trail' });
   if (withLocation) cards.push({ id: 'location', tag: 'Location', title: 'Let Ridgeline find you?', body: 'Your location makes Ridgeline work on the trail. It stops when you finish.', art: boboUrl, alt: 'Bobo with a bandana' });
   return cards;
 }
 
-const PERKS = ['Centre the map on you when you open it or tap Locate', 'Your precise location while you navigate or record a hike', pick(TOUR_LOCATION_PERK)];
+const PERKS = ['Centre the map on you when you open it or tap Locate', 'Your precise location while you navigate or record a hike', localize(pick(TOUR_LOCATION_PERK))];
 
 /**
  * First-run tour. `replay` hides the location card (replayed from Profile).
@@ -116,7 +117,7 @@ export function Onboarding({ onDone, replay = false }: { onDone: () => void; rep
       <div className="ob-foot">
         {card.id === 'location' ? (
           <>
-            <button className="ob-primary" onClick={allow} disabled={asking}>{asking ? 'Waiting for your phone…' : 'Allow location'}</button>
+            <button className="ob-primary" onClick={allow} disabled={asking}>{asking ? localize('Waiting for your phone…') : 'Allow location'}</button>
             <button className="ob-quiet" onClick={finish} disabled={asking}>Not now</button>
           </>
         ) : (

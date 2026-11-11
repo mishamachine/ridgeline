@@ -19,7 +19,7 @@ import { useAccount } from '../lib/accounts/useAccount';
 import { useAccountsState } from '../lib/accounts/flags';
 import { BadgeMedal } from './Badges';
 import './profile.css';
-import { deviceWord, thisDevice } from '../lib/native/deviceWord';
+import { deviceWord, localize, thisDevice } from '../lib/native/deviceWord';
 
 const base = import.meta.env.BASE_URL ?? '/';
 
@@ -38,9 +38,9 @@ export interface ProfileProps {
 }
 
 /** The delete-hike question. Signed in, the hike is removed everywhere, so the question says so. */
-export const hikeDeleteText = (signedIn: boolean) => signedIn
+export const hikeDeleteText = (signedIn: boolean, platform?: 'ios' | 'android' | 'web') => localize(signedIn
   ? 'Delete this hike everywhere? It is removed from your account and from every phone you are signed in on. This cannot be undone.'
-  : 'Delete this hike from your phone? This cannot be undone.';
+  : 'Delete this hike from your phone? This cannot be undone.', platform);
 
 const trailCount = (b: Backup) => new Set([...b.saved.map((x) => x.trail.id), ...b.shortlist.map((x) => x.trail.id)]).size;
 
@@ -124,7 +124,7 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenDeleteAccount, onOpe
       await restoreBackup(pending, progress);
       const trails = trailCount(pending);
       setStatus(`Restored ${pending.activities.length} hikes and ${trails} saved ${trails === 1 ? 'trail' : 'trails'}.${pending.saved.length ? ' Open a trail and tap Save offline to download its map again.' : ''}`);
-    } catch { setStatus(`Restore stopped partway: ${progress.done} of ${progress.total} items were written. Nothing on your phone was deleted. Try again; items already restored are simply replaced.`); }
+    } catch { setStatus(`Restore stopped partway: ${progress.done} of ${progress.total} items were written. Nothing on ${localize('your phone')} was deleted. Try again; items already restored are simply replaced.`); }
     setPending(null);
     reload();
     refreshStorage();
@@ -154,7 +154,7 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenDeleteAccount, onOpe
 
         <h2 className="pf-h">Hike history</h2>
         <div className="pf-group">
-          {recorded.length === 0 && <p className="pf-empty">No hikes yet. Start one from a trail and it is saved here, on your phone.</p>}
+          {recorded.length === 0 && <p className="pf-empty">No hikes yet. Start one from a trail and it is saved here, on {localize('your phone')}.</p>}
           {recorded.map((a) => {
             const summaryOnly = a.points.length < 2 && !!a.summary;
             const canOpen = !!onOpenActivity && !!a.trailId && !summaryOnly;
@@ -164,7 +164,7 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenDeleteAccount, onOpe
               <>
                 <b>{a.name}</b>
                 <small>{distanceValue(distM, u)} {distanceUnit(u)} · {duration(mins)}{summaryOnly ? ` · ${climbValue(a.summary!.climbM, u)} ${climbUnit(u)} climbed` : ''} · {new Date(a.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{a.unfinished ? ' · Unfinished' : ''}</small>
-                {summaryOnly && <small>Route kept on your other phone</small>}
+                {summaryOnly && <small>{localize('Route kept on your other phone')}</small>}
               </>
             );
             return (
@@ -223,7 +223,7 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenDeleteAccount, onOpe
             <Switch on={settings.voice} onChange={(v) => setSettings({ voice: v })} label="Voice directions" />
           </div>
           <p className="pf-note" style={{ margin: 0 }}>
-            {features.voice ? 'Short spoken directions at the forks, using a voice already on your phone.' : 'Spoken directions are coming in a later update; your choice is saved.'} Directions are a guide; check conditions; not for emergency use.
+            {features.voice ? 'Short spoken directions at the forks, using a voice already on ' + localize('your phone') + '.' : 'Spoken directions are coming in a later update; your choice is saved.'} Directions are a guide; check conditions; not for emergency use.
           </p>
 
           <div className="pf-row">
@@ -257,7 +257,7 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenDeleteAccount, onOpe
           )}
 
           <details className="pf-row" style={{ display: 'block', padding: 0 }}>
-            <summary className="pf-row" style={{ borderBottom: 0, cursor: 'pointer', listStyle: 'none' }}><span>Location &amp; privacy</span><span className="val">{pick(PROFILE_LOCATION_SUMMARY)}</span></summary>
+            <summary className="pf-row" style={{ borderBottom: 0, cursor: 'pointer', listStyle: 'none' }}><span>Location &amp; privacy</span><span className="val">{localize(pick(PROFILE_LOCATION_SUMMARY))}</span></summary>
             <div className="pf-credits">
               <p>Ridgeline uses your location to centre the map when you open it or tap Locate, and your precise location while you navigate or record a hike. It stops when you finish. In the web version, location stops when your screen locks, so Ridgeline keeps the screen on. {pick(PROFILE_LOCATION_SENTENCE)}</p>
               <a className="pf-link" href={`${base}privacy/`}>Read the privacy policy</a>
