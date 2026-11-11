@@ -22,14 +22,17 @@ export const PERMANENT = new Set(['RL003', '54000', '23514', '22001']);
 const iso = (ms: number) => new Date(ms).toISOString();
 type Row = Record<string, unknown>;
 
+const CONTROL = /[\u0001-\u0008\u000b\u000c\u000e-\u001f]/g;
 /** Float residue (1e-17 from a subtraction) is refused by the database's json_ok check, and a refused hike would be parked for good. So before upload: any |x| < 1e-12
  *  becomes 0, and a non-finite number is dropped (removed from an object; null inside an array, so positions do not shift). Applied to every JSON column. */
 export function cleanJson<T>(v: T): T {
+  // Strings and object keys too: the database refuses control characters other than tab, newline and carriage return. They become a space.
+  if (typeof v === 'string') return v.replace(CONTROL, ' ') as T;
   if (typeof v === 'number') return (Number.isFinite(v) ? (Math.abs(v) < 1e-12 ? 0 : v) : null) as T;
   if (Array.isArray(v)) return v.map((x) => cleanJson(x)) as T;
   if (v && typeof v === 'object') {
     const out: Record<string, unknown> = {};
-    for (const [k, x] of Object.entries(v as Record<string, unknown>)) { if (typeof x === 'number' && !Number.isFinite(x)) continue; out[k] = cleanJson(x); }
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) { if (typeof x === 'number' && !Number.isFinite(x)) continue; out[k.replace(CONTROL, ' ')] = cleanJson(x); }
     return out as T;
   }
   return v;
@@ -99,7 +102,7 @@ export function supabaseRemote(c: SupabaseClient, userId: string, keepTracksLoca
   return {
     async pull(kind, since) {
       const out = new Map<string, SyncRec>();
-      const keyCol = KEY_COL[kind], limit = pageSize(kind), seen = new Set<string>();
+      const keyCol = KEY_COL[kind], limit = pageSize(kind);
       // Keyset pagination on (synced_at, key). Rows of one upsert share a synced_at, and one upsert can hold as many rows as a page, so "from the last
       // timestamp" cannot move on. The next page starts strictly AFTER the last row's (synced_at, key) pair; the RAW synced_at string goes back as it came
       // (microseconds and all: Date.parse would cut it to milliseconds and could skip or repeat rows).
@@ -110,17 +113,14 @@ export function supabaseRemote(c: SupabaseClient, userId: string, keepTracksLoca
         const { data, error } = await q.order('synced_at', { ascending: true }).order(keyCol, { ascending: true }).limit(limit);
         if (error) throw new Error('sync pull: ' + error.message);
         const rows = (data ?? []) as Row[];
-        let fresh = 0;
-        for (const row of rows) {
-          const k = String(row[keyCol] ?? '');
-          if (!seen.has(k)) { seen.add(k); fresh++; }
-          const r = fromRow(kind, row); if (r) out.set(r.id, r);
-        }
+        for (const row of rows) { const r = fromRow(kind, row); if (r) out.set(r.id, r); }
         if (rows.length < limit) break;
-        // A full page that taught us nothing new means the cursor is not moving: stop loudly instead of looping for ever.
-        if (fresh === 0) throw new Error('sync pull: a full page added no new rows');
         const last = rows[rows.length - 1];
-        after = { at: String(last.synced_at), key: String(last[keyCol] ?? '') };
+        const next = { at: String(last.synced_at), key: String(last[keyCol] ?? '') };
+        // The cursor must move. A full page whose last (synced_at, key) is the pair we already stood on means the server is not honouring the filter: stop loudly.
+        // (A row that is re-uploaded while we page simply reappears further on with a newer synced_at; that is progress, not a loop.)
+        if (after && next.at === after.at && next.key === after.key) throw new Error('sync pull: the cursor did not move');
+        after = next;
       }
       return [...out.values()];
     },
@@ -137,7 +137,7 @@ export function supabaseRemote(c: SupabaseClient, userId: string, keepTracksLoca
         const code = (error as { code?: string } | null)?.code;
         if (code === 'RL001') throw new StaleEpochError();
         if (code === 'RL002') throw new PausedError();
-        return error ? { permanent: PERMANENT.has(String(code)), full: code === 'RL003' } : null;
+        return error ? { permanent: PERMANENT.has(String(code)), full: code === 'RL003', check: code === '23514' } : null;
       };
       for (let i = 0; i < recs.length; i += CHUNK) {
         const batch = recs.slice(i, i + CHUNK);
@@ -145,7 +145,7 @@ export function supabaseRemote(c: SupabaseClient, userId: string, keepTracksLoca
         const ok = await sendGroups(rows, send);
         if (ok) continue;
         // The batch failed: try the rows one by one so a single bad row cannot hold up the others.
-        for (let j = 0; j < rows.length; j++) { const e = await send([rows[j]]); if (e) failed.push({ id: batch[j].id, permanent: e.permanent, full: e.full }); }
+        for (let j = 0; j < rows.length; j++) { const e = await send([rows[j]]); if (e) failed.push({ id: batch[j].id, permanent: e.permanent, full: e.full, check: e.check }); }
       }
       return { failed };
     },

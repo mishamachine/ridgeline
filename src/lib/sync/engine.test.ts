@@ -5,6 +5,7 @@ vi.mock('../native/platform', () => ({ nativePlatform: () => 'ios', isNative: ()
 import { StaleEpochError, parkDelay, retryDelay, syncOnce, type Cursors, type Owner, type PushFailure, type Remote, type SyncOptions } from './engine';
 import { syncGate } from './gate';
 import { fitTrack, MAX_UPLOAD_POINTS } from './trim';
+import { parkedText, noteParked, takeParkedNotes } from './fullNote';
 import { FULL_NOTE_HIKES, FULL_NOTE_HIKES_WEB, FULL_NOTE_SAVED, FULL_NOTE_SAVED_WEB, FULL_NOTE_SHORTLIST, FULL_NOTE_SHORTLIST_WEB, fullKindOf, fullText, noteAccountFull, takeFullNotes } from './fullNote';
 import type { LocalSource } from './local';
 import { winner, type Kind, type SyncRec } from './merge';
@@ -18,6 +19,7 @@ class Server {
   rows = new Map<string, SyncRec>(); clock = 10_000_000; dataEpoch = 0;
   rejectIds = new Set<string>();          // rows the database refuses for good (a constraint violation)
   flakyIds = new Set<string>();           // rows that fail for a passing reason (a timeout)
+  checkIds = new Set<string>();           // rows refused for their content (23514)
   fullIds = new Set<string>();            // rows refused because the account is full (54000)
   pushes: { kind: Kind; ids: string[] }[] = [];
   deleteUserData() { this.rows.clear(); this.dataEpoch++; }
@@ -32,6 +34,7 @@ class Server {
         const failed: PushFailure[] = [];
         for (const r of recs) {
           if (this.rejectIds.has(r.id)) { failed.push({ id: r.id, permanent: true }); continue; }
+          if (this.checkIds.has(r.id)) { failed.push({ id: r.id, permanent: true, check: true }); continue; }
           if (this.fullIds.has(r.id)) { failed.push({ id: r.id, permanent: true, full: true }); continue; }
           if (this.flakyIds.has(r.id)) { failed.push({ id: r.id, permanent: false }); continue; }
           const k = kind + '/' + r.id, old = this.rows.get(k);
@@ -537,6 +540,34 @@ describe('a full account never blocks or loses a hike', () => {
     noteAccountFull('u1', 'hikes', store);                           // ...and never comes back
     expect(takeFullNotes('u1', store)).toEqual([]);
   });
+  it('rows the database refuses for their content (23514) stay on the phone, are parked, and the person is told once, with a count (round 9)', async () => {
+    const s = new Server(), a = new Phone(), store = mem();
+    s.checkIds.add('bad-1'); s.checkIds.add('bad-2');
+    a.put('activities', 'bad-1', 1); a.put('activities', 'bad-2', 2); a.put('activities', 'fine', 3);
+    const r = await a.syncAs(s, 'u1', 1_000_000);
+    expect(r.checkParked).toEqual({ activities: 2 });
+    expect(r.full).toBe(false);                                         // not the "no room" note
+    expect(a.recs.has('activities/bad-1') && a.recs.has('activities/bad-2')).toBe(true);
+    expect(s.rows.has('activities/fine')).toBe(true);
+    noteParked('u1', 'hikes', r.checkParked.activities!, store);
+    noteParked('u1', 'hikes', 5, store);                                // a later count does not bring the note back
+    expect(takeParkedNotes('u1', store)).toEqual(["2 hikes couldn't be saved to your account and are on this phone only."]);
+    expect(takeParkedNotes('u1', store)).toEqual([]);
+    expect(takeParkedNotes('u2', store)).toEqual([]);                   // per account
+    s.pushes.length = 0;
+    await a.syncAs(s, 'u1', 1_000_000 + 60_000);
+    expect(s.pushes.flatMap((p) => p.ids)).not.toContain('bad-1');     // parked, no retry storm
+  });
+  it('the parked-row lines, verbatim, with plural forms, "this device" on the web and "this phone" in the apps', () => {
+    expect(parkedText('hikes', 1, true)).toBe("1 hike couldn't be saved to your account and is on this device only.");
+    expect(parkedText('hikes', 3, true)).toBe("3 hikes couldn't be saved to your account and are on this device only.");
+    expect(parkedText('hikes', 1, false)).toBe("1 hike couldn't be saved to your account and is on this phone only.");
+    expect(parkedText('hikes', 3, false)).toBe("3 hikes couldn't be saved to your account and are on this phone only.");
+    expect(parkedText('saved', 1, true)).toBe("1 saved trail couldn't be saved to your account and is on this device only.");
+    expect(parkedText('saved', 2, false)).toBe("2 saved trails couldn't be saved to your account and are on this phone only.");
+    expect(parkedText('shortlist', 1, true)).toBe("1 shortlisted trail couldn't be saved to your account and is on this device only.");
+    expect(parkedText('shortlist', 4, false)).toBe("4 shortlisted trails couldn't be saved to your account and are on this phone only.");
+  });
   it('the three final lines, verbatim, one per type', () => {
     expect(FULL_NOTE_HIKES).toBe('Your account has no room for more hikes. New hikes are saved on this phone only.');
     expect(FULL_NOTE_SAVED).toBe('Your account has no room for more saved trails. New saved trails stay on this phone only.');
@@ -598,7 +629,7 @@ describe('how the server\'s refusals are read, and how much a pull fetches', () 
   it('RL003 (account full) and the check/size errors are permanent; RL003 is flagged as "full"; anything else is a passing failure', async () => {
     for (const [code, permanent, full] of [['RL003', true, true], ['23514', true, false], ['22001', true, false], ['57014', false, false], ['40P01', false, false]] as const) {
       const out = await supabaseRemote(failing(code) as never, 'u1', () => false).push('shortlist', [rec('w1')], 0);
-      expect(out.failed, code).toEqual([{ id: 'w1', permanent, full }]);
+      expect(out.failed, code).toEqual([{ id: 'w1', permanent, full, check: code === '23514' }]);   // 23514 (a failed check) is the one that tells the person
     }
   });
   it('hikes are pulled 25 at a time (each can carry up to 1 MB of route), the rest 500', async () => {
