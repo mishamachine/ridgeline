@@ -462,7 +462,7 @@ describe('a full account never blocks or loses a hike', () => {
   });
   it('the note says exactly what was asked, and saved trails get their own wording (they are not hikes)', () => {
     expect(FULL_NOTE).toBe('Your account is full. New hikes are saved on this phone only.');
-    expect(FULL_NOTE_TRAILS).toBe('Your account is full. New saved trails are kept on this phone only.');
+    expect(FULL_NOTE_TRAILS).toBe('Your account is full. New saved trails stay on this phone only.');
     expect(fullText(fullKindOf('activities')!)).toBe(FULL_NOTE);
     expect(fullText(fullKindOf('saved')!)).toBe(FULL_NOTE_TRAILS);
     expect(fullText(fullKindOf('shortlist')!)).toBe(FULL_NOTE_TRAILS);
