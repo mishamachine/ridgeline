@@ -22,11 +22,11 @@ type Row = Record<string, unknown>;
 
 const CONTROL = /[\u0001-\u0008\u000b\u000c\u000e-\u001f]/g;
 /** Float residue (1e-17 from a subtraction) is refused by the database's json_ok check, and a refused hike would be parked for good. So before upload: any |x| < 1e-12
- *  becomes 0, and a non-finite number is dropped (removed from an object; null inside an array, so positions do not shift). Applied to every JSON column. */
+ *  becomes a plain 0 (a zero is always written as 0, never 0e-16383: the database refuses a zero with a long scale), and a non-finite number is dropped (removed from an object; null inside an array, so positions do not shift). Applied to every JSON column. */
 export function cleanJson<T>(v: T): T {
   // Strings and object keys too: the database refuses control characters other than tab, newline and carriage return. They become a space.
   if (typeof v === 'string') return v.replace(CONTROL, ' ') as T;
-  if (typeof v === 'number') return (Number.isFinite(v) ? (Math.abs(v) < 1e-12 ? 0 : v) : null) as T;
+  if (typeof v === 'number') return (Number.isFinite(v) ? (v === 0 || Math.abs(v) < 1e-12 ? 0 : v) : null) as T;
   if (Array.isArray(v)) return v.map((x) => cleanJson(x)) as T;
   if (v && typeof v === 'object') {
     const out: Record<string, unknown> = {};
