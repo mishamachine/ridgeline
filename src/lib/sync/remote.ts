@@ -20,6 +20,19 @@ export const PERMANENT = new Set(['RL003', '54000', '23514', '22001']);
 const iso = (ms: number) => new Date(ms).toISOString();
 type Row = Record<string, unknown>;
 
+/** Float residue (1e-17 from a subtraction) is refused by the database's json_ok check, and a refused hike would be parked for good. So before upload: any |x| < 1e-12
+ *  becomes 0, and a non-finite number is dropped (removed from an object; null inside an array, so positions do not shift). Applied to every JSON column. */
+export function cleanJson<T>(v: T): T {
+  if (typeof v === 'number') return (Number.isFinite(v) ? (Math.abs(v) < 1e-12 ? 0 : v) : null) as T;
+  if (Array.isArray(v)) return v.map((x) => cleanJson(x)) as T;
+  if (v && typeof v === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) { if (typeof x === 'number' && !Number.isFinite(x)) continue; out[k] = cleanJson(x); }
+    return out as T;
+  }
+  return v;
+}
+
 /** Hike fields that go in `stats`. The route is separate (`track`). Never add body or health fields here. */
 export function activityToRow(userId: string, r: SyncRec, keepTracksLocal: boolean, epoch = 0): Row {
   if (r.deleted || !r.payload) return { user_id: userId, id: r.id, started_at: iso(0), stats: {}, track: null, updated_at: iso(r.updatedAt), deleted: true, epoch };
@@ -27,17 +40,17 @@ export function activityToRow(userId: string, r: SyncRec, keepTracksLocal: boole
   const { id, trailId, startedAt, points, updatedAt: _u, ...stats } = a;
   void id; void _u;
   return {
-    user_id: userId, id: a.id, trail_id: trailId ?? null, started_at: iso(startedAt), stats,
-    track: keepTracksLocal ? null : fitTrack(trimTrack(points)), // first and last 200 m removed, thinned to fit the server cap; null when "phone only" or nothing is left
+    user_id: userId, id: a.id, trail_id: trailId ?? null, started_at: iso(startedAt), stats: cleanJson(stats),
+    track: keepTracksLocal ? null : cleanJson(fitTrack(trimTrack(points))), // first and last 200 m removed, thinned to fit the server cap; null when "phone only" or nothing is left
     updated_at: iso(r.updatedAt), deleted: false, epoch,
   };
 }
 
 export function toRow(userId: string, r: SyncRec, keepTracksLocal: boolean, epoch = 0): Row {
   if (r.kind === 'activities') return activityToRow(userId, r, keepTracksLocal, epoch);
-  if (r.kind === 'settings') return { user_id: userId, data: r.payload ?? {}, updated_at: iso(r.updatedAt), epoch };
+  if (r.kind === 'settings') return { user_id: userId, data: cleanJson(r.payload ?? {}), updated_at: iso(r.updatedAt), epoch };
   const p = r.payload as { trail?: unknown; addedAt?: number } | null;
-  return { user_id: userId, trail_id: r.id, trail: r.deleted ? null : p?.trail ?? null, added_at: iso(p?.addedAt ?? r.updatedAt), updated_at: iso(r.updatedAt), deleted: r.deleted, epoch };
+  return { user_id: userId, trail_id: r.id, trail: r.deleted ? null : cleanJson(p?.trail ?? null), added_at: iso(p?.addedAt ?? r.updatedAt), updated_at: iso(r.updatedAt), deleted: r.deleted, epoch };
 }
 
 /** Returns null for a row that does not look right (it is skipped, never half-applied). */
