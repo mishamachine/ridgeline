@@ -60,6 +60,7 @@ directions through the audio background mode while the phone is locked or in a p
 the hike starts and stop when it ends; the system blue location indicator is shown the whole time. Location is never
 sent off the device. Without the background mode, directions would stop when the screen locks and hikers could miss a
 fork." Also paste the "Safety line" above. Purpose string text is in `ios/App/App/Info.plist`.
+App Review contact email: machinemisha@gmail.com.
 
 ## Google Play (Android)
 
@@ -75,6 +76,7 @@ fork." Also paste the "Safety line" above. Purpose string text is in `ios/App/Ap
 6. App Links: after the first upload, Play Console -> Setup -> App signing shows the SHA-256 certificate
    fingerprint. Put it in `public/.well-known/assetlinks.json` (replace the TODO) and deploy it to
    hike.bbprojectfactory.com.
+7. Store listing contact email (Play Console -> Store settings / main store listing): machinemisha@gmail.com.
 
 ## Site side
 
