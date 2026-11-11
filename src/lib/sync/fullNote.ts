@@ -47,7 +47,12 @@ export function takeFullNotes(userId: string | null, s: Store | null = store()):
 /** The sync pass found n rows of this kind refused for their content. Marks the note as waiting (with the count), unless it was already shown for that account. */
 export function noteParked(userId: string, kind: FullKind, n: number, s: Store | null = store()) {
   if (n < 1) return;
-  try { if (s?.getItem(pkey(userId, kind))) return; s?.setItem(pkey(userId, kind), 'pending:' + n); } catch { return; }
+  try {
+    const cur = s?.getItem(pkey(userId, kind));
+    if (cur === 'shown') return;                                  // already told: never again
+    if (cur === 'pending:' + n) return;
+    s?.setItem(pkey(userId, kind), 'pending:' + n);               // more rows may park before the note is shown: the count follows them
+  } catch { return; }
   try { window.dispatchEvent(new Event(FULL_EVENT)); } catch { /* no window */ }
 }
 /** The parked-row notes due now for this account, each exactly once, in the order hikes, saved trails, shortlist. */
