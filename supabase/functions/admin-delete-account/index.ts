@@ -47,11 +47,17 @@ Deno.serve(async (req) => {
       log: (ev) => console.log(JSON.stringify({ fn: 'admin-delete-account', ev })),   // event names only: never the id, the secret or a token
     }));
     // done (the row is already gone when the whole account was deleted: it cascades). A failed or partial delete is released so the same request can be retried.
-    await rl.from('deletion_requests').update(out.status === 'ok' ? { status: 'done' } : { status: 'confirmed', used_at: null }).eq('id', input.requestId);
+    const { error: finishError } = await rl.from('deletion_requests').update(out.status === 'ok' ? { status: 'done' } : { status: 'confirmed', used_at: null }).eq('id', input.requestId);
+    if (finishError) console.log(JSON.stringify({ fn: 'admin-delete-account', ev: out.status === 'ok' ? 'done_failed' : 'release_failed' }));
     return out.status === 'failed' ? reply(502, out) : reply(200, out);
   } catch {
     console.error('admin-delete-account failed');
-    if (claimedNow) { try { await rl.from('deletion_requests').update({ status: 'confirmed', used_at: null }).eq('id', input.requestId); } catch { /* the request stays 'executing' and is looked at by hand */ } }
+    if (claimedNow) {
+      try {
+        const { error: releaseError } = await rl.from('deletion_requests').update({ status: 'confirmed', used_at: null }).eq('id', input.requestId);
+        if (releaseError) console.log(JSON.stringify({ fn: 'admin-delete-account', ev: 'release_failed' }));
+      } catch { console.log(JSON.stringify({ fn: 'admin-delete-account', ev: 'release_failed' })); }   // the request stays 'executing' and is looked at by hand
+    }
     return reply(500, { status: 'failed' });
   }
 });
