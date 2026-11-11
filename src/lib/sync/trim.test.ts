@@ -42,3 +42,7 @@ describe('trimTrack', () => {
     for (const p of out) { expect(d(pts[0], p)).toBeGreaterThanOrEqual(TRIM_M); expect(d(p, pts[pts.length - 1])).toBeGreaterThanOrEqual(TRIM_M); }
   });
 });
+
+describe('the privacy copy depends on the trim distance', () => {
+  it('TRIM_M is at least 200 m (the copy says "minus the first and last 200 m")', () => { expect(TRIM_M).toBeGreaterThanOrEqual(200); });
+});
