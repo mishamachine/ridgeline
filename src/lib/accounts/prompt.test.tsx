@@ -188,7 +188,7 @@ describe('privacy page', () => {
   });
   it('carries the approved wording', () => {
     for (const s of ['the first and last 200 m removed', 'Supabase (our database provider) stores your data in the United States (Oregon)', 'backup copies are erased within 8 days, when backups roll over',
-      'Signing in to Ridgeline doesn\'t share your hikes with those apps', 'Usage counts are never linked to your account', 'we also tell Apple to disconnect Ridgeline', 'the name and profile picture Google or Apple share with us'])
+      'Signing in to Ridgeline doesn\'t share your hikes with those apps', 'Our visit counter is never linked to your account', 'sign-in records (when you signed in, and the IP address and browser used, kept by our database provider for security)', 'we also tell Apple to disconnect Ridgeline', 'the name and profile picture Google or Apple share with us'])
       expect(ACCOUNTS_SECTION_HTML).toContain(s);
     expect(ACCOUNTS_SECTION_HTML).not.toMatch(/Babar|\[N\]|TODO/);
   });
@@ -217,5 +217,15 @@ describe('privacy page', () => {
   it('reads the flag from features.ts text', () => {
     expect(accountsFlagOn('  accounts: true,')).toBe(true);
     expect(accountsFlagOn('  // accounts: true\n  accounts: false,')).toBe(false);
+  });
+});
+
+describe('Accounts section: the sign-in records line and the visit-counter line (CBO)', () => {
+  it('the "we store" list has the 5th item verbatim, and the usage line is replaced', () => {
+    expect(ACCOUNTS_SECTION_HTML).toContain('<li>sign-in records (when you signed in, and the IP address and browser used, kept by our database provider for security)</li>');
+    expect(ACCOUNTS_SECTION_HTML.slice(ACCOUNTS_SECTION_HTML.indexOf('we store:'), ACCOUNTS_SECTION_HTML.indexOf('</ul>')).match(/<li>/g)).toHaveLength(5);
+    expect(ACCOUNTS_SECTION_HTML).toContain('<p><strong>Usage counts.</strong> Our visit counter is never linked to your account.</p>');
+    expect(ACCOUNTS_SECTION_HTML).not.toContain('Usage counts are separate');
+    expect(ACCOUNTS_SECTION_HTML).not.toContain('Usage counts are never linked');
   });
 });
