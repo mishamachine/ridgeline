@@ -37,7 +37,7 @@ describe('native sign-in', () => {
   it('sends the hashed nonce to the sheet and the raw nonce to Supabase', async () => {
     const { c, raw } = fakeClient();
     const p = plugin({ idToken: 'tok' });
-    expect(await signInNative('google', c, p)).toEqual({ ok: true });
+    expect(await signInNative('google', c, p, true)).toEqual({ ok: true });
     const hashed = (p.login as ReturnType<typeof vi.fn>).mock.calls[0][1] as string;
     const args = raw.auth.signInWithIdToken.mock.calls[0] as unknown as [{ provider: string; token: string; nonce: string }];
     expect(args[0]).toMatchObject({ provider: 'google', token: 'tok' });
@@ -51,23 +51,23 @@ describe('native sign-in', () => {
   });
   it('passes Apple\'s authorization code to the apple-token function, and only for Apple', async () => {
     const a = fakeClient();
-    await signInNative('apple', a.c, plugin({ idToken: 't', authorizationCode: 'code123' }));
+    await signInNative('apple', a.c, plugin({ idToken: 't', authorizationCode: 'code123' }), true);
     expect(a.raw.functions.invoke).toHaveBeenCalledWith('apple-token', { body: { code: 'code123' } });
     const g = fakeClient();
-    await signInNative('google', g.c, plugin({ idToken: 't', authorizationCode: 'ignored' }));
+    await signInNative('google', g.c, plugin({ idToken: 't', authorizationCode: 'ignored' }), true);
     expect(g.raw.functions.invoke).not.toHaveBeenCalled();
   });
   it('still signs in when the token capture fails', async () => {
     const a = fakeClient();
     a.raw.functions.invoke.mockRejectedValueOnce(new Error('down'));
-    expect(await signInNative('apple', a.c, plugin({ idToken: 't', authorizationCode: 'c' }))).toEqual({ ok: true });
+    expect(await signInNative('apple', a.c, plugin({ idToken: 't', authorizationCode: 'c' }), true)).toEqual({ ok: true });
   });
   it('reports cancel, missing token and rejected token distinctly and creates no profile', async () => {
     const a = fakeClient();
-    expect(await signInNative('apple', a.c, plugin(Object.assign(new Error('x'), { code: 'USER_CANCELLED' })))).toEqual({ ok: false, reason: 'cancelled' });
-    expect(await signInNative('apple', a.c, plugin({ idToken: null }))).toEqual({ ok: false, reason: 'failed' });
+    expect(await signInNative('apple', a.c, plugin(Object.assign(new Error('x'), { code: 'USER_CANCELLED' })), true)).toEqual({ ok: false, reason: 'cancelled' });
+    expect(await signInNative('apple', a.c, plugin({ idToken: null }), true)).toEqual({ ok: false, reason: 'failed' });
     const b = fakeClient({ idTokenError: true });
-    expect(await signInNative('google', b.c, plugin({ idToken: 't' }))).toEqual({ ok: false, reason: 'failed' });
+    expect(await signInNative('google', b.c, plugin({ idToken: 't' }), true)).toEqual({ ok: false, reason: 'failed' });
     expect(a.upsert).not.toHaveBeenCalled();
     expect(b.upsert).not.toHaveBeenCalled();
   });
@@ -101,7 +101,7 @@ describe('no profile write while sign-in is paused', () => {
     await ensureProfile(c as never, 'u', false);
     expect(upsert).not.toHaveBeenCalled();
     const { c: client, upsert: up2 } = fakeClient();
-    expect(await signInNative('google', client, plugin({ idToken: 't' }), false)).toEqual({ ok: true });
+    expect((await signInNative('google', client, plugin({ idToken: 't' }), false)).ok).toBe(false);   // paused and not a known account: signed out again, nothing written
     expect(up2).not.toHaveBeenCalled();
   });
 });
@@ -125,5 +125,53 @@ describe('accounts flag OFF (the shipped state): the app behaves as before', () 
     const h = renderToStaticMarkup(<AccountRow enabled />);
     expect(h).toContain('Not signed in. Your hikes are saved only on this phone.');
     expect(h).toContain('>Sign in<');
+  });
+});
+
+describe('while sign-in is paused only the account this phone already had may sign in', () => {
+  const mem = () => { const m = new Map<string, string>(); return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => { m.set(k, v); }, removeItem: (k: string) => { m.delete(k); } }; };
+  const withStore = async <T,>(fn: () => Promise<T>) => { const s = mem(); vi.stubGlobal('localStorage', s); try { return await fn(); } finally { vi.unstubAllGlobals(); } };
+  const clientFor = (userId: string) => { const signOut = vi.fn(async () => ({})); return { signOut, c: { auth: { signInWithIdToken: vi.fn(async () => ({ data: { user: { id: userId } }, error: null })), signOut, getSession: vi.fn(async () => ({ data: { session: { user: { id: userId } } } })) }, schema: () => ({ from: () => ({ upsert: async () => ({ error: null }) }) }), functions: { invoke: vi.fn() } } }; };
+  it('a re-sign-in as the SAME account is fine, and writes nothing', async () => {
+    await withStore(async () => {
+      const { markSession } = await import('./session');
+      markSession('u-known');
+      const { c, signOut } = clientFor('u-known');
+      expect(await signInNative('google', c as never, plugin({ idToken: 't' }), false)).toEqual({ ok: true });
+      expect(signOut).not.toHaveBeenCalled();
+    });
+  });
+  it('a DIFFERENT account is signed out again at once, and the person is told', async () => {
+    await withStore(async () => {
+      const { markSession, DIFFERENT_ACCOUNT_MESSAGE } = await import('./session');
+      markSession('u-known');
+      const { c, signOut } = clientFor('u-stranger');
+      expect(await signInNative('apple', c as never, plugin({ idToken: 't' }), false)).toEqual({ ok: false, reason: 'different-account' });
+      expect(signOut).toHaveBeenCalled();
+      expect(DIFFERENT_ACCOUNT_MESSAGE).toContain('not the account used on this phone');
+      expect(DIFFERENT_ACCOUNT_MESSAGE).toContain('ask for deletion by email');
+    });
+  });
+  it('the web redirect path does the same', async () => {
+    await withStore(async () => {
+      const { markSession } = await import('./session');
+      const { completeWebSignIn } = await import('./auth');
+      markSession('u-known');
+      const same = clientFor('u-known'); expect(await completeWebSignIn(same.c as never, false)).toBe(true); expect(same.signOut).not.toHaveBeenCalled();
+      const other = clientFor('u-stranger'); expect(await completeWebSignIn(other.c as never, false)).toBe('different-account'); expect(other.signOut).toHaveBeenCalled();
+    });
+  });
+  it('a phone that never had an account cannot sign anyone in while paused; signing in while live records the account', async () => {
+    await withStore(async () => {
+      const { lastUserId, hadSession } = await import('./session');
+      expect(hadSession()).toBe(false);
+      const { c, signOut } = clientFor('u-new');
+      expect(await signInNative('google', c as never, plugin({ idToken: 't' }), false)).toEqual({ ok: false, reason: 'different-account' });
+      expect(signOut).toHaveBeenCalled();
+      const live = clientFor('u-new');
+      expect(await signInNative('google', live.c as never, plugin({ idToken: 't' }), true)).toEqual({ ok: true });
+      expect(lastUserId()).toBe('u-new');
+      expect(hadSession()).toBe(true);
+    });
   });
 });

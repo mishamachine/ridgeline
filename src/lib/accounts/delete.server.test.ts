@@ -224,7 +224,7 @@ describe('whole-account delete from the web for an Apple user who also signed in
     const vault = new Map<string, string>();                                   // what the apple-token function stores in Vault
     const iphone = { functions: { invoke: vi.fn(async (_name: string, opts: { body: { code: string } }) => { vault.set('u1', 'refresh-from-iphone:' + opts.body.code); return { data: { ok: true }, error: null }; }) }, auth: {}, schema: () => ({ from: () => ({ upsert: async () => ({ error: null }) }) }) };
     const { signInNative } = await import('./auth');
-    expect((await signInNative('apple', { ...iphone, auth: { signInWithIdToken: async () => ({ data: { user: { id: 'u1' } }, error: null }) } } as never, { login: async () => ({ idToken: 'id', authorizationCode: 'code-1' }) })).ok).toBe(true);
+    expect((await signInNative('apple', { ...iphone, auth: { signInWithIdToken: async () => ({ data: { user: { id: 'u1' } }, error: null }) } } as never, { login: async () => ({ idToken: 'id', authorizationCode: 'code-1' }) }, true)).ok).toBe(true);
     expect(vault.get('u1')).toBe('refresh-from-iphone:code-1');
     // Later, on the web (no token captured there), the person deletes the whole account. The function does not care where the request came from: it reads the stored token.
     const revoked: string[] = []; const { d, calls } = deps({ readAppleToken: async () => vault.get('u1') ?? null, revokeApple: async (t) => { revoked.push(t); } });

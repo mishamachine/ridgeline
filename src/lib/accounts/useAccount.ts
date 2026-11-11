@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { accountsLive } from './flags';
 import { getClient } from './client';
-import { markHadSession } from './session';
+import { markSession } from './session';
 
 export interface Account { signedIn: boolean; email: string | null; provider: 'google' | 'apple' | null; userId: string | null }
 const GUEST: Account = { signedIn: false, email: null, provider: null, userId: null };
@@ -16,7 +16,7 @@ export function useAccount(enabled: boolean = accountsLive()): Account {
     let live = true;
     p.then((c) => {
       const set = (u: { id: string; email?: string; app_metadata?: { provider?: string } } | undefined) => {
-        if (u) markHadSession();
+        if (u) markSession(u.id);
         if (live) setAcct(u ? { signedIn: true, userId: u.id, email: u.email ?? null, provider: u.app_metadata?.provider === 'apple' ? 'apple' : 'google' } : GUEST);
       };
       c.auth.getSession().then(({ data }) => set(data.session?.user));

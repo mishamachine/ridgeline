@@ -25,6 +25,7 @@ import { ConfirmSheet } from './components/ConfirmSheet';
 import { FindIcon, HikeIcon, ProfileIcon, SavedIcon } from './components/NavIcons';
 import { count } from './lib/counter';
 import { isCallbackPath, completeWebSignIn, takeReturn } from './lib/accounts/auth';
+import { DIFFERENT_ACCOUNT_MESSAGE } from './lib/accounts/session';
 import { getClient } from './lib/accounts/client';
 import { useAccount } from './lib/accounts/useAccount';
 import { startFlagRefresh, useAccountsState } from './lib/accounts/flags';
@@ -79,7 +80,10 @@ export function App() {
   useEffect(() => {
     if (!isCallbackPath(location.pathname, base)) return;
     if (!features.accounts) return;
-    getClient(features.accounts)?.then(completeWebSignIn).finally(() => {
+    getClient(features.accounts)?.then(async (c) => {
+      const r = await completeWebSignIn(c);
+      if (r === 'different-account') toast(DIFFERENT_ACCOUNT_MESSAGE);
+    }).finally(() => {
       // Back to where the person was: the delete page if they signed in again to delete, else Profile.
       const next: Route = takeReturn() === 'account-delete' ? { kind: 'account-delete' } : { kind: 'tab', tab: 'profile' };
       history.replaceState(null, '', routePath(next, base)); setRoute(next);

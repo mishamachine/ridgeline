@@ -10,9 +10,11 @@ import type { Kind, SyncRec } from './merge';
 import { fitTrack, trimTrack } from './trim';
 
 const TABLE: Record<Kind, string> = { shortlist: 'shortlist', saved: 'saved', activities: 'activities', settings: 'settings' };
-const PAGE = 500, CHUNK = 25;
+const CHUNK = 25;
+/** Rows per pull page. Hikes carry routes (up to 1 MB each), so a page of them is small: 25 rows is at most about 25 MB. */
+export const pageSize = (kind: Kind) => (kind === 'activities' ? 25 : 500);
 /** Database refusals that retrying the same row can never fix: over a limit, a failed check, a value too long. */
-export const PERMANENT = new Set(['54000', '23514', '22001']);
+export const PERMANENT = new Set(['RL003', '23514', '22001']);
 const iso = (ms: number) => new Date(ms).toISOString();
 type Row = Record<string, unknown>;
 
@@ -84,11 +86,11 @@ export function supabaseRemote(c: SupabaseClient, userId: string, keepTracksLoca
       for (;;) {
         // Rows of one upsert share a synced_at, so later pages start AT the last timestamp (>=) and de-duplicate.
         const q = t(kind).select('*');
-        const { data, error } = await (first ? q.gt('synced_at', iso(from)) : q.gte('synced_at', iso(from))).order('synced_at', { ascending: true }).limit(PAGE);
+        const { data, error } = await (first ? q.gt('synced_at', iso(from)) : q.gte('synced_at', iso(from))).order('synced_at', { ascending: true }).limit(pageSize(kind));
         if (error) throw new Error('sync pull: ' + error.message);
         const rows = (data ?? []) as Row[];
         for (const row of rows) { const r = fromRow(kind, row); if (r) out.set(r.id, r); }
-        if (rows.length < PAGE) break;
+        if (rows.length < pageSize(kind)) break;
         first = false;
         from = Date.parse(String(rows[rows.length - 1].synced_at));
       }
@@ -107,7 +109,7 @@ export function supabaseRemote(c: SupabaseClient, userId: string, keepTracksLoca
         const code = (error as { code?: string } | null)?.code;
         if (code === 'RL001') throw new StaleEpochError();
         if (code === 'RL002') throw new PausedError();
-        return error ? { permanent: PERMANENT.has(String(code)), full: code === '54000' } : null;
+        return error ? { permanent: PERMANENT.has(String(code)), full: code === 'RL003' } : null;
       };
       for (let i = 0; i < recs.length; i += CHUNK) {
         const batch = recs.slice(i, i + CHUNK);
