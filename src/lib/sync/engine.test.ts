@@ -558,6 +558,36 @@ describe('a full account never blocks or loses a hike', () => {
     await a.syncAs(s, 'u1', 1_000_000 + 60_000);
     expect(s.pushes.flatMap((p) => p.ids)).not.toContain('bad-1');     // parked, no retry storm
   });
+  it('every note exists in BOTH variants, "this phone" in the apps and "this device" on the web: full and parked, hikes, saved trails and shortlist', () => {
+    for (const k of ['hikes', 'saved', 'shortlist'] as const) {
+      const fullPhone = fullText(k, false), fullWeb = fullText(k, true);
+      expect(fullPhone, k).toContain('this phone only'); expect(fullPhone).not.toContain('device');
+      expect(fullWeb, k).toContain('this device only'); expect(fullWeb).not.toContain('phone');
+      expect(fullWeb).toBe(fullPhone.replace('this phone', 'this device'));
+      for (const n of [1, 2, 7]) {
+        const phone = parkedText(k, n, false), web = parkedText(k, n, true);
+        expect(phone, `${k} ${n}`).toMatch(/on this phone only\.$/); expect(phone).not.toContain('device');
+        expect(web, `${k} ${n}`).toMatch(/on this device only\.$/); expect(web).not.toContain('phone');
+        expect(web).toBe(phone.replace('this phone', 'this device'));
+        expect(phone).toContain(n === 1 ? ' is on ' : ' are on ');
+      }
+    }
+  });
+  it('the stored notes pick the variant for where they run: the apps say phone, the web says device', async () => {
+    const mem2 = () => { const m = new Map<string, string>(); return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => { m.set(k, v); } }; };
+    const platform = await import('../native/platform');
+    const run = (name: 'ios' | 'android' | 'web') => {
+      const spy = vi.spyOn(platform, 'nativePlatform').mockReturnValue(name);
+      try {
+        const st = mem2();
+        noteAccountFull('u', 'hikes', st); noteAccountFull('u', 'saved', st); noteAccountFull('u', 'shortlist', st);
+        noteParked('u', 'hikes', 2, st); noteParked('u', 'saved', 1, st); noteParked('u', 'shortlist', 3, st);
+        return [...takeFullNotes('u', st), ...takeParkedNotes('u', st)];
+      } finally { spy.mockRestore(); }
+    };
+    for (const p of ['ios', 'android'] as const) { const n = run(p); expect(n).toHaveLength(6); expect(n.every((x) => x.includes('this phone only') && !x.includes('device'))).toBe(true); }
+    const web = run('web'); expect(web).toHaveLength(6); expect(web.every((x) => x.includes('this device only') && !x.includes('phone'))).toBe(true);
+  });
   it('the parked-row lines, verbatim, with plural forms, "this device" on the web and "this phone" in the apps', () => {
     expect(parkedText('hikes', 1, true)).toBe("1 hike couldn't be saved to your account and is on this device only.");
     expect(parkedText('hikes', 3, true)).toBe("3 hikes couldn't be saved to your account and are on this device only.");
