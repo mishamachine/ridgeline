@@ -8,7 +8,7 @@ import { nativePlatform } from '../native/platform';
 export const FULL_NOTE_HIKES = 'Your account has no room for more hikes. New hikes are saved on this phone only.';
 export const FULL_NOTE_SAVED = 'Your account has no room for more saved trails. New saved trails stay on this phone only.';
 export const FULL_NOTE_SHORTLIST = 'Your account has no room for more shortlisted trails. New ones stay on this phone only.';
-/** The same lines on the web, where the copy lives in the browser, not on a phone (pending sign-off; swap here and nowhere else). */
+/** The same lines on the web, where the copy lives in the browser, not on a phone (approved wording; change it here and nowhere else). */
 export const FULL_NOTE_HIKES_WEB = 'Your account has no room for more hikes. New hikes are saved on this device only.';
 export const FULL_NOTE_SAVED_WEB = 'Your account has no room for more saved trails. New saved trails stay on this device only.';
 export const FULL_NOTE_SHORTLIST_WEB = 'Your account has no room for more shortlisted trails. New ones stay on this device only.';
