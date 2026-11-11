@@ -109,17 +109,17 @@ create table ridgeline.usage (
 -- Size of a row = the stored size of its big columns (uncompressed, see above; read without fetching them) plus 200 bytes of overhead.
 -- Args: limit, name of the key column, byte cap. An upsert that updates an existing row is never blocked by the row counts.
 -- One statement can write many rows, and the usage row only moves AFTER each row (track_usage), so:
---   * enforce_row_limit keeps a running tally (ONE transaction-local setting per table, ridgeline.tally_<table>, valued uid|bytes|rows|live; a tally that belongs to another user counts as zero) of what this statement has written but track_usage has not yet
+--   * enforce_row_limit keeps a running tally (ONE transaction-local setting per table, ridgeline.tally_<table>, valued uid|bytes|rows|live; a tally that belongs to another user reads as NULL and the caller starts again from zero) of what this statement has written but track_usage has not yet
 --     counted, and refuses at the FIRST row where usage + tally + this row crosses a cap: an over-cap statement stops early instead of writing everything first;
 --   * track_usage is the authority: after moving the usage row it raises RL003 if a cap is crossed, which aborts and rolls back the whole statement.
 -- ONE fixed setting name per table (not per user): a statement that writes rows for thousands of different users cannot create thousands of settings.
--- Reads the tally for this table and user: a tally that belongs to another user, or is missing, is zero.
+-- Reads the tally for this table and user: zeros when there is none, NULL when it belongs to another user (the caller then starts from zero, or leaves it alone).
 create function ridgeline.tally_get(tbl text, uid uuid) returns bigint[] language plpgsql stable set search_path = '' as $$
 declare v text := nullif(current_setting('ridgeline.tally_' || tbl, true), ''); p text[];
 begin
   if v is null then return array[0, 0, 0]::bigint[]; end if;
   p := string_to_array(v, '|');
-  if p[1] is distinct from uid::text then return array[0, 0, 0]::bigint[]; end if;
+  if p[1] is distinct from uid::text then return null; end if;
   return array[p[2]::bigint, p[3]::bigint, p[4]::bigint];
 end $$;
 create function ridgeline.tally_set(tbl text, uid uuid, b bigint, r bigint, l bigint) returns void language plpgsql set search_path = '' as $$
@@ -137,7 +137,7 @@ begin
   else nb := pg_column_size(new); end if;
   perform pg_advisory_xact_lock(hashtextextended(tg_table_name || ':' || new.user_id::text, 0));
   select * into u from ridgeline.usage where user_id = new.user_id and tbl = tg_table_name;
-  tl := ridgeline.tally_get(tg_table_name, new.user_id);
+  tl := coalesce(ridgeline.tally_get(tg_table_name, new.user_id), array[0, 0, 0]::bigint[]);   -- another user's tally: start this user from zero
   t_bytes := tl[1]; t_rows := tl[2]::int; t_live := tl[3]::int;
   if tg_op = 'INSERT' then
     execute format('select exists(select 1 from %I.%I where user_id = $1 and %I::text = $2)', tg_table_schema, tg_table_name, keycol)
@@ -195,9 +195,9 @@ begin
     on conflict (user_id, tbl) do update set bytes = u.bytes + (nb - ob), n_rows = u.n_rows + d_rows, n_live = u.n_live + d_live
     returning u.bytes, u.n_rows, u.n_live into cur;
   -- The row is counted now: take it back out of the tally (it was added by enforce_row_limit with the same numbers).
+  -- A tally that now belongs to another user (a statement that wrote rows for several users) is left alone: it is not ours to change.
   tl := ridgeline.tally_get(tg_table_name, uid);
-  -- (a tally that belonged to another user was read as zero: never go below zero)
-  perform ridgeline.tally_set(tg_table_name, uid, greatest(tl[1] - (nb - ob), 0), greatest(tl[2] - d_rows, 0), greatest(tl[3] - d_live, 0));
+  if tl is not null then perform ridgeline.tally_set(tg_table_name, uid, tl[1] - (nb - ob), tl[2] - d_rows, tl[3] - d_live); end if;
   -- The real cap check: usage now includes every row written so far by this statement.
   if nb - ob > 0 and cur.bytes > maxbytes then raise exception 'ridgeline: storage limit reached for %', tg_table_name using errcode = 'RL003'; end if;
   if d_live > 0 and cur.n_live > lim then raise exception 'ridgeline: row limit (%) reached for %', lim, tg_table_name using errcode = 'RL003'; end if;
@@ -292,3 +292,22 @@ revoke execute on function ridgeline.enforce_row_limit(), ridgeline.track_usage(
 alter table ridgeline.usage enable row level security;
 revoke all on ridgeline.usage from public, anon, authenticated;
 grant select, insert, update, delete on ridgeline.usage to service_role;
+
+-- Deletion requests received by email (see docs/DELETE_BY_EMAIL.md). The admin delete path takes ONLY a request id and looks the rest up here, so a user id never
+-- appears in a workflow input or a log. Service role only: no client policy, no client grant. No email address is stored: the account is identified by user_id,
+-- the confirmation code only by its hash, the message only by its Gmail thread id. The code expires 23 days after the request.
+create table ridgeline.deletion_requests (
+  id              uuid primary key default gen_random_uuid(),
+  user_id         uuid not null references auth.users (id) on delete cascade,
+  mode            text not null check (mode in ('data', 'account')),
+  code_hash       text not null check (length(code_hash) >= 32),
+  created_at      timestamptz not null default now(),
+  expires_at      timestamptz not null default (now() + interval '23 days'),
+  used_at         timestamptz,
+  status          text not null default 'pending' check (status in ('pending', 'confirmed', 'executing', 'done', 'closed', 'refused')),
+  gmail_thread_id text
+);
+create index deletion_requests_user_idx on ridgeline.deletion_requests (user_id);
+alter table ridgeline.deletion_requests enable row level security;
+revoke all on ridgeline.deletion_requests from public, anon, authenticated;
+grant select, insert, update on ridgeline.deletion_requests to service_role;

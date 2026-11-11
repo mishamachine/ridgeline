@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { ADMIN_HEADER, parseAdminInput, secretMatches } from '../../../supabase/functions/_shared/adminAuth';
+import { ADMIN_HEADER, checkRequest, parseAdminInput, secretMatches } from '../../../supabase/functions/_shared/adminAuth';
 import { buildDeleteDeps, type AdminAuth, type RidgelineRpc } from '../../../supabase/functions/_shared/deleteDeps';
 import { deleteAccount } from '../../../supabase/functions/_shared/deleteAccount';
 
@@ -39,12 +39,41 @@ describe('the admin delete check: a secret in a header, compared in constant tim
   });
 });
 
-describe('the admin delete input', () => {
-  it('needs a uuid and a mode of data or account, and nothing else', () => {
-    expect(parseAdminInput({ user_id: UID, mode: 'data' })).toEqual({ ok: true, userId: UID, scope: 'data' });
-    expect(parseAdminInput({ user_id: UID.toUpperCase(), mode: 'account' })).toEqual({ ok: true, userId: UID, scope: 'account' });
-    for (const bad of [null, undefined, 'x', {}, { user_id: UID }, { mode: 'data' }, { user_id: 'not-a-uuid', mode: 'data' }, { user_id: UID, mode: 'everything' }, { user_id: UID, mode: 'DATA' }, { user_id: 12, mode: 'data' }, { user_id: `${UID}; drop table x`, mode: 'data' }, { user_id: ` ${UID}`, mode: 'data' }])
+describe('the admin delete input: a request id and nothing else', () => {
+  const RID = '9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f';
+  it('accepts a uuid request_id', () => {
+    expect(parseAdminInput({ request_id: RID })).toEqual({ ok: true, requestId: RID });
+    expect(parseAdminInput({ request_id: RID.toUpperCase() })).toEqual({ ok: true, requestId: RID });
+  });
+  it('refuses everything else, including any body that carries a user id or a mode', () => {
+    for (const bad of [null, undefined, 'x', [], {}, { request_id: 'nope' }, { request_id: 12 }, { request_id: ` ${RID}` }, { request_id: RID, user_id: UID }, { request_id: RID, mode: 'account' }, { user_id: UID, mode: 'data' }, { user_id: UID }])
       expect(parseAdminInput(bad), JSON.stringify(bad)).toEqual({ ok: false });
+  });
+});
+
+describe('a request is executed only when it is confirmed, unused and unexpired', () => {
+  const now = Date.parse('2026-11-20T00:00:00Z');
+  const row = (over: Record<string, unknown> = {}) => ({ id: 'r', user_id: UID, mode: 'account', status: 'confirmed', expires_at: '2026-12-01T00:00:00Z', used_at: null, ...over }) as never;
+  it('a confirmed request gives the account and the mode (from the row, never from the caller)', () => {
+    expect(checkRequest(row(), now)).toEqual({ ok: true, userId: UID, scope: 'account' });
+    expect(checkRequest(row({ mode: 'data' }), now)).toEqual({ ok: true, userId: UID, scope: 'data' });
+  });
+  it('refuses a missing, pending, executing, done, closed, refused, used, expired or odd-mode request', () => {
+    expect(checkRequest(null, now)).toEqual({ ok: false, reason: 'not_found' });
+    for (const status of ['pending', 'executing', 'done', 'closed', 'refused']) expect(checkRequest(row({ status }), now), status).toEqual({ ok: false, reason: 'not_confirmed' });
+    expect(checkRequest(row({ used_at: '2026-11-19T00:00:00Z' }), now)).toEqual({ ok: false, reason: 'used' });
+    expect(checkRequest(row({ expires_at: '2026-11-19T23:59:59Z' }), now)).toEqual({ ok: false, reason: 'expired' });
+    expect(checkRequest(row({ expires_at: '2026-11-20T00:00:00Z' }), now)).toEqual({ ok: false, reason: 'expired' });   // expired AT the moment
+    expect(checkRequest(row({ mode: 'everything' }), now)).toEqual({ ok: false, reason: 'bad_mode' });
+  });
+  it('the function claims the request once (confirmed to executing, unused, unexpired) before it deletes, and refuses a user without a Ridgeline profile with 404', () => {
+    const src = readFileSync('supabase/functions/admin-delete-account/index.ts', 'utf8');
+    const profileAt = src.indexOf("from('profiles')"), claimAt = src.indexOf("status: 'executing'"), deleteAt = src.indexOf('deleteAccount(check.scope');
+    expect(profileAt).toBeGreaterThan(0); expect(claimAt).toBeGreaterThan(profileAt); expect(deleteAt).toBeGreaterThan(claimAt);   // profile check, then the claim, then the delete
+    expect(src).toContain("if (!profile) return reply(404");
+    expect(src).toContain(".eq('status', 'confirmed').is('used_at', null).gt('expires_at'");
+    expect(src).toContain("check.reason === 'not_found' ? 404 : 409");
+    expect(src).not.toMatch(/input\.userId|input\.scope|body\.user_id|body\.mode/);   // the account and the mode come from the stored request only
   });
 });
 
@@ -121,32 +150,34 @@ describe('the admin delete runs the SAME code as the in-app delete, and returns 
   });
 });
 
-describe('the admin-delete workflow never echoes the secret or the full id', () => {
+describe('the admin-delete workflow takes a request id only and never echoes the secret or an id', () => {
   const wf = readFileSync('.github/workflows/admin-delete.yml', 'utf8');
-  it('is manual, read-only, and uses no actions (so there is nothing unpinned)', () => {
+  it('is manual, read-only, runs in the admin-delete environment, and uses no actions (so there is nothing unpinned)', () => {
     expect(wf).toContain('workflow_dispatch:');
     expect(wf).not.toMatch(/^\s*pull_request|^\s*push:|^\s*schedule:/m);
     expect(wf).toMatch(/permissions:\n\s+contents: read/);
-    const uses = wf.split('\n').filter((l) => /^\s*-?\s*uses:/.test(l));
-    for (const u of uses) expect(u).toMatch(/@[0-9a-f]{40}/);      // any action would have to be pinned to a commit
+    expect(wf).toMatch(/\n    environment: admin-delete\n/);
+    expect(wf).not.toMatch(/reviewers/);                          // no required reviewers: the owner chose that agents handle deletions
+    for (const u of wf.split('\n').filter((l) => /^\s*-?\s*uses:/.test(l))) expect(u).toMatch(/@[0-9a-f]{40}/);
   });
-  it('masks the id, prints only its last 4 characters and the status, and never prints the secret', () => {
-    expect(wf).toContain('echo "::add-mask::$USER_ID"');
-    expect(wf).toContain('...${USER_ID: -4}');
+  it('has exactly one input, request_id: no user id and no mode anywhere (inputs, env, script, comments about inputs)', () => {
+    const inputs = wf.slice(wf.indexOf('inputs:'), wf.indexOf('permissions:'));
+    expect(inputs.match(/^      \w+:$/gm)).toEqual(['      request_id:']);
+    expect(wf).not.toMatch(/user_id|USER_ID|\bMODE\b|"mode"/);
+    expect(wf).toContain('{\\"request_id\\":\\"$REQUEST_ID\\"}');
+  });
+  it('prints only the last 4 characters of the request id and the status, and never the secret', () => {
+    expect(wf).toContain('...${REQUEST_ID: -4}');
     expect(wf).toContain('status $status');
     const echoes = (wf.match(/echo\s+"[^"]*"/g) ?? []).join('\n');
     expect(echoes).not.toMatch(/\$\{?ADMIN_DELETE_SECRET/);
-    const idEchoes = (wf.match(/echo\s+"[^"]*"/g) ?? []).filter((l) => /USER_ID/.test(l));
-    expect(idEchoes.length).toBe(2);                              // the mask line and the final status line only
-    expect(idEchoes.some((l) => l.includes('::add-mask::'))).toBe(true);
-    expect(idEchoes.some((l) => l.includes('USER_ID: -4'))).toBe(true);
+    const idEchoes = (wf.match(/echo\s+"[^"]*"/g) ?? []).filter((l) => /REQUEST_ID/.test(l));
+    expect(idEchoes).toHaveLength(1);
+    expect(idEchoes[0]).toContain('REQUEST_ID: -4');
     expect(wf).toContain('set -euo pipefail');
-    expect(wf).not.toMatch(/set -x|-v\b.*curl|curl.*(--verbose|-v )/);
-    expect(wf).toContain('rm -f out.json');                      // the response body is not kept
+    expect(wf).not.toMatch(/set -x|--verbose|curl -v/);
+    expect(wf).toContain('rm -f out.json');
     expect(wf).toContain('x-admin-delete-secret: $ADMIN_DELETE_SECRET');
   });
-  it('checks the inputs again before using them', () => {
-    expect(wf).toContain('user_id is not a uuid');
-    expect(wf).toContain('mode must be data or account');
-  });
+  it('checks the input again before using it', () => { expect(wf).toContain('request_id is not a uuid'); });
 });

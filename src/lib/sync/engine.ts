@@ -15,7 +15,7 @@ export class StaleEpochError extends Error { constructor() { super('stale data e
 export class PausedError extends Error { constructor() { super('sign-in is paused'); } }
 
 /** A row the server refused. `permanent` means retrying the same row will never work (a size or constraint refusal: RL003, 23514, 22001). */
-export interface PushFailure { id: string; kind?: Kind; permanent: boolean; /** The account is over a storage or row limit (RL003). */ full?: boolean }
+export interface PushFailure { id: string; kind?: Kind; permanent: boolean; /** The account is over a storage or row limit (RL003). */ full?: boolean; /** The database refused the row's content (a failed check, 23514): it stays on this device and the person is told once. */ check?: boolean }
 
 export interface Remote {
   /** The person's data epoch (goes up when "Delete my Ridgeline data" runs). 0 when they have no profile yet. */
@@ -33,14 +33,14 @@ export interface Cursors {
 /** Who the synced copy on this phone belongs to. */
 export interface Owner { get(): Promise<string | null>; set(userId: string): Promise<void> }
 
-export interface Parked { until: number; tries: number; editedAt: number }
+export interface Parked { until: number; tries: number; editedAt: number; check?: boolean }
 const HOUR = 3600_000;
 /** How long a permanently refused row waits before it is tried again: 1 h, 2 h, 4 h ... up to 7 days. */
 export const parkDelay = (tries: number) => Math.min(HOUR * 2 ** Math.max(0, tries - 1), 7 * 24 * HOUR);
 /** How long a kind waits after a transient failure: 1 min, 2, 4 ... up to 15 min. */
 export const retryDelay = (tries: number) => Math.min(60_000 * 2 ** Math.max(0, tries - 1), 15 * 60_000);
 
-export interface SyncResult { pulled: number; pushed: number; failed: number; parked: number; deletedElsewhere: boolean; deferredWipe: boolean; ownerMismatch: boolean; /** The server refused something because the account is full. Nothing local is affected: it just is not uploaded. */ full: boolean; /** Which kinds of record were refused for that reason. */ fullKinds: Kind[] }
+export interface SyncResult { pulled: number; pushed: number; failed: number; parked: number; deletedElsewhere: boolean; deferredWipe: boolean; ownerMismatch: boolean; /** The server refused something because the account is full. Nothing local is affected: it just is not uploaded. */ full: boolean; /** Which kinds of record were refused for that reason. */ fullKinds: Kind[]; /** How many rows are parked because the database refused their content (23514), per kind. */ checkParked: Partial<Record<Kind, number>> }
 export interface SyncOptions {
   kinds?: Kind[]; canPush?: () => boolean;
   /** False while a hike is being recorded: an incoming "deleted on another device" waits until it is finished. */
@@ -62,7 +62,7 @@ const deferKey = (u: string) => `sync:${u}:wipeDeferredAt`;
 export async function syncOnce(userId: string, local: LocalSource, remote: Remote, cursors: Cursors, opts: SyncOptions = {}): Promise<SyncResult> {
   const kinds = opts.kinds ?? KINDS;
   const now = (opts.now ?? Date.now)();
-  const res: SyncResult = { pulled: 0, pushed: 0, failed: 0, parked: 0, deletedElsewhere: false, deferredWipe: false, ownerMismatch: false, full: false, fullKinds: [] };
+  const res: SyncResult = { pulled: 0, pushed: 0, failed: 0, parked: 0, deletedElsewhere: false, deferredWipe: false, ownerMismatch: false, full: false, fullKinds: [], checkParked: {} };
 
   // -1. Whose copy is on this phone? Signing out with "Keep a copy" leaves the first account's data here. A DIFFERENT account must not receive it
   // silently: nothing syncs until the person chooses (add it to this account, or remove it).
@@ -119,12 +119,13 @@ export async function syncOnce(userId: string, local: LocalSource, remote: Remot
     if (candidates.length) {
       const out = await remote.push(kind, candidates, serverEpoch);
       const bad = new Map(out.failed.map((f) => [f.id, f.permanent]));
+      const checkIds = new Set(out.failed.filter((f) => f.check).map((f) => f.id));
       const byId = new Map(candidates.map((r) => [r.id, r]));
       // Permanent refusals are parked with a growing delay and the cursor moves past them; transient ones hold the cursor and back the kind off.
       for (const [id, permanent] of bad) {
         if (!permanent) continue;
         const tries = (parked[id]?.tries ?? 0) + 1;
-        parked[id] = { until: now + parkDelay(tries), tries, editedAt: byId.get(id)!.editedAt };
+        parked[id] = { until: now + parkDelay(tries), tries, editedAt: byId.get(id)!.editedAt, ...(checkIds.has(id) || parked[id]?.check ? { check: true } : {}) };
       }
       for (const r of candidates) if (!bad.has(r.id)) delete parked[r.id];
       const transient = candidates.filter((r) => bad.get(r.id) === false);
@@ -139,6 +140,8 @@ export async function syncOnce(userId: string, local: LocalSource, remote: Remot
       res.failed += bad.size;
       if (out.failed.some((f) => f.full)) { res.full = true; if (!res.fullKinds.includes(kind)) res.fullKinds.push(kind); }
       res.parked += Object.keys(parked).length;
+      const nCheck = Object.values(parked).filter((p) => p.check).length;
+      if (nCheck > 0) res.checkParked[kind] = nCheck;
     } else if (changed.length) {
       await cursors.set(key(userId, kind, 'push'), Math.max(mark, ...changed.map((r) => r.editedAt)));   // everything new was parked: move past it
     }

@@ -37,7 +37,7 @@ describe('no "instantly", and no "straight away" outside that sentence, in any d
 });
 
 describe('deletion by email (Play needs a way to ask without the app): one sentence, one source', () => {
-  const LINE = "You can also email machinemisha@gmail.com from your account's email address. We'll send a confirmation to that address, and once you confirm, we delete within 7 days. (If you signed in with Apple's Hide My Email, delete in Profile › Account instead.)";
+  const LINE = "You can also email machinemisha@gmail.com from your account's email address. We'll send a confirmation to that address. Once you confirm, we delete within 7 days, and never more than one month after your request. The confirmation code expires after 23 days. (If you signed in with Apple's Hide My Email, delete in Profile › Account instead.)";
   const MAIL = 'mailto:machinemisha@gmail.com?subject=Ridgeline%20account%20deletion';
   const plain = (html: string) => html.replace(/<[^>]*>/g, '').replace(/&rsaquo;/g, '›').replace(/&#x27;/g, "'");
   it('the constant is the approved sentence, verbatim', async () => {
