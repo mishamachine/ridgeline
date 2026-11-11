@@ -115,6 +115,11 @@ describe('float residue is cleaned before upload (the database refuses |x| < 1e-
       .toEqual({ a: 0, b: 0, e: 0, f: 37.7749295, g: [0, null, 5, { h: 0 }], s: 'x', n: null });
     expect(cleanJson(1e-12)).toBe(1e-12);
   });
+  it('zeros are written as a plain 0 (the database refuses a zero with a long scale such as 0e-16383)', () => {
+    const out = JSON.stringify(cleanJson({ a: 0, b: -0, c: 0.0, d: [-0, 0e-16383, 5e-324], e: 1e-300 }));
+    expect(out).toBe('{"a":0,"b":0,"c":0,"d":[0,0,0],"e":0}');
+    expect(out).not.toMatch(/e-|\./);
+  });
   it('a hike with 1e-13 in its route and stats uploads as 0', () => {
     const points = Array.from({ length: 120 }, (_, i) => ({ lon: -122.4, lat: 37.7 + i * 0.0001, alt: i === 60 ? 1e-13 : i === 61 ? NaN : 100, acc: 4.5, t: 1762800000000 + i * 5000 }));
     const payload = { id: 'h1', name: 'x', startedAt: 1762800000000, updatedAt: 1, pausedMs: 1e-13, points };
