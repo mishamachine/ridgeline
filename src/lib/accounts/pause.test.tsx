@@ -116,7 +116,7 @@ describe('the runbooks are in the repo and point at each other', () => {
     // step 3 and 4
     for (const s of ['read-only query', "If an account exists for this address, we've sent a confirmation to it.", 'privaterelay.appleid.com', "a **new** message to the account's email on file", '`DELETE RIDGELINE <code>`', '`DELETE ALL <code>`', 'woof.bobolearns.com', 'chess.bobolearns.com/privacy/', 'Ruffspeak', 'Post & Pulse', 'Silly Travel Tool has its own separate sign-in', 'No valid code, no delete']) expect(mail, s).toContain(s);
     // step 5 and the timings
-    for (const s of ['Never run ad-hoc SQL', 'admin-delete.yml', 'does **not** ask for a recent sign-in', 'within **2 days**', 'expires after **30 days**', 'within 7 days of it', 'one line with no personal data']) expect(mail, s).toContain(s);
+    for (const s of ['Never run ad-hoc SQL', 'admin-delete.yml', 'does **not** ask for a recent sign-in', 'within **2 days**', 'expires after **23 days**', 'within 7 days of it', 'one line with no personal data']) expect(mail, s).toContain(s);
     // templates for every branch
     for (const t of ['**A. The request could not be verified**', '**B. No account found (generic)**', '**C. Apple "Hide My Email" account**', '**D. Confirmation', '**E. Code missing, wrong, used or expired**', '**F. Done**', '**G. Partly done**', '**H. Closed without confirmation**']) expect(mail, t).toContain(t);
     expect(mail).toContain('[PAUSE.md](PAUSE.md)');
@@ -137,5 +137,34 @@ describe('the delete-by-email runbook names exactly the apps on the shared sign-
     const template = mail.slice(mail.indexOf('**D. Confirmation'), mail.indexOf('This code works once'));
     expect(template).toContain('[add ", and Fanday" only once Fanday is live]');
     expect(template).not.toMatch(/any other B&B app/);
+  });
+});
+
+describe('round 9: the runbook for request ids, the 23-day code, the Environment and the confirmation check', () => {
+  const mail = readFileSync('docs/DELETE_BY_EMAIL.md', 'utf8');
+  it('uses a request id only: no user id or mode in the workflow, the curl or step 5', () => {
+    const step5 = mail.slice(mail.indexOf('### 5. Execute'), mail.indexOf('### 6. Reply'));
+    expect(step5).toContain('**request id**');
+    expect(step5).toContain('and nothing else');
+    expect(step5).toContain('refuses unless');
+    expect(step5).toContain('the account has a Ridgeline profile');
+    expect(mail).toContain("--data '{\"request_id\":\"<uuid>\"}'");
+    expect(mail).not.toContain('"user_id"');
+    expect(mail).toContain('never put a user id in a workflow input');
+  });
+  it('describes ridgeline.deletion_requests: service role only, a code hash, no email', () => {
+    for (const s of ['`ridgeline.deletion_requests`', 'service role only', 'the **hash** of the code (never the code)', '`created_at + 23 days`', 'no email address', 'Nothing else may set `confirmed`']) expect(mail, s).toContain(s);
+  });
+  it('the CBO timings: code expires at day 23; delete within 7 days of confirmation and within one month of the request; late confirmation gets the expired reply', () => {
+    for (const s of ['**23 days**', 'always within **one month of the first request**', 'a new request starts fresh', 'No valid confirmation by day 23', 'expires in 23 days', 'within 23 days, so we closed', 'it lasts 23 days']) expect(mail, s).toContain(s);
+    expect(mail).not.toMatch(/30 days|30-day/);
+  });
+  it('step 4: the confirmation reply passes the same RAW Authentication-Results check, and a DMARC failure gets the in-app reply', () => {
+    const step4 = mail.slice(mail.indexOf('### 4. Confirmation'), mail.indexOf('### 5. Execute'));
+    for (const s of ['The confirmation reply goes through the same check as the request', 'RAW format', 'the topmost `Authentication-Results` header added by `mx.google.com`', '`dkim=pass` **and** `dmarc=pass`', 'A sender that fails DMARC', '"use the in-app delete" reply (template A)', 'even with a correct code']) expect(step4, s).toContain(s);
+  });
+  it('setup: the admin-delete Environment restricted to main, secret in the environment, no required reviewers, a reviewer can be added', () => {
+    const setup = mail.slice(mail.indexOf('## Setup'));
+    for (const s of ['Environment** named `admin-delete`', 'restricted to the `main` branch', 'in that **environment** (not as a repository-wide secret)', '`environment: admin-delete`', 'No required reviewers are set', 'add Required reviewers to that environment']) expect(setup, s).toContain(s);
   });
 });

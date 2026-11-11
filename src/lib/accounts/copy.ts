@@ -15,7 +15,7 @@ export const DELETION_TIMING = "Deleting removes your data from our live systems
 export const DELETE_EMAIL = 'machinemisha@gmail.com';
 export const DELETE_MAILTO = `mailto:${DELETE_EMAIL}?subject=Ridgeline%20account%20deletion`;
 export const DELETE_EMAIL_BEFORE = 'You can also email ';
-export const DELETE_EMAIL_AFTER = " from your account's email address. We'll send a confirmation to that address, and once you confirm, we delete within 7 days. (If you signed in with Apple's Hide My Email, delete in Profile › Account instead.)";
+export const DELETE_EMAIL_AFTER = " from your account's email address. We'll send a confirmation to that address. Once you confirm, we delete within 7 days, and never more than one month after your request. The confirmation code expires after 23 days. (If you signed in with Apple's Hide My Email, delete in Profile › Account instead.)";
 /** The whole sentence as plain text. */
 export const DELETE_EMAIL_LINE = DELETE_EMAIL_BEFORE + DELETE_EMAIL + DELETE_EMAIL_AFTER;
 /** The same sentence as HTML for the privacy page (the address is a mailto link, the arrow an entity). */
