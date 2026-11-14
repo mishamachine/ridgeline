@@ -24,7 +24,13 @@ async function open(page: Page, rich = false) {
 /** The checks every state shares. */
 async function check(page: Page, state: string, width: number, provider: string[]) {
   mkdirSync(OUT, { recursive: true });
-  await page.screenshot({ path: `${OUT}/${state}-${width}.png`, fullPage: true });
+  // The app scrolls inside its screen, not the document, so grow the window to the content height to capture all of it.
+  const view = page.viewportSize()!;
+  const content = await page.evaluate(() => (document.querySelector('.screen:not([hidden])') as HTMLElement | null)?.scrollHeight ?? 0);
+  await page.setViewportSize({ width: view.width, height: Math.min(6000, Math.max(view.height, content + 90)) });
+  await page.waitForTimeout(150);
+  await page.screenshot({ path: `${OUT}/${state}-${width}.png` });
+  await page.setViewportSize(view);
   const sizes = await page.evaluate(() => {
     const de = document.documentElement;
     const hm = document.querySelector('.hm') as HTMLElement | null;
