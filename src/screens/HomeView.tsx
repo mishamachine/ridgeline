@@ -6,6 +6,7 @@ import { ChevronIcon } from '../components/Icons';
 import { FilterIcon, MapIcon } from '../components/NavIcons';
 import type { SavedItem } from '../lib/saved';
 import type { Trail } from '../lib/trails';
+import { DRIVE_TIME_ENABLED } from '../lib/flags';
 import {
   DIFFICULTIES, DIFFICULTY_NOTE, HOW_WE_RANK, LENGTHS, SORTS, coverageLine,
   type Collection, type HomeFilters, type Region,
@@ -67,9 +68,9 @@ function FilterPanel({ f, set }: { f: HomeFilters; set: (f: HomeFilters) => void
         {DIFFICULTIES.map((d) => <Chip key={d} on={f.difficulty === d} onClick={() => set({ ...f, difficulty: f.difficulty === d ? null : d })}>{d}</Chip>)}
       </div>
       <p className="hm-note">{DIFFICULTY_NOTE}</p>
-      <div role="group" aria-label="Dogs and drive time" className="hm-chips">
+      <div role="group" aria-label={DRIVE_TIME_ENABLED ? 'Dogs and drive time' : 'Dogs'} className="hm-chips">
         <Chip on={f.dogs} onClick={() => set({ ...f, dogs: !f.dogs })}>Dogs: tagged yes</Chip>
-        <Chip disabled>Drive time: later</Chip>
+        {DRIVE_TIME_ENABLED && <Chip disabled>Drive time: later</Chip>}
       </div>
       <div role="group" aria-label="Sort" className="hm-chips">
         {SORTS.map((s) => <Chip key={s.id} on={f.sort === s.id} onClick={() => set({ ...f, sort: s.id })}>Sort: {s.label}</Chip>)}
@@ -108,7 +109,7 @@ function Rail({ c, p }: { c: Collection; p: HomeViewProps }) {
   );
 }
 
-function Grid({ trails, p, driveLater = true }: { trails: Trail[]; p: HomeViewProps; driveLater?: boolean }) {
+function Grid({ trails, p, driveLater = DRIVE_TIME_ENABLED }: { trails: Trail[]; p: HomeViewProps; driveLater?: boolean }) {
   return (
     <ul className="hm-grid">
       {trails.map((t) => (

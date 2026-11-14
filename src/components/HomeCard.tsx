@@ -5,13 +5,14 @@ import { gainM, level, roundTripM } from '../lib/plan';
 import { DOGS_UNKNOWN, DOGS_YES, dogsStatus } from '../lib/parks';
 import type { Trail } from '../lib/trails';
 import { DriveIcon, SavedIcon, CheckIcon } from './NavIcons';
+import { DRIVE_TIME_ENABLED } from '../lib/flags';
 import { RouteSketch } from './RouteSketch';
 
 interface Props {
   trail: Trail;
   saved: boolean;
   offline?: boolean;
-  /** Slot for drive time: it is not built yet, so it says so. */
+  /** Slot for drive time. Hidden until DRIVE_TIME_ENABLED is true. */
   driveLater?: boolean;
   onOpen: (t: Trail) => void;
   onToggleSave: (t: Trail) => void;
@@ -22,7 +23,7 @@ export const distanceLabel = (t: Trail) => `${mi(roundTripM(t))} mi round trip`;
 /** Gain is rounded to the nearest 50 ft: no false precision. */
 export const gainLabel = (t: Trail) => { const g = gainM(t); return g == null ? null : `About ${ft(Math.round(g * M_TO_FT / 50) * 50 / M_TO_FT)} ft gain`; };
 
-export const HomeCard = memo(function HomeCard({ trail, saved, offline, driveLater = true, onOpen, onToggleSave }: Props) {
+export const HomeCard = memo(function HomeCard({ trail, saved, offline, driveLater = DRIVE_TIME_ENABLED, onOpen, onToggleSave }: Props) {
   const gain = gainLabel(trail);
   const lv = level(trail);
   const dogs = dogsStatus(trail);
@@ -38,7 +39,7 @@ export const HomeCard = memo(function HomeCard({ trail, saved, offline, driveLat
       <div className="hm-ft">
         {offline
           ? <span className="hm-badge"><CheckIcon size={14} /> Offline</span>
-          : driveLater ? <span className="hm-drive" title="Drive time is not built yet"><DriveIcon size={14} /> Drive time: later</span> : <span />}
+          : driveLater ? <span className="hm-drive"><DriveIcon size={14} /> Drive time: later</span> : <span />}
         <button className="hm-save" aria-label={saved ? `Remove ${trail.name} from saved` : `Save ${trail.name}`} aria-pressed={saved} onClick={() => onToggleSave(trail)}>
           <SavedIcon filled={saved} />
         </button>
