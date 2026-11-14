@@ -1,10 +1,11 @@
 // Hosted trail data: small grid-cell files built from OpenStreetMap (scripts/build_trails.py).
 import type { BBox } from './geo';
 import { trailBase } from './native/trailBase';
+import type { CoverageRegion } from './coverage';
 import { cumulative, M_TO_FT, M_TO_MI, haversine, type LngLat } from './geo';
 import { HIGHLIGHT_CLIMB_FT, HIGHLIGHT_LONG_MI, parseOverpass, profileFromVertices, withElevation, type Junction, type Trail } from './trails';
 
-export interface CellIndex { v: number; built: string; source: string; elevation?: string; cell: number; bbox: [number, number, number, number] | null; cells: string[] }
+export interface CellIndex { v: number; built: string; source: string; elevation?: string; cell: number; bbox: [number, number, number, number] | null; cells: string[]; /** Covered regions, from builds that list them. */ regions?: CoverageRegion[] }
 /** z: elevation (m) per vertex, delta-encoded: [z0, z1 - z0, z2 - z1, ...]. */
 /**
  * Optional, from newer builds (old apps ignore them):
@@ -15,6 +16,44 @@ type CellJunctions = [number, CellBranch[]][];
 interface CellRoute { id: number; t: Record<string, string>; n: number; m: [number, number[], number[]?, CellJunctions?][]; h?: string[]; th?: number[] }
 interface CellWay { id: number; t: Record<string, string>; g: number[]; z?: number[]; h?: string[]; th?: number[]; j?: CellJunctions }
 export interface CellFile { v: number; r: CellRoute[]; w: CellWay[] }
+
+// Format v2 (scripts/cell_format.py): coordinates are integers at 1e-5 degrees, delta-encoded (first point absolute);
+// z is per kept vertex; `th` and junction branch points are offsets in the same units. decodeCell turns it back into v1.
+const SCALE = 1e5;
+const decodeG = (g: number[]): number[] => {
+  const out: number[] = [];
+  let x = 0, y = 0;
+  for (let i = 0; i < g.length; i += 2) { x += g[i]; y += g[i + 1]; out.push(x / SCALE, y / SCALE); }
+  return out;
+};
+const decodeJ = (j: unknown, flat: number[]): CellJunctions | undefined => {
+  if (!j) return undefined;
+  return (j as [number, (number | string | number[])[][]][]).map(([vi, bs]) => {
+    const vx = Math.round(flat[2 * vi] * SCALE), vy = Math.round(flat[2 * vi + 1] * SCALE);
+    return [vi, bs.map((b) => [(vx + (b[0] as number)) / SCALE, (vy + (b[1] as number)) / SCALE, ...b.slice(2)] as CellBranch)];
+  });
+};
+const decodeTh = (th: number[] | undefined, first: number[]): number[] | undefined =>
+  th && [(Math.round(first[0] * SCALE) + th[0]) / SCALE, (Math.round(first[1] * SCALE) + th[1]) / SCALE, th[2]];
+
+export function decodeCell(f: CellFile): CellFile {
+  if (f.v !== 2) return f;
+  return {
+    v: 1,
+    r: f.r.map((r) => {
+      const m = r.m.map(([wid, g, z, j]) => {
+        const flat = decodeG(g);
+        const dj = decodeJ(j, flat);
+        return (dj ? [wid, flat, z, dj] : [wid, flat, z]) as CellRoute['m'][number];
+      });
+      return { ...r, m, th: decodeTh(r.th, m[0][1]) };
+    }),
+    w: f.w.map((w) => {
+      const g = decodeG(w.g);
+      return { ...w, g, th: decodeTh(w.th, g), j: decodeJ(w.j, g) };
+    }),
+  };
+}
 
 
 let indexPromise: Promise<CellIndex | null> | null = null;
@@ -106,7 +145,8 @@ function pickTrailhead(coords: LngLat[], candidates: (number[] | undefined)[]): 
  * A route that crosses cells is stitched back together from the members each cell holds;
  * if some members are in cells not loaded, it is marked as a partial section.
  */
-export function cellsToTrails(files: CellFile[]): Trail[] {
+export function cellsToTrails(raw: CellFile[]): Trail[] {
+  const files = raw.map(decodeCell);
   const routes = new Map<number, { t: Record<string, string>; n: number; members: Map<number, number[]> }>();
   const ways = new Map<number, CellWay>();
   const zAt = new Map<string, number>();

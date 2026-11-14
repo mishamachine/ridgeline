@@ -8,7 +8,8 @@ import { TrailCard } from '../components/TrailCard';
 import { hasHighlight } from '../components/Chips';
 import { FindIcon, ListIcon, MapIcon, ShareIcon, CloseIcon } from '../components/NavIcons';
 import { LocateIcon } from '../components/Icons';
-import { fetchCellTrails } from '../lib/cells';
+import { fetchCellTrails, getIndex } from '../lib/cells';
+import { byDistance, centreOf, inCoverage, listNames, placeBias, regionsOf, type CoverageRegion } from '../lib/coverage';
 import { fetchTrails, Trail } from '../lib/trails';
 import { getSetting, putSetting } from '../lib/store';
 import { haversine, M_TO_MI, LngLat } from '../lib/geo';
@@ -36,8 +37,6 @@ type Chip = 'near' | 'under3' | 'easy' | 'views' | 'dogs';
 const MAX_SPAN_DEG = 0.5;                          // ~35 km across: a handful of trail cells
 const DEFAULT_VIEW = { center: [-121.78, 47.49] as LngLat, zoom: 12 }; // North Bend, WA: many trails within an hour of Seattle
 const PAGE = 30;
-const WA = { w: -124.9, s: 45.5, e: -116.9, n: 49.1 };
-const inWA = (c: LngLat) => c[0] > WA.w && c[0] < WA.e && c[1] > WA.s && c[1] < WA.n;
 
 /** Search box that stays responsive while the trail list re-renders. */
 const List = memo(function List({ trails, savedIds, offlineIds, me, onOpen, onToggleSave }: {
@@ -76,6 +75,9 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
   const [mapMsg, setMapMsg] = useState(false);
   const [drawTick, setDrawTick] = useState(0);
   const [retry, setRetry] = useState(0);
+  const [regions, setRegions] = useState<CoverageRegion[]>([]); // covered regions, from the data
+  const regionsRef = useRef<CoverageRegion[]>([]);
+  const [outside, setOutside] = useState(false);
 
   const [query, setQuery] = useState('');
   const deferred = useDeferredValue(query);
@@ -131,6 +133,7 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
     const ac = new AbortController();
     abortRef.current = ac;
     setStatus({ kind: 'loading' });
+    setOutside(!inCoverage(regionsRef.current, [(box.west + box.east) / 2, (box.south + box.north) / 2]));
     try {
       // Hosted trail files first (fast, cached for offline); public Overpass servers outside coverage.
       let found = await fetchCellTrails(box, ac.signal).catch((e) => {
@@ -160,8 +163,11 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
   // Start loading trails at once; they do not wait for the map style.
   useEffect(() => {
     let live = true;
-    getSetting<{ center: LngLat; zoom: number }>('lastView').then((last) => {
-      if (live && last && inWA(last.center)) viewRef.current = last;
+    Promise.all([getSetting<{ center: LngLat; zoom: number }>('lastView'), getIndex().catch(() => null)]).then(([last, idx]) => {
+      const r = regionsOf(idx);
+      regionsRef.current = r;
+      if (live) setRegions(r);
+      if (live && last && inCoverage(r, last.center)) viewRef.current = last;
       if (live) loadArea();
     });
     return () => { live = false; abortRef.current?.abort(); };
@@ -210,7 +216,7 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
 
   async function focusSearch() {
     setOpen(true);
-    if (!names.length) setNames(await loadNameIndex());
+    if (!names.length) setNames(await loadNameIndex(viewRef.current.center));
   }
 
   async function onSearch(e: React.FormEvent) {
@@ -220,7 +226,7 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
     if (!navigator.onLine) { setPlaceMsg('You’re offline. Place search needs a connection.'); return; }
     setPlaceBusy(true); setPlaceMsg(null);
     try {
-      const found = await searchPlaces(q);
+      const found = await searchPlaces(q, undefined, placeBias(regions));
       setPlaces(found);
       if (!found.length) setPlaceMsg(`No place called “${q}”.`);
     } catch {
@@ -272,7 +278,7 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
               {!places && (
                 <button className="sg sg-place" disabled={placeBusy} onClick={onSearch}>
                   <span className="sg-name">{placeBusy ? 'Searching places…' : `Search places for “${q}”`}</span>
-                  <span className="sg-sub">Washington first</span>
+                  <span className="sg-sub">{regions.length ? 'Covered areas first' : 'Place search'}</span>
                 </button>
               )}
               {placeMsg && <div className="sg-msg">{placeMsg}</div>}
@@ -324,6 +330,13 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
               trails.length > 0 && filtering ? (
                 <Placeholder title="No trails match these filters">
                   <button className="btn btn-outline" onClick={() => setChips((c) => new Set([...c].filter((x) => x === 'near')))}>Clear filters</button>
+                </Placeholder>
+              ) : outside ? (
+                <Placeholder title="Outside our trail coverage">
+                  Ridgeline has trails for {listNames(regions)} so far.
+                  {byDistance(regions, viewRef.current.center).slice(0, 2).map((r) => (
+                    <button key={r.id} className="btn btn-outline" onClick={() => { setAreaLabel(r.name); flyTo(centreOf(r), 11); }}>Go to {r.name}</button>
+                  ))}
                 </Placeholder>
               ) : (
                 <Placeholder title="No hiking trails mapped in this view">Search a park or town above, or tap Map and move it.</Placeholder>

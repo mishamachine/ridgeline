@@ -6,18 +6,23 @@ on:
   schedule:
     - cron: '17 9 * * 1' # Mondays: rebuild trail data from the latest OpenStreetMap extract
   workflow_dispatch:
+  pull_request: # builds only (never deploys) when the trail pipeline changes
+    branches: [main]
+    paths: ['scripts/**', '.github/workflows/deploy.yml', 'src/lib/cells.ts', 'src/lib/nameIndex.ts']
 
 permissions:
   contents: write # to publish the Hostinger branch
   pages: write
   id-token: write
 
+# One deploy at a time; a newer push cancels an older build. Cancelling is safe: the extracts and DEM tiles are
+# cached the moment they are downloaded, so a restarted build does not fetch them again. PR builds have their own group.
 concurrency:
-  group: pages
+  group: ${{ github.event_name == 'pull_request' && format('pages-pr-{0}', github.ref) || 'pages' }}
   cancel-in-progress: true
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,22 +36,91 @@ jobs:
       - run: pip install -r scripts/requirements.txt
       - run: npm ci
       - run: npm test
-      - name: Test the elevation code (synthetic tiles, no network)
+      - name: Test the elevation code and the region tooling (synthetic data, no network)
         run: python -m unittest discover -s scripts -p "test_*.py"
       - name: Check the trail build script on sample data
         run: python scripts/build_trails.py scripts/sample.osm /tmp/sample-trails sample
-      - run: npm run build
-        env:
-          BASE_PATH: /${{ github.event.repository.name }}/
-      - name: Download Washington OpenStreetMap extract (Geofabrik)
-        run: curl -fsSL -A "ridgeline-trail-build (github.com/${{ github.repository }})" -o washington.osm.pbf https://download.geofabrik.de/north-america/us/washington-latest.osm.pbf
-      - name: Cache Copernicus DEM tiles
+
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: m
+        run: echo "matrix=$(python3 scripts/regions.py matrix)" >> "$GITHUB_OUTPUT"
+
+  # One job per region (scripts/regions.json): a failing region does not stop the others being built,
+  # but the combine step below needs all of them.
+  region:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r scripts/requirements.txt
+      - name: ISO week (the extract is downloaded at most once a week per region)
+        id: week
+        run: echo "iso=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+      - name: Restore the Geofabrik extract
+        id: pbf
+        uses: actions/cache/restore@v4
+        with:
+          path: extract/${{ matrix.id }}.osm.pbf
+          key: geofabrik-${{ matrix.id }}-${{ steps.week.outputs.iso }}
+      - name: Download the extract (Geofabrik JSON index, identifying User-Agent)
+        if: steps.pbf.outputs.cache-hit != 'true'
+        run: mkdir -p extract && python scripts/regions.py fetch ${{ matrix.id }} extract/${{ matrix.id }}.osm.pbf
+      - name: Save the extract at once, so a cancelled build does not download it again
+        if: steps.pbf.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: extract/${{ matrix.id }}.osm.pbf
+          key: geofabrik-${{ matrix.id }}-${{ steps.week.outputs.iso }}
+      - name: Cache Copernicus DEM tiles (per region)
         uses: actions/cache@v4
         with:
           path: scripts/.dem-cache
-          key: copernicus-dem-90m-v1
-      - name: Build hosted trail data (elevation from Copernicus DEM GLO-90)
-        run: python scripts/build_trails.py washington.osm.pbf dist/trails "OpenStreetMap via Geofabrik (Washington)"
+          key: copernicus-dem-90m-v1-${{ matrix.id }}
+          restore-keys: copernicus-dem-90m-v1
+      - name: Build trail data (elevation from Copernicus DEM GLO-90)
+        run: python scripts/build_trails.py extract/${{ matrix.id }}.osm.pbf out/${{ matrix.id }} "OpenStreetMap via Geofabrik (${{ matrix.name }})"
+      - name: Check counts, expected range and classic trails (fails the build)
+        run: python scripts/regions.py check ${{ matrix.id }} out/${{ matrix.id }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trails-${{ matrix.id }}
+          path: out/${{ matrix.id }}
+          retention-days: 3
+
+  build:
+    needs: [test, region]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      - run: npm run build
+        env:
+          BASE_PATH: /${{ github.event.repository.name }}/
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: trails-*
+          path: regions
+      - name: Combine the regions into dist/trails (cells, index with the regions list, names per region)
+        run: python scripts/regions.py combine dist/trails regions/*
       - name: Build a root-domain copy for Hostinger (hike.bbprojectfactory.com)
         run: |
           BASE_PATH=/ npx vite build --outDir dist-root --emptyOutDir
@@ -60,7 +134,7 @@ jobs:
         run: |
           if grep -rIil bobolearns dist dist-root; then echo "old domain found in build output"; exit 1; fi
       - name: Publish the Hostinger copy to the 'hostinger' branch
-        if: github.ref == 'refs/heads/main'
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         run: |
           cd dist-root
           git init -q -b hostinger
@@ -71,6 +145,7 @@ jobs:
         with:
           path: dist
   deploy:
+    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     environment:

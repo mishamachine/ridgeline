@@ -11,6 +11,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import build_trails  # noqa: E402
+import cell_format  # noqa: E402
 import elevation  # noqa: E402
 import highlights as hl  # noqa: E402
 from test_elevation import SAMPLE, read_json, write_tile  # noqa: E402
@@ -125,7 +126,8 @@ class BuildOnSample(unittest.TestCase):
             f.write(f'{name}/{name}.tif\n')
         build_trails.build(SAMPLE, cls.out.name, 'sample', dem_dir=cls.dem.name)
         index = read_json(os.path.join(cls.out.name, 'index.json'))
-        cls.files = [read_json(os.path.join(cls.out.name, c + '.json')) for c in index['cells']]
+        cls.raw = [read_json(os.path.join(cls.out.name, c + '.json')) for c in index['cells']]
+        cls.files = [cell_format.decode_cell(f) for f in cls.raw]  # cells are format v2; the checks below read absolute coordinates
 
     @classmethod
     def tearDownClass(cls):
@@ -189,9 +191,9 @@ class BuildOnSample(unittest.TestCase):
     def test_relation_dog_yes_is_uncertain_when_a_way_says_no(self):
         self.assertIn('dogs?', self.fork(902)[0]['h'])
 
-    def test_cell_version_stays_1_and_old_fields_remain(self):
-        for f in self.files:
-            self.assertEqual(f['v'], 1)
+    def test_cells_are_format_v2_with_one_height_per_kept_vertex(self):
+        for f in self.raw:
+            self.assertEqual(f['v'], 2)
             for r in f['r']:
                 for m in r['m']:
                     self.assertEqual(len(m[1]) // 2, len(m[2]))

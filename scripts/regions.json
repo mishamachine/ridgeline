@@ -1,0 +1,9 @@
+{
+  "_note": "Covered regions. expected_trails is the baseline measured by this build on 13 Nov 2026; the build fails if a region comes in under 50% of it. Refresh it when OSM changes a lot. classics must be found by name in the region's names.json.",
+  "regions": [
+    {"id": "washington", "name": "Washington", "cc": "us", "geofabrik": "us/washington", "expected_trails": 10249,
+     "classics": ["Rattlesnake Ledge", "Mount Si", "Dog Mountain"]},
+    {"id": "oregon", "name": "Oregon", "cc": "us", "geofabrik": "us/oregon", "expected_trails": 7481,
+     "classics": ["Eagle Creek Trail", "Misery Ridge", "Tom McCall"]}
+  ]
+}
