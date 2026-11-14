@@ -130,7 +130,8 @@ export const ROW_MIN = 3;
 
 /** Rows of up to eight trails, best first. A row with fewer than ROW_MIN trails is left out. */
 export function buildCollections(trails: Trail[], origin?: LngLat): Collection[] {
-  const ranked = rankTrails(filterTrails(trails), origin);
+  // A trail whose shown numbers are over 10% from its stored full-line figure stays out of the rows (it remains in search, All trails and on the map).
+  const ranked = rankTrails(filterTrails(trails.filter((t) => !t.statsMismatch)), origin);
   return COLLECTIONS.map((c) => ({ ...c, trails: ranked.filter(c.pick).slice(0, ROW_MAX) })).filter((c) => c.trails.length >= ROW_MIN);
 }
 

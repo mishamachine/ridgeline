@@ -222,7 +222,13 @@ export function cellsToTrails(raw: CellFile[]): Trail[] {
     const s = stored.get(r ? `r${r[1]}` : `w${ends.join('|')}`);
     // A route (relation) is identified by its id, so complete means its numbers are the right ones whatever line was drawn (a branching
     // relation can stitch to a different chain on the simplified geometry). A named path is matched by its two ends, so keep the length guard there.
-    if (!s || (!r && Math.abs(t.lengthM / s[0] - 1) > 0.08)) return t;
+    if (!s) return t;
+    if (!r && Math.abs(t.lengthM / s[0] - 1) > 0.08) {
+      // Not used: the drawn numbers stay. Flag the trail when they are over 10% from the stored ones (length, or headline gain with 30 m or more).
+      const shown = t.loop ? t.ascentM : Math.max(t.ascentM, t.descentM ?? 0), full = t.loop ? s[1] : Math.max(s[1], s[2]);
+      const off = Math.abs(t.lengthM / s[0] - 1) > 0.1 || (full >= 30 && Math.abs(shown / full - 1) > 0.1);
+      return off ? { ...t, statsMismatch: true } : t;
+    }
     return { ...t, lengthM: s[0], ascentM: s[1], descentM: s[2] };
   }
 

@@ -117,3 +117,23 @@ describe('branching relations (stitched differently on the simplified line)', ()
     expect(cellsToTrails([clipped]).some((t) => t.id === 'osm-r5')).toBe(false);
   });
 });
+
+describe('named paths whose shown numbers differ from the stored ones', () => {
+  const g = [-121.9, 47.0, -121.89, 47.0, -121.88, 47.0, -121.87, 47.0];
+  const key = 'w-121.87000,47.00000|-121.90000,47.00000';
+  const path = (s: number[]): CellFile => ({ v: 1, r: [], s: { [key]: s }, w: [{ id: 5, t: { name: 'Ridge Path' }, g, z: [100, 3, 3, 3] }] });
+  const get = (f: CellFile) => cellsToTrails([f]).find((t) => t.name === 'Ridge Path')!;
+  const L = get(path([0, 0, 0])).lengthM;
+  it('is flagged when the length is over 10% from the stored figure, and is still returned (search, All trails, map)', () => {
+    const t = get(path([Math.round(L * 1.5), 50, 5]));
+    expect(t.statsMismatch).toBe(true);
+    expect(t.lengthM).toBe(L);
+  });
+  it('is flagged when the gain is over 10% apart although the length agrees within 10%', () => {
+    expect(get(path([Math.round(L * 1.09), 300, 5])).statsMismatch).toBe(true);
+  });
+  it('is not flagged when the stored numbers are used, or when both agree within 10%', () => {
+    expect(get(path([Math.round(L * 1.02), 50, 5])).statsMismatch).toBeUndefined();
+    expect(get(path([Math.round(L * 1.09), get(path([0, 0, 0])).ascentM ?? 0, 0])).statsMismatch).toBeUndefined();
+  });
+});

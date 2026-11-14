@@ -17,6 +17,8 @@ export interface Trail {
   elevation?: number[];
   ascentM?: number;
   descentM?: number;
+  /** Hosted v2 data: the numbers shown (measured on the simplified line) differ by over 10% from the full-line figure stored at build time. Kept out of Home's collection rows. */
+  statsMismatch?: boolean;
   /**
    * Highlight kinds from the hosted data: view, lake, falls, beach, bikes, horses, dogs, nodogs, climb, long.
    * A trailing '?' means partial or mixed evidence. Absent for Overpass trails and old files.
