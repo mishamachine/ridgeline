@@ -91,3 +91,4 @@
 .ob-primary { min-height: 56px; border-radius: 12px; border: 0; background: var(--red); color: var(--white); font: 800 18px var(--display); }
 .ob-quiet { min-height: 44px; border: 0; background: transparent; font-weight: 600; font-size: 15px; color: var(--ink); }
 .ob-arrows { display: flex; justify-content: space-between; }
+.ob-steps { text-align: left; max-width: 320px; margin: 0 auto; color: var(--ink); }

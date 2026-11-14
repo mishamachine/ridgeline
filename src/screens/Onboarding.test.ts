@@ -34,3 +34,17 @@ describe('onboarding copy is true for this build', () => {
     expect(onboardingCards(web, true).at(-1)!.id).toBe('location');
   });
 });
+
+describe('install card', () => {
+  const web = { voice: false, screenOff: false, badges: true };
+  it('sits right after "Works with no signal", with the approved wording', () => {
+    const cards = onboardingCards(web, true, true);
+    expect(cards.map((c) => c.id).slice(0, 3)).toEqual(['find', 'offline', 'install']);
+    expect(cards[2].title).toBe('Add Ridgeline to your home screen');
+    expect(cards[2].body).toBe('Open it like an app, without the browser bars, with your saved maps one tap away.');
+  });
+  it('is absent by default (installed, native, in-app browser, desktop)', () => {
+    expect(onboardingCards(web, true).some((c) => c.id === 'install')).toBe(false);
+  });
+  it('location stays last', () => expect(onboardingCards(web, true, true).at(-1)!.id).toBe('location'));
+});

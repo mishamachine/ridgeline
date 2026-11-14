@@ -9,10 +9,20 @@ export interface Settings {
   /** New hikes start marked "with a dog". */
   withDogDefault: boolean;
   onboardingSeen: boolean;
+  /** "Add to home screen" pop-up state. Device only; nothing is sent. */
+  installDismissals: number;
+  installLastShown: number;
+  installDone: boolean;
+  /** App launches so far, and the distinct days (YYYY-MM-DD, newest last, at most 3 kept) Ridgeline was opened. */
+  installSessions: number;
+  installDays: string[];
 }
 
-export const DEFAULT_SETTINGS: Settings = { voice: true, units: 'imperial', withDogDefault: false, onboardingSeen: false };
+export const DEFAULT_SETTINGS: Settings = { voice: true, units: 'imperial', withDogDefault: false, onboardingSeen: false,
+  installDismissals: 0, installLastShown: 0, installDone: false, installSessions: 0, installDays: [] };
 export const SETTINGS_KEY = 'ridgeline:settings';
+
+const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0);
 
 /** Keeps only known keys of the right type, so a bad or old value cannot break the app. */
 export function sanitize(raw: unknown): Settings {
@@ -23,6 +33,11 @@ export function sanitize(raw: unknown): Settings {
     units: r.units === 'metric' || r.units === 'imperial' ? r.units : d.units,
     withDogDefault: typeof r.withDogDefault === 'boolean' ? r.withDogDefault : d.withDogDefault,
     onboardingSeen: typeof r.onboardingSeen === 'boolean' ? r.onboardingSeen : d.onboardingSeen,
+    installDismissals: num(r.installDismissals),
+    installLastShown: num(r.installLastShown),
+    installDone: typeof r.installDone === 'boolean' ? r.installDone : d.installDone,
+    installSessions: num(r.installSessions),
+    installDays: Array.isArray(r.installDays) ? r.installDays.filter((x): x is string => typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x)).slice(-3) : [],
   };
 }
 

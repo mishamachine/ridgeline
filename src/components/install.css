@@ -1,0 +1,11 @@
+.a2-card { flex: none; position: relative; margin: 0 12px 8px; padding: 12px 44px 12px 14px; background: var(--card); border: 1px solid var(--hair); border-radius: 14px; box-shadow: 0 2px 10px rgba(0,0,0,.12); outline: none; }
+.a2-title { margin: 0; font: 800 15px/1.25 var(--display); color: var(--ink); }
+.a2-sub { margin: 4px 0 0; font-size: 13px; color: #3A3A3A; }
+.a2-x { position: absolute; top: 0; right: 0; width: 44px; height: 44px; border: 0; background: transparent; font-size: 26px; color: var(--ink); }
+.a2-btns { display: flex; gap: 8px; margin-top: 10px; }
+.a2-btn { flex: 1; min-height: 44px; border: 1px solid var(--ink); border-radius: 12px; background: var(--white); color: var(--ink); font-weight: 700; font-size: 15px; }
+.a2-btn.solid { background: var(--ink); color: var(--white); }
+.a2-steps { margin: 8px 0 0; padding-left: 22px; font-size: 14px; line-height: 1.7; }
+.a2-share { vertical-align: -3px; }
+.a2-inline { padding: 4px 14px 12px; }
+.a2-note { margin-top: 0; }

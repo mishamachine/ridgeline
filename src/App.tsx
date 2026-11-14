@@ -14,7 +14,9 @@ import { computeBadges, newBadgesFor } from './lib/badges';
 import { listActivities, listSaved, type Activity } from './lib/store';
 import { features } from './lib/features';
 import { closeAbandoned } from './lib/abandoned';
-import { getSettings, shouldShowOnboarding } from './lib/settings';
+import { getSettings, shouldShowOnboarding, updateSettings } from './lib/settings';
+import { recordVisit } from './lib/pwa';
+import { InstallPopup } from './components/Install';
 import { shareApp } from './lib/share';
 import { toast } from './lib/toast';
 import { detectPlatform } from './lib/maps';
@@ -64,7 +66,7 @@ export function App() {
   const [trailState, setTrailState] = useState<'idle' | 'loading' | 'missing'>('idle');
   const [hike, setHike] = useState<Trail | null>(null);
   const [resume, setResume] = useState<Activity | null>(null);
-  useEffect(() => { count('session'); }, []);
+  useEffect(() => { count('session'); updateSettings(recordVisit(getSettings(), Date.now())); }, []);
   const [saved, setSaved] = useState<{ marked: Set<string>; offline: Set<string>; version: number }>({ marked: new Set(), offline: new Set(), version: 0 });
   const [removing, setRemoving] = useState<Trail | null>(null);
   const [onboarding, setOnboarding] = useState<null | 'first' | 'replay'>(() => (shouldShowOnboarding() ? (getSettings().onboardingSeen ? 'replay' : 'first') : null));
@@ -275,6 +277,7 @@ export function App() {
         </div>
       )}
 
+      {!hiking && !(onTrail && trail) && !onBadges && !onHike && !done && <InstallPopup busy={!!onboarding || !!browse || tab === 'hike' || !!switching || !!removing} />}
       {!hiking && !(onTrail && trail) && !onBadges && !onHike && !done && (
         <nav className="tabbar2" aria-label="Main">
           {TABS.map(({ tab: t, label, icon }) => (

@@ -16,8 +16,10 @@ if (isNative()) {
   void probeCacheStorage().then((r) => console.log(`[cache-probe] ${r}`));
 }
 import { initSwUpdate } from './lib/swUpdate';
+import { initInstallCapture } from './lib/pwa';
+import { markInstalled } from './lib/install';
 
-if (!isNative()) initSwUpdate(); // the apps have no service worker
+if (!isNative()) { initSwUpdate(); initInstallCapture(markInstalled); } // the apps have no service worker
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
