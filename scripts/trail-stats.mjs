@@ -12,7 +12,8 @@ const [dir, regionId] = process.argv.slice(2);
 if (!dir || !regionId) { console.error('usage: node scripts/trail-stats.mjs <region build dir> <region id>'); process.exit(2); }
 const CELL = 0.25;
 const t0 = Date.now();
-const [{ module: cells }, { module: names }] = await Promise.all([runnerImport('./src/lib/cells.ts'), runnerImport('./src/lib/nameIndex.ts')]);
+const [{ module: cells }, { module: names }, { module: geo }] = await Promise.all([runnerImport('./src/lib/cells.ts'), runnerImport('./src/lib/nameIndex.ts'), runnerImport('./src/lib/geo.ts')]);
+const haversine = geo.haversine;
 
 const full = join(dir, 'full');
 const keys = JSON.parse(readFileSync(join(full, 'index.json'), 'utf8')).cells;
@@ -65,10 +66,32 @@ for (const f of readdirSync(dir).filter((f) => /^\d+_\d+\.json$/.test(f))) {
   if (s) { c.s = s; const body = JSON.stringify(c); writeFileSync(p, body); bytes += JSON.stringify(s).length; }
 }
 
+// Chains that are not one route (the Dog Mountain signature): the profile dips to a low point in the middle that is far below an end,
+// as when a leg runs down to the trailhead mid-chain. Counted on the full-resolution profiles, over every stitched trail with heights.
+const LOW_M = 100;
+const withElev = trails.filter((t) => t.elevation && t.elevation.length >= 20);
+const lows = [];
+for (const t of withElev) {
+  const e = t.elevation, k = Math.floor(e.length * 0.05);
+  let lo = Infinity, at = -1;
+  for (let i = k; i < e.length - k; i++) if (e[i] < lo) { lo = e[i]; at = i; }
+  const first = e[0], last = e.at(-1);
+  const bothEnds = lo < Math.min(first, last) - LOW_M;   // interior low point more than 100 m below BOTH ends
+  const startEnd = lo < first - LOW_M && last - lo >= 50;  // ... or more than 100 m below the start end only, and then climbing again (a plain descent is not a dip)
+  if (startEnd || bothEnds) lows.push({ id: t.id, name: t.name, lengthM: Math.round(t.lengthM), first, last, low: lo, at, bothEnds, startEnd, partial: t.partial });
+}
+// Another proxy: the car park picked as trailhead is not at a chain end (more than 150 m from both ends).
+const farTh = withElev.filter((t) => t.trailheadIsParking && t.trailhead && Math.min(haversine(t.trailhead, t.coords[0]), haversine(t.trailhead, t.coords.at(-1))) > 150).map((t) => ({ id: t.id, name: t.name }));
+const dayTotal = withElev.filter((t) => t.lengthM <= 20000).length;   // day-hike length: long through-trails have real valleys
+const day = (l) => l.lengthM <= 20000;
+const lowpoint = { total: withElev.length, day_total: dayTotal, day_below_both_ends: lows.filter((l) => l.bothEnds && day(l)).length, day_below_start_end: lows.filter((l) => l.startEnd && day(l)).length, below_both_ends: lows.filter((l) => l.bothEnds).length, below_start_end: lows.filter((l) => l.startEnd).length, trailhead_off_end: farTh.length,
+  examples: lows.filter((l) => l.bothEnds && day(l) && l.id.startsWith('osm-r')).sort((a, b) => b.lengthM - a.lengthM).slice(0, 8) };
+
 // What the app's own name search ranks first for each classic trail.
 const regions = JSON.parse(readFileSync('./scripts/regions.json', 'utf8')).regions;
 const entries = JSON.parse(readFileSync(join(dir, 'names.json'), 'utf8')).e;
 const classics = (regions.find((r) => r.id === regionId)?.classics ?? []).map((c) => ({ name: c.name, top: names.searchNames(entries, c.name, 1)[0] ?? null }));
-writeFileSync(join(dir, 'stats.json'), JSON.stringify({ trails: list, classics, stored: list.length, skipped, bytes, loss, fidelity }));
+writeFileSync(join(dir, 'stats.json'), JSON.stringify({ trails: list, classics, stored: list.length, skipped, bytes, loss, fidelity, lowpoint }));
 console.log(`drawn-profile gain loss: ${loss.over25} of ${loss.judged} trails (${(loss.share * 100).toFixed(2)}%) lose more than 25% of their gain on the simplified line`);
+console.log(`mid-chain low points (>${LOW_M} m below an end, full-resolution profiles): below both ends ${lowpoint.below_both_ends}, below the start end ${lowpoint.below_start_end}, of ${lowpoint.total} stitched trails; of which up to 20 km long: ${lowpoint.day_below_both_ends} below both ends, ${lowpoint.day_below_start_end} below the start end, of ${lowpoint.day_total}; chosen trailhead more than 150 m from both chain ends: ${lowpoint.trailhead_off_end}`);
 console.log(`trail stats: ${list.length} trails stored (${skipped} partial or without elevation skipped), ${(bytes / 1e6).toFixed(2)} MB added to the cells, ${((Date.now() - t0) / 1000).toFixed(0)} s`);

@@ -158,6 +158,8 @@ def check_region(r, report, entries, stats=None):
                 if pub:
                     err = (g / pub - 1) * 100
                     line += f" (published {pub} ft, {err:+.1f}%)"
+                    if c.get('known_bug'):
+                        line += f"; temporary {c.get('max_err_pct', MAX_GAIN_ERR_PCT)}% limit, {c['known_bug']}"
                     if abs(err) > c.get('max_err_pct', MAX_GAIN_ERR_PCT):
                         bad.append(f"{r['name']}: classic {c['name']!r}: gain {g} ft is {err:+.1f}% from the published {pub} ft (limit {c.get('max_err_pct', MAX_GAIN_ERR_PCT)}%)")
             tp = top.get(c['name'])
@@ -191,6 +193,9 @@ def cmd_check(rid, d):
     if summary:
         with open(summary, 'a') as f:
             f.write('| Region | Trails | Cells | MB (v2) | MB (full resolution) | Build minutes | With elevation | Collapse tripwire (self-baselined) | Places |\n|---|---|---|---|---|---|---|---|---|\n' + row + '\n\n')
+            if stats and stats.get('lowpoint'):
+                lp = stats['lowpoint']
+                f.write(f"Mid-chain low points (a leg that dips more than 100 m below an end, the Dog Mountain signature): {lp['below_both_ends']} of {lp['total']} stitched trails ({lp['below_both_ends'] / lp['total'] * 100:.2f}%) below both ends; {lp['below_start_end']} ({lp['below_start_end'] / lp['total'] * 100:.2f}%) below the start end and climbing again.\n\n")
             if stats:
                 lo = stats['loss']
                 f.write(f"Stored length and gain: {stats['stored']} trails ({stats['skipped']} partial or without elevation skipped). Drawn-line gain check: {lo['over25']} of {lo['judged']} trails ({lo['share'] * 100:.2f}%) lose over 25% of their gain (limit {MAX_GAIN_LOSS_SHARE * 100:.0f}%).\n\n")
