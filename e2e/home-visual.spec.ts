@@ -47,6 +47,8 @@ for (const width of WIDTHS) {
     test.describe('state 1: first visit, location not asked', () => {
       test.use({ permissions: [] });
       test('shows the region start and one Use my location button', async ({ page }) => {
+        // Headless Chromium answers "denied" when nothing was granted; a real first visit is "prompt".
+        await page.addInitScript(() => { navigator.permissions.query = async () => ({ state: 'prompt', onchange: null }) as unknown as PermissionStatus; });
         const provider = await open(page);
         await expect(page.getByText('Your exact location never leaves this device.')).toBeVisible({ timeout: 20_000 });
         await expect(page.getByRole('button', { name: 'Use my location' })).toBeVisible();
