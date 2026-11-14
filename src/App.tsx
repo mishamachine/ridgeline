@@ -23,6 +23,11 @@ import type { HikeSummary } from './lib/hype';
 import { ConfirmSheet } from './components/ConfirmSheet';
 import { HikeIcon, HomeIcon, ProfileIcon, SavedIcon } from './components/NavIcons';
 import { count } from './lib/counter';
+import { isCallbackPath, completeWebSignIn } from './lib/accounts/auth';
+import { getClient } from './lib/accounts/client';
+import { useAccount } from './lib/accounts/useAccount';
+import { useSync, DELETED_ELSEWHERE_MESSAGE } from './lib/sync/useSync';
+import { pruneTombstones, clearTombstones } from './lib/store';
 import { setHikeActive } from './lib/swUpdate';
 import { Toaster } from './components/Toaster';
 import { Later } from './components/ScreenBoundary';
@@ -38,6 +43,7 @@ const Detail = lazy(() => import('./screens/Detail').then((m) => ({ default: m.D
 const Navigate = lazy(() => import('./screens/Navigate').then((m) => ({ default: m.Navigate })));
 const SharedList = lazy(() => import('./screens/SharedList').then((m) => ({ default: m.SharedList })));
 const Profile = lazy(() => import('./screens/Profile').then((m) => ({ default: m.Profile })));
+const DeleteAccount = lazy(() => import('./screens/DeleteAccount').then((m) => ({ default: m.DeleteAccount })));
 const Badges = lazy(() => import('./screens/Badges').then((m) => ({ default: m.Badges })));
 const Celebrate = lazy(() => import('./screens/Celebrate').then((m) => ({ default: m.Celebrate })));
 const Landing = lazy(() => import('./screens/Landing').then((m) => ({ default: m.Landing })));
@@ -65,6 +71,11 @@ export function App() {
   const [hike, setHike] = useState<Trail | null>(null);
   const [resume, setResume] = useState<Activity | null>(null);
   useEffect(() => { count('session'); }, []);
+  // Web sign-in lands on /auth/callback: finish the session, then go to Profile. Off (and a no-op) while features.accounts is false.
+  useEffect(() => {
+    if (!features.accounts || !isCallbackPath(location.pathname, base)) return;
+    getClient()?.then(completeWebSignIn).finally(() => { history.replaceState(null, '', routePath({ kind: 'tab', tab: 'profile' }, base)); setRoute({ kind: 'tab', tab: 'profile' }); });
+  }, []);
   const [saved, setSaved] = useState<{ marked: Set<string>; offline: Set<string>; version: number }>({ marked: new Set(), offline: new Set(), version: 0 });
   const [removing, setRemoving] = useState<Trail | null>(null);
   const [onboarding, setOnboarding] = useState<null | 'first' | 'replay'>(() => (shouldShowOnboarding() ? (getSettings().onboardingSeen ? 'replay' : 'first') : null));
@@ -87,7 +98,12 @@ export function App() {
     }));
   }, []);
 
+  const account = useAccount();
+  useSync(account.userId, () => { refreshSaved(); setProfileVersion((v) => v + 1); }, () => toast(DELETED_ELSEWHERE_MESSAGE));
+
   useEffect(() => {
+    // Tombstones only matter to sync: none are kept while accounts are off, and old ones are dropped when on.
+    (features.accounts ? pruneTombstones() : clearTombstones()).catch(() => {});
     closeAbandoned().catch(() => {}); // hikes left open for over 6 hours are closed as Unfinished
     refreshSaved();
   }, [refreshSaved]);
@@ -227,6 +243,10 @@ export function App() {
         <div className="screen" hidden={!hiking}>
           <Later>{!tpl ? <Placeholder title="Loading map…" /> : <Navigate key={hike.id} tpl={tpl} trail={hike} resume={resume ?? undefined} saved={saved.offline.has(hike.id)} onEnd={() => { const t = hike; setHike(null); openTrail(t); }} onFinish={(sm, a) => finishHike(hike, sm, a)} />}</Later>
         </div>
+      )}
+
+      {route.kind === 'account-delete' && (
+        <div className="screen overlay"><Later><DeleteAccount onBack={() => go({ kind: 'tab', tab: 'profile' })} /></Later></div>
       )}
 
       {onBadges && (

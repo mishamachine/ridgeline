@@ -13,6 +13,7 @@ import { shareApp } from '../lib/share';
 import { features } from '../lib/features';
 import { ChevronIcon } from '../components/Icons';
 import { PageHead } from '../components/PageHead';
+import { AccountRow } from '../components/AccountRow';
 import { BadgeMedal } from './Badges';
 import './profile.css';
 
@@ -179,10 +180,14 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, version, p
 
         <h2 className="pf-h">Settings</h2>
         <div className="pf-group">
-          <div className="pf-row pf-static" aria-label="Account: not signed in, optional">
-            <span>Account</span><span className="val">Not signed in · optional</span>
-          </div>
-          <p className="pf-note pf-static" style={{ margin: 0, paddingTop: 8 }}>Ridgeline works without an account. Optional sign-in may come later; nothing to do now.</p>
+          {features.accounts ? <AccountRow /> : (
+            <>
+              <div className="pf-row pf-static" aria-label="Account: not signed in, optional">
+                <span>Account</span><span className="val">Not signed in · optional</span>
+              </div>
+              <p className="pf-note pf-static" style={{ margin: 0, paddingTop: 8 }}>Ridgeline works without an account. Optional sign-in may come later; nothing to do now.</p>
+            </>
+          )}
 
           <div className="pf-row">
             <span>Voice directions</span>
