@@ -6,8 +6,11 @@ export interface CoverageRegion { id: string; name: string; cc?: string; bbox: [
 
 export const regionsOf = (index: CellIndex | null): CoverageRegion[] => index?.regions ?? [];
 
+/** The region whose box holds the point; where boxes overlap (a state line), the smaller box, which is the better fit. */
 export function regionAt(regions: CoverageRegion[], c: LngLat): CoverageRegion | null {
-  return regions.find((r) => c[0] > r.bbox[0] && c[0] < r.bbox[2] && c[1] > r.bbox[1] && c[1] < r.bbox[3]) ?? null;
+  const area = (r: CoverageRegion) => (r.bbox[2] - r.bbox[0]) * (r.bbox[3] - r.bbox[1]);
+  const inside = regions.filter((r) => c[0] > r.bbox[0] && c[0] < r.bbox[2] && c[1] > r.bbox[1] && c[1] < r.bbox[3]);
+  return inside.sort((a, b) => area(a) - area(b))[0] ?? null;
 }
 
 /** True when the point is in a covered region. With no region list (older data, or none loaded) nothing is ruled out. */

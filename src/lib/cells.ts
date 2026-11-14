@@ -15,7 +15,8 @@ type CellBranch = [number, number] | [number, number, string] | [number, number,
 type CellJunctions = [number, CellBranch[]][];
 interface CellRoute { id: number; t: Record<string, string>; n: number; m: [number, number[], number[]?, CellJunctions?][]; h?: string[]; th?: number[] }
 interface CellWay { id: number; t: Record<string, string>; g: number[]; z?: number[]; h?: string[]; th?: number[]; j?: CellJunctions }
-export interface CellFile { v: number; r: CellRoute[]; w: CellWay[] }
+/** s (v2, from scripts/trail-stats.mjs): each trail's [length m, ascent m, descent m] measured on the full-resolution line. Key: "r<relation id>", or "w<lon,lat>|<lon,lat>" (its two ends, sorted) for a named path. */
+export interface CellFile { v: number; r: CellRoute[]; w: CellWay[]; s?: Record<string, number[]> }
 
 // Format v2 (scripts/cell_format.py): coordinates are integers at 1e-5 degrees, delta-encoded (first point absolute);
 // z is per kept vertex; `th` and junction branch points are offsets in the same units. decodeCell turns it back into v1.
@@ -40,6 +41,7 @@ export function decodeCell(f: CellFile): CellFile {
   if (f.v !== 2) return f;
   return {
     v: 1,
+    s: f.s,
     r: f.r.map((r) => {
       const m = r.m.map(([wid, g, z, j]) => {
         const flat = decodeG(g);
@@ -130,14 +132,21 @@ const KIND_ORDER = ['view', 'lake', 'falls', 'beach', 'bikes', 'horses', 'dogs',
 const PARKING_SLACK_M = 400; // a car park from the data counts if it is this close to a trail end of the stitched line
 
 /** Union of highlight lists; a kind with solid evidence in any list beats a '?' one. */
-export function mergeHighlights(lists: (string[] | undefined)[], t: Pick<Trail, 'lengthM' | 'ascentM'>): string[] | undefined {
+export function mergeHighlights(lists: (string[] | undefined)[], t: Pick<Trail, 'lengthM' | 'ascentM'> & Partial<Pick<Trail, 'descentM' | 'loop'>>): string[] | undefined {
   const sure = new Map<string, boolean>();
   const add = (h: string, certain: boolean) => sure.set(h, (sure.get(h) ?? false) || certain);
   for (const l of lists) for (const h of l ?? []) add(h.replace(/\?$/, ''), !h.endsWith('?'));
-  if (t.ascentM != null && t.ascentM * M_TO_FT >= HIGHLIGHT_CLIMB_FT) add('climb', true);
+  // The way up: the whole ascent for a loop, else the bigger of the two ways (the mapped line can run either direction).
+  const up = t.ascentM == null ? null : t.loop ? t.ascentM : Math.max(t.ascentM, t.descentM ?? 0);
+  if (up != null && up * M_TO_FT >= HIGHLIGHT_CLIMB_FT) add('climb', true);
   if (t.lengthM * M_TO_MI >= HIGHLIGHT_LONG_MI) add('long', true);
   const out = KIND_ORDER.filter((k) => sure.has(k)).map((k) => (sure.get(k) ? k : `${k}?`));
   return out.length ? out : undefined;
+}
+
+/** The same trail walked the other way: coordinates and profile reversed, ascent and descent swapped. */
+function reversed(t: Trail): Trail {
+  return { ...t, coords: [...t.coords].reverse(), elevation: t.elevation && [...t.elevation].reverse(), ascentM: t.descentM, descentM: t.ascentM };
 }
 
 function pickTrailhead(coords: LngLat[], candidates: (number[] | undefined)[]): { trailhead: LngLat; trailheadIsParking: boolean } {
@@ -159,6 +168,8 @@ function pickTrailhead(coords: LngLat[], candidates: (number[] | undefined)[]): 
  */
 export function cellsToTrails(raw: CellFile[]): Trail[] {
   const files = raw.map(decodeCell);
+  const stored = new Map<string, number[]>();
+  for (const f of files) for (const [k, v] of Object.entries(f.s ?? {})) stored.set(k, v);
   const routes = new Map<number, { t: Record<string, string>; n: number; members: Map<number, number[]> }>();
   const ways = new Map<number, CellWay>();
   const zAt = new Map<string, number>();
@@ -196,8 +207,22 @@ export function cellsToTrails(raw: CellFile[]): Trail[] {
     // Build the profile only if every vertex has a height (older files have none).
     const z = t0.coords.map((c) => zAt.get(`${c[0]},${c[1]}`));
     const profile = z.some((v) => v === undefined) ? [] : profileFromVertices(t0.coords, z as number[]);
-    return withHighlightsAndJunctions(profile.length ? withElevation(t0, profile) : t0);
+    return withStored(withHighlightsAndJunctions(profile.length ? withElevation(t0, profile) : t0));
   });
+
+  /**
+   * The drawn line of a v2 trail is simplified (5 m), so its measured length and climb differ a little. For a complete trail
+   * (every member loaded) use the numbers measured at build time on the full line, when the file has them and they agree
+   * with the drawn line (within 8% of its length: a different stitching, e.g. from other loaded ways, is ignored).
+   */
+  function withStored(t: Trail): Trail {
+    if (t.partial || !stored.size || t.ascentM == null) return t;
+    const r = /^osm-r(\d+)$/.exec(t.id);
+    const ends = [t.coords[0], t.coords.at(-1)!].map((c) => `${c[0].toFixed(5)},${c[1].toFixed(5)}`).sort();
+    const s = stored.get(r ? `r${r[1]}` : `w${ends.join('|')}`);
+    if (!s || Math.abs(t.lengthM / s[0] - 1) > 0.08) return t;
+    return { ...t, lengthM: s[0], ascentM: s[1], descentM: s[2] };
+  }
 
   function withHighlightsAndJunctions(t: Trail): Trail {
     let hs: (string[] | undefined)[] = [];
@@ -218,7 +243,11 @@ export function cellsToTrails(raw: CellFile[]): Trail[] {
       }
     } else return t;
     const hosted = hs.some((h) => h) || ths.some((th) => th) || maps.length > 0;
-    const out: Trail = { ...t, ...(hosted ? pickTrailhead(t.coords, ths) : {}) };
+    const picked = hosted ? pickTrailhead(t.coords, ths) : null;
+    // The mapped line can run either way. Make an out-and-back start at its car park, so ascent is the climb on the way out
+    // (a line that ran downhill from the top would otherwise report almost no ascent).
+    if (picked?.trailheadIsParking && !t.loop && haversine(picked.trailhead, t.coords.at(-1)!) < haversine(picked.trailhead, t.coords[0])) t = reversed(t);
+    const out: Trail = { ...t, ...(picked ?? {}) };
     const highlights = mergeHighlights(hs, t);
     if (highlights) out.highlights = highlights;
     if (maps.length) {

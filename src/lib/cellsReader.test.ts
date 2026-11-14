@@ -45,6 +45,13 @@ describe('versioned trail data', () => {
     expect((await getIndex())!.base).toMatch(/trails\/$/);
   });
 
+  it('rejects when the v2 index is there but a cell is missing (404) or is a page, so the caller falls through to its fallback', async () => {
+    deploy({ 'v2/index.json': { ...index, v: 2 } });                        // index present, cell 404
+    await expect((await load()).fetchCellTrails(box)).rejects.toThrow(/Couldn.t load trails/);
+    deploy({ 'v2/index.json': { ...index, v: 2 }, 'v2/232_549.json': {} }, ['v2/232_549.json']);   // cell answered with a page (HTML, 200)
+    await expect((await load()).fetchCellTrails(box)).rejects.toThrow();
+  });
+
   it('is null when neither exists', async () => {
     deploy({});
     const { getIndex, fetchCellTrails } = await load();

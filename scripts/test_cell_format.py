@@ -31,6 +31,27 @@ def _dist(q, a, b):
     return float(np.hypot(*(q - (a + t * ab))))
 
 
+class ZTurns(unittest.TestCase):
+    def hump(self):
+        # a dead-straight line over a 30 m hump: a flat simplification would drop every vertex between the ends
+        n = 21
+        p = np.column_stack([np.arange(n) * 10.0, np.zeros(n)])
+        z = [30 - abs(i - 10) * 3 for i in range(n)]
+        return p, z
+
+    def test_a_straight_line_over_a_hump_keeps_the_peak(self):
+        p, z = self.hump()
+        self.assertEqual(cf.simplify(p, []), [0, 20])                 # the old behaviour: the hump is gone
+        kept = cf.simplify(p, cf.z_turns(z))
+        self.assertIn(10, kept)
+        self.assertEqual(max(z[i] for i in kept), 30)
+
+    def test_turns_ignore_small_wiggles(self):
+        self.assertEqual(cf.z_turns([0, 1, 0, 1, 0, 1, 0]), [])        # 1 m wiggles are noise
+        self.assertEqual(cf.z_turns([0, 5, 10, 6, 0, 8]), [2, 4])
+        self.assertEqual(cf.z_turns([0, 5, 10]), [])                   # no turn in a plain climb
+
+
 class RoundTrip(unittest.TestCase):
     def test_encode_decode(self):
         g = [-121.78123, 47.49001, -121.78, 47.4905, -121.7791, 47.4903]

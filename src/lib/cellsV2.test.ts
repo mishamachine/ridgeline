@@ -55,3 +55,27 @@ describe('cell format v2', () => {
     expect(w.th).toEqual([-121.9999, 46.9998, 1]);
   });
 });
+
+describe('stored length and gain (measured on the full line at build time)', () => {
+  const withS = (s: Record<string, number[]>): CellFile => ({ ...v2['ledge'][0], s });
+  const ledge = (f: CellFile) => cellsToTrails([f]).find((t) => t.id === 'osm-r5588030')!;
+  const drawn = ledge(v2['ledge'][0]);
+
+  it('uses them for a complete trail', () => {
+    const t = ledge(withS({ r5588030: [3100, 340, 25] }));
+    expect([t.lengthM, t.ascentM, t.descentM]).toEqual([3100, 340, 25]);
+  });
+  it('ignores them when they disagree with the drawn line by more than 8% (a different stitching)', () => {
+    const t = ledge(withS({ r5588030: [Math.round(drawn.lengthM * 1.2), 999, 999] }));
+    expect(t.lengthM).toBe(drawn.lengthM);
+    expect(t.ascentM).toBe(drawn.ascentM);
+  });
+  it('ignores them for a partial trail (members in cells that are not loaded)', () => {
+    const f = withS({ r5588030: [3100, 340, 25] });
+    f.r = f.r.map((r) => ({ ...r, n: r.n + 1 }));
+    const t = ledge(f);
+    expect(t.partial).toBe(true);
+    expect(t.lengthM).toBe(drawn.lengthM);
+  });
+  it('without them the drawn numbers stand', () => { expect(ledge(v2['ledge'][0]).lengthM).toBe(drawn.lengthM); });
+});

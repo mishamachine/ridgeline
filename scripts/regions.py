@@ -24,6 +24,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 INDEX_URL = 'https://download.geofabrik.de/index-v1-nogeom.json'
 USER_AGENT = 'ridgeline-trail-build (github.com/mishamachine/ridgeline; machinemisha@gmail.com)'
 MIN_SHARE = 0.5
+MAX_GAIN_LOSS_SHARE = 0.02   # share of trails (with 100 ft or more of gain) that may lose over 25% of it on the simplified drawn line
 
 
 def load_regions():
@@ -66,7 +67,7 @@ def pbf_url(gid, index):
 
 
 def cmd_matrix():
-    print(json.dumps({'include': [{'id': r['id'], 'name': r['name'], 'v1': '--v1' if r.get('v1') else ''} for r in load_regions()]}))
+    print(json.dumps({'include': [{'id': r['id'], 'name': r['name'], 'v1': bool(r.get('v1'))} for r in load_regions()]}))
 
 
 def cmd_fetch(rid, dest):
@@ -84,30 +85,66 @@ def norm(s):
     return re.sub(r'[^a-z0-9]+', ' ', s).strip()
 
 
+def prefer_exact(items, name_of, classic_name, key):
+    """Of the items in range, those named exactly like the classic (optionally plus ' Trail') win; else the longest."""
+    n = norm(classic_name)
+    exact = [i for i in items if norm(name_of(i)) in (n, n + ' trail')]
+    return max(exact or items, key=key) if items else None
+
+
 def find_classic(entries, classic):
     """(matched entry or None, candidates). A name in names.json containing the classic's words, with a length inside len_m."""
     lo, hi = classic.get('len_m', [0, float('inf')])
     cands = [e for e in entries if norm(classic['name']) in norm(e[1])]
     ok = [e for e in cands if lo <= e[4] <= hi]
-    return (max(ok, key=lambda e: e[4]) if ok else None), cands
+    return prefer_exact(ok, lambda e: e[1], classic['name'], lambda e: e[4]), cands
 
 
-def check_region(r, report, entries):
-    """(problems, lines describing each classic). No problems = pass."""
+def stats_for(classic, stats):
+    """(trail dict or None): the longest stored trail whose name has the classic's words and whose length is inside len_m."""
+    lo, hi = classic.get('len_m', [0, float('inf')])
+    ok = [t for t in (stats or {}).get('trails', []) if norm(classic['name']) in norm(t['name']) and lo <= t['L'] <= hi]
+    return prefer_exact(ok, lambda t: t['name'], classic['name'], lambda t: t['L'])
+
+
+def gain_ft(t):
+    """Headline gain as the app shows it: the whole ascent for a loop, else the bigger of the two ways."""
+    return round((t['up'] if t['loop'] else max(t['up'], t['down'])) * 3.28084)
+
+
+def check_region(r, report, entries, stats=None):
+    """(problems, lines describing each classic). No problems = pass. stats: trail-stats.mjs output, when available."""
     bad, lines = [], []
     exp = r.get('expected_trails') or 0
     if exp and report['trails'] < MIN_SHARE * exp:
         bad.append(f"{r['name']}: collapse tripwire: {report['trails']} trails is under {int(MIN_SHARE * 100)}% of the self-baselined {exp}")
     if not report['cells']:
         bad.append(f"{r['name']}: no cells built")
+    loss = (stats or {}).get('loss')
+    if loss and loss['share'] > MAX_GAIN_LOSS_SHARE:
+        bad.append(f"{r['name']}: {loss['over25']} of {loss['judged']} trails ({loss['share'] * 100:.1f}%) lose over 25% of their gain on the drawn line; limit {MAX_GAIN_LOSS_SHARE * 100:.0f}%")
+    top = {c['name']: c['top'] for c in (stats or {}).get('classics', [])}
     for c in r.get('classics', []):
         hit, cands = find_classic(entries, c)
-        if hit:
-            lines.append(f"{c['name']}: {hit[1]} ({hit[0]}), {hit[4]} m ({hit[4] / 1609.344:.1f} mi)")
-        elif cands:
-            bad.append(f"{r['name']}: classic {c['name']!r} found as {[(e[1], e[4]) for e in cands][:3]} but not within {c['len_m']} m")
-        else:
-            bad.append(f"{r['name']}: classic {c['name']!r} not found by name")
+        if not hit:
+            bad.append(f"{r['name']}: classic {c['name']!r} " + (f"found as {[(e[1], e[4]) for e in cands][:3]} but not within {c['len_m']} m" if cands else 'not found by name'))
+            continue
+        line = f"{c['name']}: {hit[1]} ({hit[0]}), {hit[4]} m ({hit[4] / 1609.344:.1f} mi)"
+        if stats is not None:
+            t = stats_for(c, stats)
+            if not t:
+                bad.append(f"{r['name']}: classic {c['name']!r}: no stored trail inside {c['len_m']} m")
+            else:
+                g = gain_ft(t)
+                line += f"; stored {t['L']} m, gain {g} ft"
+                if 'gain_ft' in c and not c['gain_ft'][0] <= g <= c['gain_ft'][1]:
+                    bad.append(f"{r['name']}: classic {c['name']!r}: gain {g} ft is outside {c['gain_ft']}")
+            tp = top.get(c['name'])
+            if tp is None or norm(c['name']) not in norm(tp[1]) or not c['len_m'][0] <= tp[4] <= c['len_m'][1]:
+                bad.append(f"{r['name']}: name search for {c['name']!r} ranks {tp and (tp[1], tp[4])} first, not the main trail")
+            else:
+                line += f"; search ranks it first ({tp[1]})"
+        lines.append(line)
     return bad, lines
 
 
@@ -117,17 +154,26 @@ def cmd_check(rid, d):
         rep = json.load(f)
     with open(os.path.join(d, 'names.json')) as f:
         entries = json.load(f)['e']
-    bad, lines = check_region(r, rep, entries)
-    row = (f"| {r['name']} | {rep['trails']} | {rep['cells']} | {rep['mb']} | {rep.get('mb_v1', 'n/a')} | {rep['build_minutes']} | "
-           f"{rep['elevation_pct']}% | {r.get('expected_trails') or 'n/a'} | {rep.get('places', 'n/a')} |")
+    stats = None
+    if os.path.exists(os.path.join(d, 'stats.json')):
+        with open(os.path.join(d, 'stats.json')) as f:
+            stats = json.load(f)
+    bad, lines = check_region(r, rep, entries, stats)
+    exp = r.get('expected_trails') or 0
+    tripwire = 'n/a' if not exp else ('PASS' if rep['trails'] >= MIN_SHARE * exp else 'FAIL') + f" ({rep['trails']} vs 50% of {exp})"
+    row = (f"| {r['name']} | {rep['trails']} | {rep['cells']} | {rep['mb']} | {rep.get('mb_full', 'n/a')} | {rep['build_minutes']} | "
+           f"{rep['elevation_pct']}% | {tripwire} | {rep.get('places', 'n/a')} |")
     print(row)
     for ln in lines:
         print('classic', ln)
     summary = os.environ.get('GITHUB_STEP_SUMMARY')
     if summary:
         with open(summary, 'a') as f:
-            f.write('| Region | Trails | Cells | MB (v2) | MB (v1 copy) | Build min | With elevation | Collapse tripwire (self-baselined) | Places |\n|---|---|---|---|---|---|---|---|---|\n' + row + '\n\n')
-            f.write('Classic trails (matched name, length from names.json):\n\n' + ''.join(f'- {ln}\n' for ln in lines) + ('\n**FAILED:** ' + '; '.join(bad) + '\n' if bad else ''))
+            f.write('| Region | Trails | Cells | MB (v2) | MB (full resolution) | Build minutes | With elevation | Collapse tripwire (self-baselined) | Places |\n|---|---|---|---|---|---|---|---|---|\n' + row + '\n\n')
+            if stats:
+                lo = stats['loss']
+                f.write(f"Stored length and gain: {stats['stored']} trails ({stats['skipped']} partial or without elevation skipped). Drawn-line gain check: {lo['over25']} of {lo['judged']} trails ({lo['share'] * 100:.2f}%) lose over 25% of their gain (limit {MAX_GAIN_LOSS_SHARE * 100:.0f}%).\n\n")
+            f.write('Classic trails (matched name, length from names.json, stored length and gain from the full line):\n\n' + ''.join(f'- {ln}\n' for ln in lines) + ('\n**FAILED:** ' + '; '.join(bad) + '\n' if bad else ''))
     for b in bad:
         print(f'::error::{b}')
     sys.exit(1 if bad else 0)
@@ -148,7 +194,10 @@ def merge_cell(a, b):
     ways = {x['id']: x for x in a['w']}
     for x in b['w']:
         ways.setdefault(x['id'], x)
-    return {'v': a['v'], 'r': list(rels.values()), 'w': list(ways.values())}  # both sides are in the same cell format; keep its version
+    out = {'v': a['v'], 'r': list(rels.values()), 'w': list(ways.values())}
+    if a.get('s') or b.get('s'):
+        out['s'] = {**b.get('s', {}), **a.get('s', {})}   # stored trail stats, see trail-stats.mjs
+    return out  # both sides are in the same cell format; keep its version
 
 
 def combine(root, dirs, regs=None):
@@ -202,12 +251,12 @@ def combine(root, dirs, regs=None):
     for kind in ('names', 'places'):  # which shard covers where (the app reads the same list from index.json)
         with open(os.path.join(out, kind, 'manifest.json'), 'w') as f:
             json.dump({'v': 1, 'shards': [{'id': r['id'], 'file': r[kind], 'bbox': r['bbox']} for r in listing]}, f, separators=(',', ':'))
-    v1 = [d for d in dirs if os.path.isdir(os.path.join(d, 'v1'))]
+    v1 = [d for d in dirs if by_id[os.path.basename(os.path.normpath(d)).removeprefix('trails-')].get('v1')]
     if len(v1) > 1:
         sys.exit('only one region may keep the frozen v1 copy')
-    for d in v1:  # the old path: this region's old-format cells, index.json and names.json, byte for byte as the old reader expects
-        for f in os.listdir(os.path.join(d, 'v1')):
-            shutil.copyfile(os.path.join(d, 'v1', f), os.path.join(root, f))
+    for d in v1:  # the old path: this region's full-resolution old-format cells, index.json and names.json, as the old reader expects
+        for f in os.listdir(os.path.join(d, 'full')):
+            shutil.copyfile(os.path.join(d, 'full', f), os.path.join(root, f))
     return index
 
 

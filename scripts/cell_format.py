@@ -2,7 +2,9 @@
 Cell file format v2 (smaller files; the app still reads v1). One cell file is {"v": 2, "r": [...], "w": [...]}.
 
   Coordinates are integers at 1e-5 degrees (about 1.1 m), delta-encoded: g = [x0, y0, dx1, dy1, ...], the first
-  point absolute. Lines are simplified (Douglas-Peucker, 5 m) keeping both ends and every junction vertex.
+  point absolute. Lines are simplified (Douglas-Peucker, 5 m) keeping both ends, every junction vertex and every
+  vertex where the height turns (peaks and dips of 2 m or more), so the drawn elevation profile keeps its humps.
+  The numbers the app shows (length, ascent, descent) are measured on the full line at build time and stored in `s`.
   z is whole-metre deltas, one per KEPT vertex (same length as the points in g).
   th = [dx, dy, 1|0]: the trailhead as an offset from the entry's first point (a route's first member, a way's g).
   j  = [[vertex index (into the kept points), [[dx, dy, name?, routes?], ...]], ...]: each branch point as an
@@ -18,8 +20,39 @@ import numpy as np
 
 SCALE = 100000          # 1e-5 degrees
 DP_TOLERANCE_M = 5.0
+Z_TURN_M = 2.0           # height turns smaller than this are ignored when protecting peaks and dips
 KEEP_WAY_TAGS = ('name', 'sac_scale', 'surface', 'dog', 'operator', 'description', 'trail_visibility', 'website')
 KEEP_REL_TAGS = ('name', 'ref') + KEEP_WAY_TAGS[1:]
+
+
+def z_turns(z, tol=Z_TURN_M):
+    """Indices where the height turns (a peak or a dip), ignoring wiggles smaller than tol metres.
+    A flat 2D simplification drops the vertices between two kept points, and with them a hump or a dip the line walks over:
+    keeping these keeps the climb honest."""
+    z = [float(v) for v in z]
+    if len(z) < 3:
+        return []
+    out, ext, ext_i, up = [], z[0], 0, None
+    for i in range(1, len(z)):
+        v = z[i]
+        if up is None:
+            if abs(v - ext) >= tol:
+                up = v > ext
+                ext, ext_i = v, i
+            continue
+        if up:
+            if v > ext:
+                ext, ext_i = v, i
+            elif ext - v >= tol:
+                out.append(ext_i)
+                up, ext, ext_i = False, v, i
+        else:
+            if v < ext:
+                ext, ext_i = v, i
+            elif v - ext >= tol:
+                out.append(ext_i)
+                up, ext, ext_i = True, v, i
+    return out
 
 
 def simplify(p, protected, tol=DP_TOLERANCE_M):

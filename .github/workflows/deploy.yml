@@ -8,12 +8,10 @@ on:
   workflow_dispatch:
   pull_request: # builds only (never deploys) when the trail pipeline changes
     branches: [main]
-    paths: ['scripts/**', '.github/workflows/deploy.yml', 'src/lib/cells.ts', 'src/lib/nameIndex.ts']
+    paths: ['scripts/**', '.github/workflows/deploy.yml', 'src/lib/cells.ts', 'src/lib/nameIndex.ts', 'src/lib/coverage.ts', 'src/lib/placeIndex.ts']
 
 permissions:
-  contents: write # to publish the Hostinger branch
-  pages: write
-  id-token: write
+  contents: read # write access is granted per job: the build job (Hostinger branch) and the deploy job (Pages) only
 
 # One deploy at a time; a newer push cancels an older build. Cancelling is safe: the extracts and DEM tiles are
 # cached the moment they are downloaded, so a restarted build does not fetch them again. PR builds have their own group.
@@ -65,6 +63,11 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -r scripts/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
       - name: ISO week (the extract is downloaded at most once a week per region)
         id: week
         run: echo "iso=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
@@ -90,9 +93,15 @@ jobs:
           key: copernicus-dem-90m-v1-${{ matrix.id }}
           restore-keys: copernicus-dem-90m-v1
       - name: Build trail data (elevation from Copernicus DEM GLO-90)
-        run: python scripts/build_trails.py extract/${{ matrix.id }}.osm.pbf out/${{ matrix.id }} "OpenStreetMap via Geofabrik (${{ matrix.name }})" ${{ matrix.v1 }}
-      - name: Check counts, expected range and classic trails (fails the build)
+        run: python scripts/build_trails.py extract/${{ matrix.id }}.osm.pbf out/${{ matrix.id }} "OpenStreetMap via Geofabrik (${{ matrix.name }})"
+      - name: Store each trail's length and gain, measured on the full-resolution line, in the cells
+        run: node scripts/trail-stats.mjs out/${{ matrix.id }} ${{ matrix.id }}
+      - name: Check counts, collapse tripwire (self-baselined), classic trails and their gain (fails the build)
         run: python scripts/regions.py check ${{ matrix.id }} out/${{ matrix.id }}
+      - name: Drop build-only files (full-resolution cells are published only for the region that keeps the old path)
+        run: |
+          rm -f out/${{ matrix.id }}/stats.json
+          ${{ !matrix.v1 && format('rm -rf out/{0}/full', matrix.id) || 'true' }}
       - uses: actions/upload-artifact@v4
         with:
           name: trails-${{ matrix.id }}
@@ -102,6 +111,8 @@ jobs:
   build:
     needs: [test, region]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # to publish the Hostinger branch (main only)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -148,6 +159,9 @@ jobs:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

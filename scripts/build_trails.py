@@ -24,8 +24,8 @@ The app stitches ways into trails at run time and builds each trail's profile fr
 The build fails if a needed DEM tile cannot be fetched. Tiles are cached in $DEM_CACHE_DIR
 (default scripts/.dem-cache, git-ignored).
 
-Usage: build_trails.py <input.osm.pbf> <output dir> [source label] [--v1]
-  --v1 also writes the old-format cells, index.json and names.json to <output dir>/v1 (Washington only).
+Usage: build_trails.py <input.osm.pbf> <output dir> [source label]
+  Also writes the full-resolution old-format cells to <output dir>/full (see scripts/trail-stats.mjs).
 """
 import json
 import math
@@ -347,7 +347,7 @@ def write_cells(cells, out_dir, fmt=2):
     return total
 
 
-def build(pbf, out_dir, source, dem_dir=None, v1=False):
+def build(pbf, out_dir, source, dem_dir=None):
     t0 = time.time()
     routes = RouteHandler()
     routes.apply_file(pbf)
@@ -388,9 +388,9 @@ def build(pbf, out_dir, source, dem_dir=None, v1=False):
     # Simplify each way once (5 m, ends and junction vertices kept); z and junction indices follow the kept vertices.
     simple = {}
     for wid, g in ways.geoms.items():
-        prot = jh.result.get(wid, {})
-        kept = cf.simplify(hl.xy(g), prot)
         zabs = np.cumsum(zs[wid])
+        prot = set(jh.result.get(wid, {})) | set(cf.z_turns(zabs))
+        kept = cf.simplify(hl.xy(g), prot)
         pos = {v: i for i, v in enumerate(kept)}
         j = [[pos[vi], bs] for vi, bs in sorted(jh.result[wid].items())] if wid in jh.result else None
         simple[wid] = (flat([g[i] for i in kept]), elevation.encode_deltas(zabs[kept].tolist()), j)
@@ -433,11 +433,12 @@ def build(pbf, out_dir, source, dem_dir=None, v1=False):
         return cells
 
     cells = make_cells(simple)
-    v1_dir = os.path.join(out_dir, 'v1') if v1 else None
-    if v1:  # Washington stays on the old format at the old path until the app versions that need it have aged out
-        raw = {wid: (flat(g), zs[wid], junction_list(jh.result[wid]) if wid in jh.result else None) for wid, g in ways.geoms.items()}
-        v1_cells = make_cells(raw)
-        v1_bytes = write_cells(v1_cells, v1_dir, fmt=1)
+    # Full-resolution cells in the old format, into <out>/full/. scripts/trail-stats.mjs reads them to compute each trail's
+    # length and gain from the full line (the app stores those; the 5 m simplification only affects what is drawn).
+    # The same files are Washington's frozen old-format copy at trails/ (kept by regions.py combine for regions marked v1).
+    full_dir = os.path.join(out_dir, 'full')
+    raw = {wid: (flat(g), zs[wid], junction_list(jh.result[wid]) if wid in jh.result else None) for wid, g in ways.geoms.items()}
+    full_bytes = write_cells(make_cells(raw), full_dir, fmt=1)
     total_bytes = write_cells(cells, out_dir)
 
     keys = sorted(cells)
@@ -457,9 +458,8 @@ def build(pbf, out_dir, source, dem_dir=None, v1=False):
     }
     with open(os.path.join(out_dir, 'index.json'), 'w') as f:
         json.dump(index, f, separators=(',', ':'))
-    if v1:
-        with open(os.path.join(v1_dir, 'index.json'), 'w') as f:
-            json.dump(index, f, separators=(',', ':'))
+    with open(os.path.join(full_dir, 'index.json'), 'w') as f:
+        json.dump(index, f, separators=(',', ':'))
 
     n_names = name_index.write_name_index(os.path.join(out_dir, 'names.json'), routes.routes, ways.geoms, ways.paths)
 
@@ -468,8 +468,7 @@ def build(pbf, out_dir, source, dem_dir=None, v1=False):
         bbs = [ways.area_bbox[w] for w in wids if w in ways.area_bbox]
         if bbs:
             raw_places.append((name, 'a', (min(b[1] for b in bbs) + max(b[3] for b in bbs)) / 2, (min(b[0] for b in bbs) + max(b[2] for b in bbs)) / 2))
-    if v1:
-        shutil.copyfile(os.path.join(out_dir, 'names.json'), os.path.join(v1_dir, 'names.json'))
+    shutil.copyfile(os.path.join(out_dir, 'names.json'), os.path.join(full_dir, 'names.json'))
     n_places = place_index.write_places(os.path.join(out_dir, 'places.json'), raw_places)
     n_trails = sum(1 for wids in route_ways.values() if wids) + len(path_groups_list)
     has_elev = sum(1 for wids in route_ways.values() if wids and any(any(zs[w]) for w in wids))
@@ -479,8 +478,7 @@ def build(pbf, out_dir, source, dem_dir=None, v1=False):
         'mb': round(total_bytes / 1e6, 2), 'build_minutes': round((time.time() - t0) / 60, 2),
         'elevation_pct': round(100 * has_elev / n_trails, 1) if n_trails else 0.0, 'names': n_names, 'places': n_places,
     }
-    if v1:
-        report['mb_v1'] = round(v1_bytes / 1e6, 2)
+    report['mb_full'] = round(full_bytes / 1e6, 2)
     with open(os.path.join(out_dir, 'report.json'), 'w') as f:
         json.dump(report, f, separators=(',', ':'))
     print('report:', json.dumps(report))
@@ -491,7 +489,6 @@ def build(pbf, out_dir, source, dem_dir=None, v1=False):
 
 
 if __name__ == '__main__':
-    args = [a for a in sys.argv[1:] if a != '--v1']
-    if len(args) < 2:
+    if len(sys.argv) < 3:
         sys.exit(__doc__)
-    build(args[0], args[1], args[2] if len(args) > 2 else 'OpenStreetMap', v1='--v1' in sys.argv)
+    build(sys.argv[1], sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else 'OpenStreetMap')
