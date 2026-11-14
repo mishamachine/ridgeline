@@ -22,8 +22,8 @@ test('Home loads no map; "Explore the map" shows it after the lazy map chunk loa
   page.on('request', (r) => { if (r.url().startsWith('https://tiles.openfreemap.org/')) mapRequests.push(r.url()); });
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Home' })).toBeVisible();
-  await expect(page.getByText('Ridgeline never collects your location.')).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByRole('heading', { name: /Top picks in Washington/ })).toBeVisible({ timeout: 20_000 });
+  // These tests run with location already granted (playwright.config.ts), so Home shows "near you" rows.
+  await expect(page.getByRole('heading', { name: 'Top picks near you' })).toBeVisible({ timeout: 20_000 });
   expect(mapRequests).toEqual([]); // no map tiles until someone asks for the map
   await page.getByRole('button', { name: /Explore the map/ }).click();
   await expect(page.locator('.map canvas').first()).toBeVisible({ timeout: 20_000 });
