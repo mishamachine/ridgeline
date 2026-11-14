@@ -21,7 +21,7 @@ const PATHS: Record<BadgeId, string> = {
 
 const HOW: Record<BadgeId, string> = {
   'first-trail': 'Record one hike.',
-  'ledge-sitter': 'Finish a Washington classic, like Rattlesnake Ledge or Mount Si.',
+  'ledge-sitter': 'Finish a classic hike, like Rattlesnake Ledge or Mount Si.',
   'trail-buddy': 'Mark a hike as done with your dog.',
   'early-bird': 'Start a hike before 7am.',
   'lake-hopper': 'Hike to 3 lakes.',

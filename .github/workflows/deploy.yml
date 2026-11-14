@@ -6,18 +6,21 @@ on:
   schedule:
     - cron: '17 9 * * 1' # Mondays: rebuild trail data from the latest OpenStreetMap extract
   workflow_dispatch:
+  pull_request: # builds only (never deploys) when the trail pipeline changes
+    branches: [main]
+    paths: ['scripts/**', '.github/workflows/deploy.yml', 'src/lib/cells.ts', 'src/lib/nameIndex.ts', 'src/lib/coverage.ts', 'src/lib/placeIndex.ts', 'src/lib/trails.ts', 'src/lib/geo.ts']
 
 permissions:
-  contents: write # to publish the Hostinger branch
-  pages: write
-  id-token: write
+  contents: read # write access is granted per job: the build job (Hostinger branch) and the deploy job (Pages) only
 
+# One deploy at a time; a newer push cancels an older build. Cancelling is safe: the extracts and DEM tiles are
+# cached the moment they are downloaded, so a restarted build does not fetch them again. PR builds have their own group.
 concurrency:
-  group: pages
+  group: ${{ github.event_name == 'pull_request' && format('pages-pr-{0}', github.ref) || 'pages' }}
   cancel-in-progress: true
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,22 +34,121 @@ jobs:
       - run: pip install -r scripts/requirements.txt
       - run: npm ci
       - run: npm test
-      - name: Test the elevation code (synthetic tiles, no network)
+      - name: Test the elevation code and the region tooling (synthetic data, no network)
         run: python -m unittest discover -s scripts -p "test_*.py"
       - name: Check the trail build script on sample data
         run: python scripts/build_trails.py scripts/sample.osm /tmp/sample-trails sample
-      - run: npm run build
-        env:
-          BASE_PATH: /${{ github.event.repository.name }}/
-      - name: Download Washington OpenStreetMap extract (Geofabrik)
-        run: curl -fsSL -A "ridgeline-trail-build (github.com/${{ github.repository }})" -o washington.osm.pbf https://download.geofabrik.de/north-america/us/washington-latest.osm.pbf
-      - name: Cache Copernicus DEM tiles
+
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: m
+        run: echo "matrix=$(python3 scripts/regions.py matrix)" >> "$GITHUB_OUTPUT"
+
+  # One job per region (scripts/regions.json): a failing region does not stop the others being built,
+  # but the combine step below needs all of them.
+  region:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r scripts/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: ISO week (the extract is downloaded at most once a week per region)
+        id: week
+        run: echo "iso=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+      - name: Restore the Geofabrik extract (cached per ISO week; an older week's copy is the fallback)
+        id: pbf
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            extract/${{ matrix.id }}.osm.pbf
+            extract/${{ matrix.id }}.osm.pbf.json
+          key: pbf-${{ matrix.id }}--${{ steps.week.outputs.iso }}
+          restore-keys: pbf-${{ matrix.id }}--
+      - name: Download the extract (Geofabrik JSON index, identifying User-Agent); at most once a week per region
+        id: dl
+        if: steps.pbf.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: mkdir -p extract && python scripts/regions.py fetch ${{ matrix.id }} extract/${{ matrix.id }}.osm.pbf
+      - name: If the download failed, use the older cached extract (warning) when it is under 28 days old, else stop
+        if: steps.pbf.outputs.cache-hit != 'true' && steps.dl.outcome == 'failure'
+        run: python scripts/regions.py fallback ${{ matrix.id }}
+      - name: Save the extract at once, so a cancelled build does not download it again
+        if: steps.pbf.outputs.cache-hit != 'true' && steps.dl.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            extract/${{ matrix.id }}.osm.pbf
+            extract/${{ matrix.id }}.osm.pbf.json
+          key: pbf-${{ matrix.id }}--${{ steps.week.outputs.iso }}
+      - name: Report the extract in the job summary
+        run: |
+          if [ "${{ steps.pbf.outputs.cache-hit }}" = "true" ]; then state="cache hit (this week's copy, no download)"
+          elif [ "${{ steps.dl.outcome }}" = "success" ]; then state="cache miss, downloaded"
+          else state="download FAILED, built from an older cached copy"; fi
+          if [ "${{ steps.dl.outcome }}" = "success" ]; then key="pbf-${{ matrix.id }}--${{ steps.week.outputs.iso }} (saved)"; else key="${{ steps.pbf.outputs.cache-matched-key }}"; fi
+          python scripts/regions.py note ${{ matrix.id }} "$state" "$key"
+      - name: Cache Copernicus DEM tiles (per region)
         uses: actions/cache@v4
         with:
           path: scripts/.dem-cache
-          key: copernicus-dem-90m-v1
-      - name: Build hosted trail data (elevation from Copernicus DEM GLO-90)
-        run: python scripts/build_trails.py washington.osm.pbf dist/trails "OpenStreetMap via Geofabrik (Washington)"
+          key: copernicus-dem-90m-v1-${{ matrix.id }}
+          restore-keys: copernicus-dem-90m-v1
+      - name: Build trail data (elevation from Copernicus DEM GLO-90)
+        run: python scripts/build_trails.py extract/${{ matrix.id }}.osm.pbf out/${{ matrix.id }} "OpenStreetMap via Geofabrik (${{ matrix.name }})"
+      - name: Store each trail's length and gain, measured on the full-resolution line, in the cells
+        run: node scripts/trail-stats.mjs out/${{ matrix.id }} ${{ matrix.id }}
+      - name: Check counts, collapse tripwire (self-baselined), classic trails and their gain (fails the build)
+        run: python scripts/regions.py check ${{ matrix.id }} out/${{ matrix.id }}
+      - name: Drop build-only files (full-resolution cells are published only for the region that keeps the old path)
+        run: |
+          rm -f out/${{ matrix.id }}/stats.json
+          ${{ !matrix.v1 && format('rm -rf out/{0}/full', matrix.id) || 'true' }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trails-${{ matrix.id }}
+          path: out/${{ matrix.id }}
+          retention-days: 3
+
+  build:
+    needs: [test, region]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # to publish the Hostinger branch (main only)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      - run: npm run build
+        env:
+          BASE_PATH: /${{ github.event.repository.name }}/
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: trails-*
+          path: regions
+      - name: Combine the regions into dist/trails/v2, plus the frozen Washington v1 copy in dist/trails
+        run: python scripts/regions.py combine dist/trails regions/*
       - name: Build a root-domain copy for Hostinger (hike.bbprojectfactory.com)
         run: |
           BASE_PATH=/ npx vite build --outDir dist-root --emptyOutDir
@@ -60,7 +162,7 @@ jobs:
         run: |
           if grep -rIil bobolearns dist dist-root; then echo "old domain found in build output"; exit 1; fi
       - name: Publish the Hostinger copy to the 'hostinger' branch
-        if: github.ref == 'refs/heads/main'
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         run: |
           cd dist-root
           git init -q -b hostinger
@@ -71,8 +173,12 @@ jobs:
         with:
           path: dist
   deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

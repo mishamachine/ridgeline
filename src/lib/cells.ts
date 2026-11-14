@@ -1,10 +1,11 @@
 // Hosted trail data: small grid-cell files built from OpenStreetMap (scripts/build_trails.py).
 import type { BBox } from './geo';
 import { trailBase } from './native/trailBase';
+import type { CoverageRegion } from './coverage';
 import { cumulative, M_TO_FT, M_TO_MI, haversine, type LngLat } from './geo';
 import { HIGHLIGHT_CLIMB_FT, HIGHLIGHT_LONG_MI, parseOverpass, profileFromVertices, withElevation, type Junction, type Trail } from './trails';
 
-export interface CellIndex { v: number; built: string; source: string; elevation?: string; cell: number; bbox: [number, number, number, number] | null; cells: string[] }
+export interface CellIndex { v: number; built: string; source: string; elevation?: string; cell: number; bbox: [number, number, number, number] | null; cells: string[]; /** Covered regions, from builds that list them. */ regions?: CoverageRegion[]; /** Where this index was read from (set by the app): trails/v2/ or, for older deploys, trails/. */ base?: string }
 /** z: elevation (m) per vertex, delta-encoded: [z0, z1 - z0, z2 - z1, ...]. */
 /**
  * Optional, from newer builds (old apps ignore them):
@@ -14,17 +15,71 @@ type CellBranch = [number, number] | [number, number, string] | [number, number,
 type CellJunctions = [number, CellBranch[]][];
 interface CellRoute { id: number; t: Record<string, string>; n: number; m: [number, number[], number[]?, CellJunctions?][]; h?: string[]; th?: number[] }
 interface CellWay { id: number; t: Record<string, string>; g: number[]; z?: number[]; h?: string[]; th?: number[]; j?: CellJunctions }
-export interface CellFile { v: number; r: CellRoute[]; w: CellWay[] }
+/** s (v2, from scripts/trail-stats.mjs): each trail's [length m, ascent m, descent m] measured on the full-resolution line. Key: "r<relation id>", or "w<name>|<lon,lat>|<lon,lat>" (its name, then its two ends sorted) for a named path. */
+/** x (v2): keys of named-path chains the build could not match to a stored full-line figure (they stitch with different ends on the simplified line), so their numbers cannot be verified. */
+export interface CellFile { v: number; r: CellRoute[]; w: CellWay[]; s?: Record<string, number[]>; x?: string[] }
+
+// Format v2 (scripts/cell_format.py): coordinates are integers at 1e-5 degrees, delta-encoded (first point absolute);
+// z is per kept vertex; `th` and junction branch points are offsets in the same units. decodeCell turns it back into v1.
+const SCALE = 1e5;
+const decodeG = (g: number[]): number[] => {
+  const out: number[] = [];
+  let x = 0, y = 0;
+  for (let i = 0; i < g.length; i += 2) { x += g[i]; y += g[i + 1]; out.push(x / SCALE, y / SCALE); }
+  return out;
+};
+const decodeJ = (j: unknown, flat: number[]): CellJunctions | undefined => {
+  if (!j) return undefined;
+  return (j as [number, (number | string | number[])[][]][]).map(([vi, bs]) => {
+    const vx = Math.round(flat[2 * vi] * SCALE), vy = Math.round(flat[2 * vi + 1] * SCALE);
+    return [vi, bs.map((b) => [(vx + (b[0] as number)) / SCALE, (vy + (b[1] as number)) / SCALE, ...b.slice(2)] as CellBranch)];
+  });
+};
+const decodeTh = (th: number[] | undefined, first: number[]): number[] | undefined =>
+  th && [(Math.round(first[0] * SCALE) + th[0]) / SCALE, (Math.round(first[1] * SCALE) + th[1]) / SCALE, th[2]];
+
+export function decodeCell(f: CellFile): CellFile {
+  if (f.v !== 2) return f;
+  return {
+    v: 1,
+    s: f.s,
+    x: f.x,
+    r: f.r.map((r) => {
+      const m = r.m.map(([wid, g, z, j]) => {
+        const flat = decodeG(g);
+        const dj = decodeJ(j, flat);
+        return (dj ? [wid, flat, z, dj] : [wid, flat, z]) as CellRoute['m'][number];
+      });
+      return { ...r, m, th: decodeTh(r.th, m[0][1]) };
+    }),
+    w: f.w.map((w) => {
+      const g = decodeG(w.g);
+      return { ...w, g, th: decodeTh(w.th, g), j: decodeJ(w.j, g) };
+    }),
+  };
+}
 
 
 let indexPromise: Promise<CellIndex | null> | null = null;
 
-/** Coverage index. Null when no hosted data is deployed (e.g. local dev). */
+/** Data versions, newest first: v2 lives at trails/v2/, the frozen old format (Washington only) at trails/. */
+const DATA_PATHS = ['v2/', ''];
+
+async function loadIndex(): Promise<CellIndex | null> {
+  for (const sub of DATA_PATHS) {
+    try {
+      const r = await fetch(`${trailBase()}${sub}index.json`);
+      if (!r.ok) continue;
+      const idx = (await r.json()) as CellIndex;
+      if (Array.isArray(idx?.cells)) return { ...idx, base: `${trailBase()}${sub}` };
+    } catch { /* offline, or not JSON: try the next path */ }
+  }
+  return null;
+}
+
+/** Coverage index, read from trails/v2/ first and from trails/ when that is missing. Null when no hosted data is deployed (e.g. local dev). */
 export function getIndex(): Promise<CellIndex | null> {
-  indexPromise ??= fetch(`${trailBase()}index.json`)
-    .then((r) => (r.ok ? (r.json() as Promise<CellIndex>) : null))
-    .catch(() => null)
-    .then((idx) => { if (!idx) indexPromise = null; return idx; }); // retry next time if it failed
+  indexPromise ??= loadIndex().then((idx) => { if (!idx) indexPromise = null; return idx; }); // retry next time if it failed
   return indexPromise;
 }
 
@@ -79,14 +134,21 @@ const KIND_ORDER = ['view', 'lake', 'falls', 'beach', 'bikes', 'horses', 'dogs',
 const PARKING_SLACK_M = 400; // a car park from the data counts if it is this close to a trail end of the stitched line
 
 /** Union of highlight lists; a kind with solid evidence in any list beats a '?' one. */
-export function mergeHighlights(lists: (string[] | undefined)[], t: Pick<Trail, 'lengthM' | 'ascentM'>): string[] | undefined {
+export function mergeHighlights(lists: (string[] | undefined)[], t: Pick<Trail, 'lengthM' | 'ascentM'> & Partial<Pick<Trail, 'descentM' | 'loop'>>): string[] | undefined {
   const sure = new Map<string, boolean>();
   const add = (h: string, certain: boolean) => sure.set(h, (sure.get(h) ?? false) || certain);
   for (const l of lists) for (const h of l ?? []) add(h.replace(/\?$/, ''), !h.endsWith('?'));
-  if (t.ascentM != null && t.ascentM * M_TO_FT >= HIGHLIGHT_CLIMB_FT) add('climb', true);
+  // The way up: the whole ascent for a loop, else the bigger of the two ways (the mapped line can run either direction).
+  const up = t.ascentM == null ? null : t.loop ? t.ascentM : Math.max(t.ascentM, t.descentM ?? 0);
+  if (up != null && up * M_TO_FT >= HIGHLIGHT_CLIMB_FT) add('climb', true);
   if (t.lengthM * M_TO_MI >= HIGHLIGHT_LONG_MI) add('long', true);
   const out = KIND_ORDER.filter((k) => sure.has(k)).map((k) => (sure.get(k) ? k : `${k}?`));
   return out.length ? out : undefined;
+}
+
+/** The same trail walked the other way: coordinates and profile reversed, ascent and descent swapped. */
+function reversed(t: Trail): Trail {
+  return { ...t, coords: [...t.coords].reverse(), elevation: t.elevation && [...t.elevation].reverse(), ascentM: t.descentM, descentM: t.ascentM };
 }
 
 function pickTrailhead(coords: LngLat[], candidates: (number[] | undefined)[]): { trailhead: LngLat; trailheadIsParking: boolean } {
@@ -106,7 +168,11 @@ function pickTrailhead(coords: LngLat[], candidates: (number[] | undefined)[]): 
  * A route that crosses cells is stitched back together from the members each cell holds;
  * if some members are in cells not loaded, it is marked as a partial section.
  */
-export function cellsToTrails(files: CellFile[]): Trail[] {
+export function cellsToTrails(raw: CellFile[]): Trail[] {
+  const files = raw.map(decodeCell);
+  const stored = new Map<string, number[]>();
+  for (const f of files) for (const [k, v] of Object.entries(f.s ?? {})) stored.set(k, v);
+  const unverified = new Set(files.flatMap((f) => f.x ?? []));
   const routes = new Map<number, { t: Record<string, string>; n: number; members: Map<number, number[]> }>();
   const ways = new Map<number, CellWay>();
   const zAt = new Map<string, number>();
@@ -140,12 +206,36 @@ export function cellsToTrails(files: CellFile[]): Trail[] {
   }
   for (const [id, w] of ways) elements.push({ type: 'way', id, tags: w.t, geometry: pairs(w.g) });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return parseOverpass(elements as any).map((t0) => {
+  return parseOverpass(elements as any, stored).map((t0) => {
     // Build the profile only if every vertex has a height (older files have none).
     const z = t0.coords.map((c) => zAt.get(`${c[0]},${c[1]}`));
     const profile = z.some((v) => v === undefined) ? [] : profileFromVertices(t0.coords, z as number[]);
-    return withHighlightsAndJunctions(profile.length ? withElevation(t0, profile) : t0);
+    return withStored(withHighlightsAndJunctions(profile.length ? withElevation(t0, profile) : t0));
   });
+
+  /**
+   * The drawn line of a v2 trail is simplified (5 m), so its measured length and climb differ a little. For a complete trail
+   * (every member loaded) use the numbers measured at build time on the full line, when the file has them: always for a route, and for
+   * a named path when they agree with the drawn line (within 8% of its length: a different stitching, e.g. from other loaded ways, is ignored).
+   */
+  function withStored(t: Trail): Trail {
+    if (t.partial || (!stored.size && !unverified.size) || t.ascentM == null) return t;
+    const r = /^osm-r(\d+)$/.exec(t.id);
+    const ends = [t.coords[0], t.coords.at(-1)!].map((c) => `${c[0].toFixed(5)},${c[1].toFixed(5)}`).sort();
+    const wkey = `w${t.name}|${ends.join('|')}`;   // name and both ends: two different paths can share the same two ends
+    const s = stored.get(r ? `r${r[1]}` : wkey);
+    // A route (relation) is identified by its id, so complete means its numbers are the right ones whatever line was drawn (a branching
+    // relation can stitch to a different chain on the simplified geometry). A named path is matched by its two ends, so keep the length guard there.
+    // No stored counterpart: if the build knows this chain could not be matched, its numbers cannot be verified, so flag it like a mismatch.
+    if (!s) return !r && unverified.has(wkey) ? { ...t, statsMismatch: true } : t;
+    if (!r && Math.abs(t.lengthM / s[0] - 1) > 0.08) {
+      // Not used: the drawn numbers stay. Flag the trail when they are over 10% from the stored ones (length, or headline gain with 30 m or more).
+      const shown = t.loop ? t.ascentM : Math.max(t.ascentM, t.descentM ?? 0), full = t.loop ? s[1] : Math.max(s[1], s[2]);
+      const off = Math.abs(t.lengthM / s[0] - 1) > 0.1 || (full >= 30 && Math.abs(shown / full - 1) > 0.1);
+      return off ? { ...t, statsMismatch: true } : t;
+    }
+    return { ...t, lengthM: s[0], ascentM: s[1], descentM: s[2] };
+  }
 
   function withHighlightsAndJunctions(t: Trail): Trail {
     let hs: (string[] | undefined)[] = [];
@@ -166,7 +256,11 @@ export function cellsToTrails(files: CellFile[]): Trail[] {
       }
     } else return t;
     const hosted = hs.some((h) => h) || ths.some((th) => th) || maps.length > 0;
-    const out: Trail = { ...t, ...(hosted ? pickTrailhead(t.coords, ths) : {}) };
+    const picked = hosted ? pickTrailhead(t.coords, ths) : null;
+    // The mapped line can run either way. Make an out-and-back start at its car park, so ascent is the climb on the way out
+    // (a line that ran downhill from the top would otherwise report almost no ascent).
+    if (picked?.trailheadIsParking && !t.loop && haversine(picked.trailhead, t.coords.at(-1)!) < haversine(picked.trailhead, t.coords[0])) t = reversed(t);
+    const out: Trail = { ...t, ...(picked ?? {}) };
     const highlights = mergeHighlights(hs, t);
     if (highlights) out.highlights = highlights;
     if (maps.length) {
@@ -193,7 +287,7 @@ export async function fetchCellTrails(b: BBox, signal?: AbortSignal): Promise<Tr
   const available = new Set(index.cells);
   const wanted = cellsFor(b, index.cell).filter((c) => available.has(c));
   const files = await Promise.all(wanted.map(async (c) => {
-    const res = await fetch(`${trailBase()}${c}.json`, { signal });
+    const res = await fetch(`${index.base ?? trailBase()}${c}.json`, { signal });
     if (!res.ok) throw new Error(`Couldn't load trails (${res.status}).`);
     return (await res.json()) as CellFile;
   }));

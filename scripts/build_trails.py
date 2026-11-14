@@ -25,20 +25,25 @@ The build fails if a needed DEM tile cannot be fetched. Tiles are cached in $DEM
 (default scripts/.dem-cache, git-ignored).
 
 Usage: build_trails.py <input.osm.pbf> <output dir> [source label]
+  Also writes the full-resolution old-format cells to <output dir>/full (see scripts/trail-stats.mjs).
 """
 import json
 import math
 import os
 import re
+import shutil
 import sys
+import time
 from datetime import datetime, timezone
 
 import numpy as np
 import osmium
 
 import elevation
+import cell_format as cf
 import highlights as hl
 import name_index
+import place_index
 
 CELL = 0.25  # degrees, ~28 km north-south, ~19 km east-west at 47°N
 ROUTE_RE = re.compile(r'^(hiking|foot)$')
@@ -97,6 +102,7 @@ class RouteHandler(osmium.SimpleHandler):
         self.member_ways = set()
         self.water_outer = set()     # outer ways of natural=water multipolygons tagged lake/pond/reservoir
         self.water_untagged = set()  # same, with no water=* tag: only the compact closed ones count
+        self.areas = {}              # relation id -> (name, outer way ids): named parks and protected areas, for the place index
 
     def relation(self, r):
         if r.tags.get('type') == 'multipolygon' and r.tags.get('natural') == 'water':
@@ -106,6 +112,9 @@ class RouteHandler(osmium.SimpleHandler):
                 self.water_outer.update(outers)
             elif not kind:
                 self.water_untagged.update(outers)
+            return
+        if place_index.is_area(r.tags) and r.tags.get('name') and r.tags.get('type') in ('multipolygon', 'boundary'):
+            self.areas[r.id] = (r.tags['name'], [m.ref for m in r.members if m.type == 'w' and m.role in ('outer', '')])
             return
         if not ROUTE_RE.match(r.tags.get('route', '')):
             return
@@ -121,8 +130,11 @@ class RouteHandler(osmium.SimpleHandler):
 class WayHandler(osmium.SimpleHandler):
     """Pass 2: geometry for route members and named paths, plus the places highlights are drawn from."""
 
-    def __init__(self, member_ways, water_outer=(), water_untagged=()):
+    def __init__(self, member_ways, water_outer=(), water_untagged=(), area_ways=()):
         super().__init__()
+        self.area_ways = area_ways
+        self.area_bbox = {}    # way id -> (min lon, min lat, max lon, max lat) for ways of park relations
+        self.places = []       # (name, kind, lat, lon) for the place index
         self.member_ways = member_ways
         self.water_outer = water_outer
         self.water_untagged = water_untagged
@@ -150,6 +162,11 @@ class WayHandler(osmium.SimpleHandler):
     def node(self, n):
         if not n.tags or not n.location.valid():
             return
+        pk = place_index.kind_of(n.tags)
+        if pk and n.tags.get('name'):
+            self.places.append((n.tags['name'], pk, n.location.lat, n.location.lon))
+        elif place_index.is_area(n.tags) and n.tags.get('name'):
+            self.places.append((n.tags['name'], 'a', n.location.lat, n.location.lon))
         kind = self._feature(n.tags)
         if kind in ('view', 'falls', 'beach'):
             self.features[kind].add(hl.xy([(n.location.lon, n.location.lat)]))
@@ -157,6 +174,14 @@ class WayHandler(osmium.SimpleHandler):
             self.parking.append([(round(n.location.lon, 5), round(n.location.lat, 5))])
 
     def way(self, w):
+        if (w.id in self.area_ways or (w.tags.get('name') and place_index.is_area(w.tags))) and len(w.nodes) > 1:
+            pts = [(n.location.lon, n.location.lat) for n in w.nodes if n.location.valid()]
+            if pts:
+                bb = (min(p[0] for p in pts), min(p[1] for p in pts), max(p[0] for p in pts), max(p[1] for p in pts))
+                if w.id in self.area_ways:
+                    self.area_bbox[w.id] = bb
+                if w.tags.get('name') and place_index.is_area(w.tags):
+                    self.places.append((w.tags['name'], 'a', (bb[1] + bb[3]) / 2, (bb[0] + bb[2]) / 2))
         is_member = w.id in self.member_ways
         hw = w.tags.get('highway', '')
         name = w.tags.get('name', '')
@@ -256,11 +281,6 @@ def sample_elevations(geoms, tiles):
     return out
 
 
-def junction_list(by_vertex):
-    """{vertex index: branches} -> [[index, [[lon, lat, name?], ...]], ...] in vertex order."""
-    return [[i, by_vertex[i]] for i in sorted(by_vertex)]
-
-
 def path_groups(ways):
     """Named paths outside routes -> lists of way ids: same name and connected by a shared node."""
     parent = {w: w for w in ways.paths}
@@ -309,10 +329,30 @@ def describe(way_ids, ways, rel_modes, parking):
     return h, th, way_ids[ends[ei][0]]
 
 
+def junction_list(by_vertex):
+    """{vertex index: branches} -> [[index, [[lon, lat, name?], ...]], ...] in vertex order."""
+    return [[i, by_vertex[i]] for i in sorted(by_vertex)]
+
+
+def write_cells(cells, out_dir, fmt=2):
+    """The one place cell files are serialised: {(x, y): {'r': {rel id: entry}, 'w': [entries]}} -> <x>_<y>.json.
+    fmt 2 is the compact format (cell_format.py); fmt 1 is the old absolute-coordinate format, kept for Washington's frozen v1 copy. Returns bytes written."""
+    os.makedirs(out_dir, exist_ok=True)
+    total = 0
+    for (x, y), c in cells.items():
+        body = json.dumps(cf.encode_cell(c) if fmt == 2 else {'v': 1, 'r': list(c['r'].values()), 'w': c['w']}, separators=(',', ':'))
+        with open(os.path.join(out_dir, f'{x}_{y}.json'), 'w') as f:
+            f.write(body)
+        total += len(body)
+    return total
+
+
 def build(pbf, out_dir, source, dem_dir=None):
+    t0 = time.time()
     routes = RouteHandler()
     routes.apply_file(pbf)
-    ways = WayHandler(routes.member_ways, routes.water_outer, routes.water_untagged)
+    area_ways = {w for _, ws in routes.areas.values() for w in ws}
+    ways = WayHandler(routes.member_ways, routes.water_outer, routes.water_untagged, area_ways)
     ways.apply_file(pbf, locations=True, idx='flex_mem')
 
     lats = [c[1] for g in ways.geoms.values() for c in g]
@@ -336,7 +376,8 @@ def build(pbf, out_dir, source, dem_dir=None):
         if wids:
             h, th, _ = describe(wids, ways, routes.routes[rid]['modes'], parking)
             route_info[rid] = {'h': h, 'th': th}
-    for wids in path_groups(ways):
+    path_groups_list = path_groups(ways)
+    for wids in path_groups_list:
         h, th, owner = describe(wids, ways, None, parking)
         for w in wids:
             path_info[w] = {'h': h, 'th': th if w == owner else None}
@@ -344,46 +385,61 @@ def build(pbf, out_dir, source, dem_dir=None):
     tiles = elevation.DemTiles(dem_dir or os.environ.get('DEM_CACHE_DIR') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '.dem-cache'))
     zs = sample_elevations(ways.geoms, tiles)
 
-    cells = {}  # (x, y) -> {'r': {rel id: entry}, 'w': [entries]}
+    # Simplify each way once (5 m, ends and junction vertices kept); z and junction indices follow the kept vertices.
+    simple = {}
+    for wid, g in ways.geoms.items():
+        zabs = np.cumsum(zs[wid])
+        prot = set(jh.result.get(wid, {})) | set(cf.z_turns(zabs))
+        kept = cf.simplify(hl.xy(g), prot)
+        pos = {v: i for i, v in enumerate(kept)}
+        j = [[pos[vi], bs] for vi, bs in sorted(jh.result[wid].items())] if wid in jh.result else None
+        simple[wid] = (flat([g[i] for i in kept]), elevation.encode_deltas(zabs[kept].tolist()), j)
 
-    def cell(key):
-        return cells.setdefault(key, {'r': {}, 'w': []})
+    def make_cells(geom):
+        """(x, y) -> {'r': {rel id: entry}, 'w': [entries]}, with each way's (coords, z, junctions) taken from geom."""
+        cells = {}
 
-    for rid, route in routes.routes.items():
-        total = len(route['ways'])
-        for wid in route['ways']:
-            g = ways.geoms.get(wid)
-            if not g:
-                continue
-            member = [wid, flat(g), zs[wid]]
-            if wid in jh.result:
-                member.append(junction_list(jh.result[wid]))
+        def cell(key):
+            return cells.setdefault(key, {'r': {}, 'w': []})
+
+        for rid, route in routes.routes.items():
+            total = len(route['ways'])
+            for wid in route['ways']:
+                g = ways.geoms.get(wid)
+                if not g:
+                    continue
+                member = [wid, geom[wid][0], geom[wid][1]]
+                if geom[wid][2]:
+                    member.append(geom[wid][2])
+                for key in cells_for(g):
+                    entry = cell(key)['r'].setdefault(rid, {'id': rid, 't': route['tags'], 'n': total, 'm': []})
+                    if rid in route_info:
+                        entry['h'] = route_info[rid]['h']
+                        entry['th'] = route_info[rid]['th']
+                    entry['m'].append(member)
+
+        for wid, tags in ways.paths.items():
+            g = ways.geoms[wid]
+            entry = {'id': wid, 't': tags, 'g': geom[wid][0], 'z': geom[wid][1]}
+            if path_info[wid]['h']:
+                entry['h'] = path_info[wid]['h']
+            if path_info[wid]['th']:
+                entry['th'] = path_info[wid]['th']
+            if geom[wid][2]:
+                entry['j'] = geom[wid][2]
             for key in cells_for(g):
-                entry = cell(key)['r'].setdefault(rid, {'id': rid, 't': route['tags'], 'n': total, 'm': []})
-                if rid in route_info:
-                    entry['h'] = route_info[rid]['h']
-                    entry['th'] = route_info[rid]['th']
-                entry['m'].append(member)
+                cell(key)['w'].append(entry)
 
-    for wid, tags in ways.paths.items():
-        g = ways.geoms[wid]
-        entry = {'id': wid, 't': tags, 'g': flat(g), 'z': zs[wid]}
-        if path_info[wid]['h']:
-            entry['h'] = path_info[wid]['h']
-        if path_info[wid]['th']:
-            entry['th'] = path_info[wid]['th']
-        if wid in jh.result:
-            entry['j'] = junction_list(jh.result[wid])
-        for key in cells_for(g):
-            cell(key)['w'].append(entry)
+        return cells
 
-    os.makedirs(out_dir, exist_ok=True)
-    total_bytes = 0
-    for (x, y), c in cells.items():
-        body = json.dumps({'v': 1, 'r': list(c['r'].values()), 'w': c['w']}, separators=(',', ':'))
-        with open(os.path.join(out_dir, f'{x}_{y}.json'), 'w') as f:
-            f.write(body)
-        total_bytes += len(body)
+    cells = make_cells(simple)
+    # Full-resolution cells in the old format, into <out>/full/. scripts/trail-stats.mjs reads them to compute each trail's
+    # length and gain from the full line (the app stores those; the 5 m simplification only affects what is drawn).
+    # The same files are Washington's frozen old-format copy at trails/ (kept by regions.py combine for regions marked v1).
+    full_dir = os.path.join(out_dir, 'full')
+    raw = {wid: (flat(g), zs[wid], junction_list(jh.result[wid]) if wid in jh.result else None) for wid, g in ways.geoms.items()}
+    full_bytes = write_cells(make_cells(raw), full_dir, fmt=1)
+    total_bytes = write_cells(cells, out_dir)
 
     keys = sorted(cells)
     bbox = None
@@ -402,9 +458,30 @@ def build(pbf, out_dir, source, dem_dir=None):
     }
     with open(os.path.join(out_dir, 'index.json'), 'w') as f:
         json.dump(index, f, separators=(',', ':'))
+    with open(os.path.join(full_dir, 'index.json'), 'w') as f:
+        json.dump(index, f, separators=(',', ':'))
 
     n_names = name_index.write_name_index(os.path.join(out_dir, 'names.json'), routes.routes, ways.geoms, ways.paths)
 
+    raw_places = list(ways.places)
+    for name, wids in routes.areas.values():
+        bbs = [ways.area_bbox[w] for w in wids if w in ways.area_bbox]
+        if bbs:
+            raw_places.append((name, 'a', (min(b[1] for b in bbs) + max(b[3] for b in bbs)) / 2, (min(b[0] for b in bbs) + max(b[2] for b in bbs)) / 2))
+    shutil.copyfile(os.path.join(out_dir, 'names.json'), os.path.join(full_dir, 'names.json'))
+    n_places = place_index.write_places(os.path.join(out_dir, 'places.json'), raw_places)
+    n_trails = sum(1 for wids in route_ways.values() if wids) + len(path_groups_list)
+    has_elev = sum(1 for wids in route_ways.values() if wids and any(any(zs[w]) for w in wids))
+    has_elev += sum(1 for g in path_groups_list if any(any(zs[w]) for w in g))
+    report = {
+        'trails': n_trails, 'routes': len(routes.routes), 'named_paths': len(ways.paths), 'cells': len(cells),
+        'mb': round(total_bytes / 1e6, 2), 'build_minutes': round((time.time() - t0) / 60, 2),
+        'elevation_pct': round(100 * has_elev / n_trails, 1) if n_trails else 0.0, 'names': n_names, 'places': n_places,
+    }
+    report['mb_full'] = round(full_bytes / 1e6, 2)
+    with open(os.path.join(out_dir, 'report.json'), 'w') as f:
+        json.dump(report, f, separators=(',', ':'))
+    print('report:', json.dumps(report))
     print(f'name index: {n_names} entries, {os.path.getsize(os.path.join(out_dir, "names.json")) / 1e3:.0f} KB')
     print(f'routes: {len(routes.routes)}, named paths: {len(ways.paths)}, cells: {len(cells)}, '
           f'size: {total_bytes / 1e6:.1f} MB (before gzip), largest cell: '

@@ -14,8 +14,9 @@ const [{ module: seo }, { module: cells }] = await Promise.all([
 const template = readFileSync(join(dir, 'index.html'), 'utf8');
 const base = seo.canonicalBase(template);
 const appBase = process.env.BASE_PATH ?? '/';
-const trailDir = join(dir, 'trails');
+const trailDir = join(dir, 'trails', 'v2'); // the v2 data (the app decodes it); the old-format copy at trails/ is only for older app versions
 const files = readdirSync(trailDir).filter((f) => /^\d+_\d+\.json$/.test(f)).map((f) => JSON.parse(readFileSync(join(trailDir, f), 'utf8')));
+const regions = JSON.parse(readFileSync(join(trailDir, 'index.json'), 'utf8')).regions ?? [];
 const seeds = JSON.parse(readFileSync('./scripts/seo/seed.json', 'utf8'));
 const sel = seo.selectWithSeeds(cells.cellsToTrails(files), seeds, cap);
 const picked = sel.trails;
@@ -24,7 +25,7 @@ for (const m of sel.missing) console.warn(`::warning::seo pages: seed trail "${m
 if (picked.length < 50) { console.error(`seo pages: only ${picked.length} trails selected from ${trailDir}; refusing to publish a thin sitemap`); process.exit(1); }
 let bytes = 0;
 for (const t of picked) {
-  const p = seo.renderPage(t, { base, appBase, template });
+  const p = seo.renderPage(t, { base, appBase, template, regions });
   mkdirSync(join(dir, 'trail', t.id), { recursive: true });
   writeFileSync(join(dir, p.path), p.html);
   bytes += Buffer.byteLength(p.html);

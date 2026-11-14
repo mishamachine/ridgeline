@@ -42,4 +42,4 @@ export function level(t: T): Difficulty | null {
 export const LONG_ROUTE_MI = 8;
 export const BIG_CLIMB_FT = 2500;
 export const isLong = (t: Pick<Trail, 'lengthM' | 'loop'>) => roundTripM(t) * M_TO_MI > LONG_ROUTE_MI;
-export const isBigClimb = (t: Pick<Trail, 'ascentM'>) => t.ascentM != null && t.ascentM * M_TO_FT >= BIG_CLIMB_FT;
+export const isBigClimb = (t: T) => { const g = gainM(t); return g != null && g * M_TO_FT >= BIG_CLIMB_FT; };

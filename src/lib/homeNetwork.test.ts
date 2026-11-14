@@ -42,7 +42,7 @@ describe('Home network use', () => {
     const { loadAround } = await import('./home');
     const r = await loadAround([-97.74, 30.27]); // Austin
     expect(r).toEqual({ kind: 'outside' });
-    expect(urls).toEqual(['/trails/index.json']);
+    expect(urls).toEqual(['/trails/v2/index.json', '/trails/index.json']);   // v2 first (absent in this fixture), then the old path
   });
   it('reports "unavailable" when the index is missing, with no third-party call', async () => {
     (fetch as ReturnType<typeof vi.fn>).mockImplementation(async (u: unknown) => { urls.push(String(u)); return { ok: false, status: 404, json: async () => ({}) }; });
@@ -56,7 +56,7 @@ describe('Home network use', () => {
     expect(searchNames(names, 'rattle').map((m) => m[1])).toEqual(['Rattlesnake Ledge Trail']);
     expect(searchNames(names, 'lake', 6, [-121.5, 47.4]).map((m) => m[1])).toEqual(['Annette Lake Trail']);
     expect(searchNames(names, 'm')).toEqual([]); // one letter: nothing
-    expect(urls).toEqual(['/trails/names.json']);
+    expect(urls).toEqual(['/trails/v2/index.json', '/trails/index.json', '/trails/names.json']);   // the index (v2 probe, old path), then the one names file
   });
   it('keystrokes never touch the network: type-ahead is searchNames over the local index', async () => {
     const { loadNameIndex, searchNames } = await import('./nameIndex');

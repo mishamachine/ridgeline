@@ -1,0 +1,98 @@
+{
+ "_note": "Covered regions. expected_trails is a collapse tripwire, self-baselined: the count this build measured on 13 Nov 2026; the build fails if a region comes in under 50% of it. It is not an independent OSM figure. classics: each name must be found in the region's names.json with a length in len_m (metres), be ranked first by the app's own name search, and have a stored gain within max_err_pct (default 15) of published_ft (one-way headline gain in feet, source given). stored_len_m: range for the stored (stitched) length when it differs from names.json. v1: also publish the frozen old-format copy at trails/ (Washington only). max_err_pct above 15 is a temporary allowance and only goes with a known_bug note; remove both when the stitcher is fixed.",
+ "regions": [
+  {
+   "id": "washington",
+   "name": "Washington",
+   "cc": "us",
+   "geofabrik": "us/washington",
+   "expected_trails": 10249,
+   "classics": [
+    {
+     "name": "Rattlesnake Ledge",
+     "len_m": [
+      2500,
+      3700
+     ],
+     "published_ft": 1160,
+     "source": "https://www.wta.org/go-hiking/hikes/rattlesnake-ledge"
+    },
+    {
+     "name": "Mount Si",
+     "len_m": [
+      5000,
+      7500
+     ],
+     "published_ft": 3150,
+     "source": "https://www.wta.org/go-hiking/hikes/mount-si"
+    },
+    {
+     "name": "Dog Mountain Trails",
+     "len_m": [
+      12000,
+      14000
+     ],
+     "stored_len_m": [
+      10000,
+      12000
+     ],
+     "published_ft": 2800,
+     "max_err_pct": 35,
+     "source": "https://www.oregonhikers.org/field_guide/dog_mountain_loop_hike",
+     "known_bug": "known stitcher bug: chain starts away from the trailhead; remove when the stitcher is fixed",
+     "detail": "The stitched chain is 6.89 mi, the published loop length, but it dips to river level (the trailhead) mid-chain, adding a 1,128 ft up-and-down leg; trailhead to summit alone is 2,621 ft (-6.4%). Not DEM noise."
+    },
+    {
+     "name": "Granite Mountain",
+     "len_m": [
+      5500,
+      7500
+     ],
+     "published_ft": 3800,
+     "source": "https://www.wta.org/go-hiking/hikes/granite-mountain"
+    }
+   ],
+   "v1": true,
+   "code": "WA"
+  },
+  {
+   "id": "oregon",
+   "name": "Oregon",
+   "cc": "us",
+   "geofabrik": "us/oregon",
+   "expected_trails": 7481,
+   "classics": [
+    {
+     "name": "Eagle Creek Trail",
+     "len_m": [
+      8000,
+      25000
+     ],
+     "published_ft": 3750,
+     "source": "https://www.eyehike.com/2016/?p=400",
+     "note": "Trailhead to Wahtum Lake: 1,500 ft over the first 7 miles plus 2,250 ft over the next 5, per that guide (sources vary)."
+    },
+    {
+     "name": "Misery Ridge",
+     "len_m": [
+      1000,
+      2000
+     ],
+     "published_ft": 700,
+     "source": "https://modernhiker.com/hike/misery-ridge-loop/",
+     "note": "Loop figure (5.09 mi, 700 ft); other guides give 910 to 1,100 ft for the ridge climb."
+    },
+    {
+     "name": "Tom McCall",
+     "len_m": [
+      2000,
+      3500
+     ],
+     "published_ft": 1070,
+     "source": "https://www.oregonhikers.org/field_guide/Mccall_point_hike"
+    }
+   ],
+   "code": "OR"
+  }
+ ]
+}
