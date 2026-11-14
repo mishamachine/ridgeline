@@ -120,6 +120,16 @@
      "published_ft": 2953,
      "source": "https://www.whistler.com/blog/post/2017/09/12/insiders-guide-hiking-garibaldi-lake-area/",
      "note": "Trailhead to the lake, one way: 9 km and about 900 m of gain per that guide (others give 810 to 900 m). OSM names the ways 'Garibaldi Lake Trail'."
+    },
+    {
+     "name": "Wedgemount Lake",
+     "len_m": [
+      4500,
+      8500
+     ],
+     "published_ft": 3806,
+     "source": "https://www.vancouvertrails.com/trails/wedgemount-lake/",
+     "note": "One-way gain to the lake, 1,160 m per that guide (BC Parks' description gives a 1,200 m change over 7 km; other guides 1,220 to 1,250 m). OSM names the trail 'Wedgemount Lake Trail', 5.6 km mapped."
     }
    ],
    "code": "BC"

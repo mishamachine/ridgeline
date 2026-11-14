@@ -10,7 +10,7 @@ import { DRIVE_TIME_ENABLED } from '../lib/flags';
 import { METRIC_COPY } from '../lib/metricCopy';
 import { useSettings } from '../lib/settings';
 import {
-  DIFFICULTIES, DIFFICULTY_NOTE, HOW_WE_RANK, LENGTHS, SORTS, coverageLine,
+  DIFFICULTIES, DIFFICULTY_NOTE, HOW_WE_RANK, LENGTHS, SORTS, coverageLine, subFor,
   type Collection, type HomeFilters, type Region,
 } from '../lib/home';
 
@@ -91,6 +91,7 @@ function RegionList({ p }: { p: HomeViewProps }) {
 }
 
 function Rail({ c, p }: { c: Collection; p: HomeViewProps }) {
+  const [{ units }] = useSettings();
   const [why, setWhy] = useState(false);
   const id = `row-${c.id}`;
   return (
@@ -98,7 +99,7 @@ function Rail({ c, p }: { c: Collection; p: HomeViewProps }) {
       <div className="hm-rowh">
         <div>
           <h2 id={id}>{rowTitle(c, p.area)}</h2>
-          <p>{c.sub}{c.id === 'top' && <> <button className="hm-why" aria-expanded={why} onClick={() => setWhy(!why)}>How we rank</button></>}</p>
+          <p>{subFor(c, units)}{c.id === 'top' && <> <button className="hm-why" aria-expanded={why} onClick={() => setWhy(!why)}>How we rank</button></>}</p>
           {why && c.id === 'top' && <p className="hm-note" role="note">{HOW_WE_RANK}</p>}
         </div>
         <button className="hm-link" aria-label={`See all: ${c.title}`} onClick={() => p.onSeeAll(c.id)}>See all</button>

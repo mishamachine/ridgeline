@@ -22,7 +22,7 @@ class RegionConfig(unittest.TestCase):
             self.assertNotIn(r['id'], ids)
             ids.add(r['id'])
             self.assertRegex(r['geofabrik'], r'^([a-z-]+/)?[a-z0-9-]+$')   # Geofabrik ids: "us/oregon", but Canadian provinces are just "british-columbia"
-            self.assertGreaterEqual(len(r['classics']), 2, r['id'])
+            self.assertGreaterEqual(len(r['classics']), 3, r['id'])
             for c in r['classics']:
                 self.assertLess(c['len_m'][0], c['len_m'][1])
                 self.assertTrue(c['published_ft'] > 0 and c['source'].startswith('https://'), c['name'])   # every classic carries a published gain and where it came from

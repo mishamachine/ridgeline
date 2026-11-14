@@ -117,7 +117,7 @@ export function Home({ visible, version, hike, savedIds, offlineIds, onOpen, onO
     // origin is read through originKey so a new array with the same numbers does not reload
   }, [originKey, online, index, retry]);
 
-  const collections = useMemo(() => (trails && origin ? buildCollections(trails, origin) : []), [trails, originKey]);
+  const collections = useMemo(() => (trails && origin ? buildCollections(trails, origin, units) : []), [trails, originKey, units]);
   const results = useMemo(() => (trails && origin && isFiltering(filters) ? applyFilters(trails, filters, origin, units) : null), [trails, originKey, filters, units]);
 
   let mode: HomeMode = 'loading';

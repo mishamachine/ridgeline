@@ -6,6 +6,7 @@ import { filterTrails, rankTrails } from './quality';
 import { trailheadOf } from './maps';
 import { dogsStatus } from './parks';
 import type { Units } from './settings';
+import { METRIC_COPY } from './metricCopy';
 import type { Difficulty, Trail } from './trails';
 
 /** A region we can name. `center` is a covered spot inside it, taken from the data. */
@@ -114,10 +115,16 @@ export async function loadAround(p: LngLat, signal?: AbortSignal): Promise<HomeL
 export const roundTripMi = (t: Trail) => roundTripM(t) * M_TO_MI;
 const has = (t: Trail, kind: string) => !!t.highlights?.includes(kind); // firm tags only, never "maybe"
 
-export interface CollectionDef { id: 'top' | 'view' | 'dogs' | 'falls'; title: string; sub: string; pick: (t: Trail) => boolean }
+/** "Short" is under 3 mi, or under 5 km for metric users. */
+export const isShort = (t: Trail, units: Units = 'imperial') => (units === 'metric' ? roundTripM(t) < 5000 : roundTripMi(t) < 3);
+export const shortLabel = (units: Units = 'imperial') => (units === 'metric' ? METRIC_COPY.shortChip : 'Under 3 mi');
+
+export interface CollectionDef { id: 'top' | 'view' | 'dogs' | 'falls'; title: string; sub: string; pick: (t: Trail, units?: Units) => boolean }
+/** The row's subtitle in the user's units. */
+export const subFor = (c: Pick<CollectionDef, 'id' | 'sub'>, units: Units = 'imperial') => (units === 'metric' && c.id === 'view' ? METRIC_COPY.viewSub : c.sub);
 export const COLLECTIONS: CollectionDef[] = [
   { id: 'top', title: 'Top picks', sub: 'Ranked by Ridgeline’s trail score', pick: () => true },
-  { id: 'view', title: 'Short with a view', sub: 'Under 3 mi, views tagged in OpenStreetMap', pick: (t) => roundTripMi(t) < 3 && has(t, 'view') },
+  { id: 'view', title: 'Short with a view', sub: 'Under 3 mi, views tagged in OpenStreetMap', pick: (t, units) => isShort(t, units) && has(t, 'view') },
   { id: 'dogs', title: 'Dog-friendly', sub: 'Dogs tagged Yes in OpenStreetMap', pick: (t) => dogsStatus(t) === 'yes' },
   { id: 'falls', title: 'Waterfalls', sub: 'Waterfall tagged in OpenStreetMap', pick: (t) => has(t, 'falls') },
 ];
@@ -130,10 +137,10 @@ const ROW_MAX = 8;
 export const ROW_MIN = 3;
 
 /** Rows of up to eight trails, best first. A row with fewer than ROW_MIN trails is left out. */
-export function buildCollections(trails: Trail[], origin?: LngLat): Collection[] {
+export function buildCollections(trails: Trail[], origin?: LngLat, units: Units = 'imperial'): Collection[] {
   // A trail whose shown numbers are over 10% from its stored full-line figure stays out of the rows (it remains in search, All trails and on the map).
   const ranked = rankTrails(filterTrails(trails.filter((t) => !t.statsMismatch)), origin);
-  return COLLECTIONS.map((c) => ({ ...c, trails: ranked.filter(c.pick).slice(0, ROW_MAX) })).filter((c) => c.trails.length >= ROW_MIN);
+  return COLLECTIONS.map((c) => ({ ...c, trails: ranked.filter((t) => c.pick(t, units)).slice(0, ROW_MAX) })).filter((c) => c.trails.length >= ROW_MIN);
 }
 
 export type LengthBucket = 'under3' | '3to6' | '6to10' | '10plus';

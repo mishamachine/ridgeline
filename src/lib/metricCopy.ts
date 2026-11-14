@@ -10,6 +10,8 @@ export const METRIC_COPY = {
   awayUnder: 'Under 1 km away',
   away: (km: number) => `${km} km away`,
   timeNote: 'Time assumes 4.8 km/h plus 30 min per 300 m up.',
+  shortChip: 'Under 5 km',                              // Find quick filter
+  viewSub: 'Under 5 km, views tagged in OpenStreetMap', // Home row "Short with a view"
   lengthChips: { under3: 'Under 5 km', '3to6': '5–10 km', '6to10': '10–15 km', '10plus': '15+ km' },
 } as const;
 // ===== end of metric strings =====
