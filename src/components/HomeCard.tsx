@@ -1,4 +1,5 @@
 import { memo } from 'react';
+import { M_TO_FT } from '../lib/geo';
 import { ft, mi } from '../lib/format';
 import { gainM, level, roundTripM } from '../lib/plan';
 import type { Trail } from '../lib/trails';
@@ -17,7 +18,8 @@ interface Props {
 
 /** Distance is always the whole outing, so the label is always "round trip". */
 export const distanceLabel = (t: Trail) => `${mi(roundTripM(t))} mi round trip`;
-export const gainLabel = (t: Trail) => { const g = gainM(t); return g == null ? null : `About ${ft(g)} ft gain`; };
+/** Gain is rounded to the nearest 50 ft: no false precision. */
+export const gainLabel = (t: Trail) => { const g = gainM(t); return g == null ? null : `About ${ft(Math.round(g * M_TO_FT / 50) * 50 / M_TO_FT)} ft gain`; };
 
 export const HomeCard = memo(function HomeCard({ trail, saved, offline, driveLater = true, onOpen, onToggleSave }: Props) {
   const gain = gainLabel(trail);

@@ -82,10 +82,10 @@ describe('Home: 2 location allowed', () => {
 
 describe('Home: 3 location denied', () => {
   const h = html({ loc: 'denied', area: { kind: 'place', name: 'Seattle, WA' } });
-  it('shows the chosen place and a quiet "Pick a place", with no nagging', () => {
+  it('shows the chosen place and a quiet "Change region", with no nagging', () => {
     expect(h).toContain('Location is off.');
     expect(h).toContain('Showing Seattle, WA');
-    expect(h).toContain('Pick a place');
+    expect(h).toContain('Change region');
     expect(h).toContain('Top picks around Seattle, WA');
     expect(h).not.toContain('Use my location');
   });
@@ -177,5 +177,16 @@ describe('Home: accessibility basics', () => {
     const o = ['Ridgeline', 'aria-label="Search"', 'id="home-filters"', 'row-top', 'More regions coming.'].map((s) => h.indexOf(s));
     expect(o).toEqual([...o].sort((a, b) => a - b));
     expect(o.every((i) => i >= 0)).toBe(true);
+  });
+});
+
+describe('Home: copy for the device', () => {
+  it('says "device" on the web (the native apps say "phone")', () => {
+    const off = html({ mode: 'offline', saved: [], collections: [] });
+    expect(off).toContain('Nothing saved on this device yet.');
+    expect(html({ mode: 'offline', saved: [savedItem(0, true)] })).toContain('Saved on this device');
+  });
+  it('rounds gain to 50 ft, with no decimals', () => {
+    for (const m of html().matchAll(/About ([\d,]+) ft gain/g)) expect(Number(m[1].replace(',', '')) % 50).toBe(0);
   });
 });

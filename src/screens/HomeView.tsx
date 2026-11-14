@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+import { isNative } from '../lib/native/platform';
 import { Bobo } from '../components/Bobo';
 import { HomeCard } from '../components/HomeCard';
 import { ChevronIcon } from '../components/Icons';
@@ -116,6 +117,7 @@ export function HomeView(p: HomeViewProps) {
   const offline = p.mode === 'offline';
   const hello = outside || offline ? null : returning ? 'Welcome back' : p.hello;
   const savedShown = p.saved.slice(0, offline ? 24 : 3);
+  const device = isNative() ? 'phone' : 'device';
   const anyOffline = p.saved.some((s) => s.offline);
 
   return (
@@ -162,10 +164,8 @@ export function HomeView(p: HomeViewProps) {
           <div className="hm-tx">
             {p.loc === 'denied' ? <>Location is off.<small>Showing {p.area.name}</small></> : <>Starting in {p.area.name}<small>Ridgeline never collects your location.</small></>}
           </div>
-          {p.loc === 'denied'
-            ? <button className="hm-btn hm-ghost" onClick={p.onPickPlace}>Pick a place</button>
-            : <button className="hm-btn hm-pri" onClick={p.onUseLocation}>Use my location</button>}
-          {p.loc === 'unasked' && p.regions.length > 1 && (
+          {p.loc !== 'denied' && <button className="hm-btn hm-pri" onClick={p.onUseLocation}>Use my location</button>}
+          {(p.loc === 'denied' || p.regions.length > 1) && (
             <details className="hm-regions"><summary>Change region</summary>
               <ul>{p.regions.map((r) => <li key={r.code}><button className="hm-chip" onClick={() => p.onPickRegion(r)}>{r.name}</button></li>)}</ul>
             </details>
@@ -191,15 +191,15 @@ export function HomeView(p: HomeViewProps) {
           )}
         </div>
       ))}
-      {p.mode === 'ready' && !p.results && p.collections.length === 0 && <p className="hm-note hm-pad">No trails found near here yet. Pick a place or open the map.</p>}
+      {p.mode === 'ready' && !p.results && p.collections.length === 0 && <p className="hm-note hm-pad">No trails found near here yet. Change region or open the map.</p>}
 
       {!outside && p.saved.length > 0 && (
         <section className="hm-row" aria-labelledby="row-saved">
-          <div className="hm-rowh"><div><h2 id="row-saved">{offline ? 'Offline trails' : 'Saved'}</h2><p>{offline ? 'Saved on this phone' : anyOffline ? 'Offline maps ready' : 'Saved on this phone'}</p></div></div>
+          <div className="hm-rowh"><div><h2 id="row-saved">{offline ? 'Offline trails' : 'Saved'}</h2><p>{offline ? `Saved on this ${device}` : anyOffline ? 'Offline maps ready' : `Saved on this ${device}`}</p></div></div>
           <Grid trails={savedShown.map((s) => s.trail)} p={p} driveLater={false} />
         </section>
       )}
-      {offline && p.saved.length === 0 && <p className="hm-note hm-pad">Nothing saved on this phone yet.</p>}
+      {offline && p.saved.length === 0 && <p className="hm-note hm-pad">Nothing saved on this {device} yet.</p>}
 
       {!offline && <p className="hm-note hm-cov">{coverageLine(p.regions)}</p>}
     </div>

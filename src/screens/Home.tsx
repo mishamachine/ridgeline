@@ -7,6 +7,8 @@ import {
   loadAround, nearestRegion, type Collection, type HomeFilters, type Region,
 } from '../lib/home';
 import { remember } from '../lib/lookup';
+import { onEnter } from '../lib/homeSearch';
+import type { Place } from '../lib/geocode';
 import { loadNameIndex, searchNames, type NameEntry } from '../lib/nameIndex';
 import { listAllSaved, type SavedItem } from '../lib/saved';
 import { getSetting, putSetting } from '../lib/store';
@@ -47,12 +49,14 @@ export function Home({ visible, version, hike, savedIds, offlineIds, onOpen, onO
   const [filters, setFilters] = useState<HomeFilters>(NO_FILTERS);
   const [filtersOpen, setFiltersOpen] = useState(false);
 
-  // Search: type-ahead and Enter both read only our own name index. Nothing outside our own files is called from Home.
+  // Search: type-ahead reads only our own name index (no network on keystrokes). Enter may make ONE place lookup (a bridge until the build-time place index ships; see lib/homeSearch.ts).
   const [query, setQuery] = useState('');
   const deferred = useDeferredValue(query);
   const [focused, setFocused] = useState(false);
   const [names, setNames] = useState<NameEntry[]>([]);
   const [searchMsg, setSearchMsg] = useState<string | null>(null);
+  const [places, setPlaces] = useState<Place[] | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const regions = useMemo(() => coverageRegions(index), [index]);
   const region = useMemo(() => defaultRegion(regions, deviceTimeZone()), [regions]);
@@ -128,17 +132,22 @@ export function Home({ visible, version, hike, savedIds, offlineIds, onOpen, onO
     setFocused(true);
     if (!names.length) setNames(await loadNameIndex());
   }
-  function closeSearch() { setQuery(''); setFocused(false); setSearchMsg(null); }
+  function closeSearch() { setQuery(''); setFocused(false); setSearchMsg(null); setPlaces(null); }
 
-  /** Enter: open the best match in our own name index, or say there is none. */
+  /** Enter: open an exact trail name, else one place lookup (bridge), listed with any trail matches. */
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (q.length < 2) return;
-    const list = names.length ? names : await loadNameIndex();
-    if (!names.length) setNames(list);
-    const best = searchNames(list, q, 1, origin ?? undefined)[0];
-    if (best) { closeSearch(); onOpenId(best[0], [best[2], best[3]]); }
-    else setSearchMsg('No match in our trails, try another name');
+    if (q.length < 2 || busy) return;
+    setBusy(true); setSearchMsg(null);
+    try {
+      const list = names.length ? names : await loadNameIndex();
+      if (!names.length) setNames(list);
+      const r = await onEnter(q, list, origin ?? undefined, navigator.onLine);
+      if (r.kind === 'trail') { closeSearch(); onOpenId(r.entry[0], [r.entry[2], r.entry[3]]); }
+      else if (r.kind === 'places') setPlaces(r.places);
+      else setSearchMsg(r.kind === 'offline' ? 'Place search needs a connection.' : 'No match in our trails or places, try another name');
+    } catch { setSearchMsg('Place search failed. Try again.'); }
+    finally { setBusy(false); }
   }
 
   const choose = useCallback((p: Picked) => {
@@ -155,7 +164,7 @@ export function Home({ visible, version, hike, savedIds, offlineIds, onOpen, onO
         <label htmlFor="home-q" className="sr">Search a place or trail</label>
         <input id="home-q" type="search" role="combobox" aria-expanded={showSuggest} aria-controls="home-suggest" aria-autocomplete="list" enterKeyHint="search"
           placeholder={online ? 'Search a place or trail' : 'Search trails by name (offline)'} value={query}
-          onChange={(e) => { setQuery(e.target.value); setFocused(true); setSearchMsg(null); }}
+          onChange={(e) => { setQuery(e.target.value); setFocused(true); setSearchMsg(null); setPlaces(null); }}
           onFocus={focusSearch} onBlur={() => setFocused(false)} autoComplete="off" autoCorrect="off" spellCheck={false} />
         {query && <button type="button" className="hm-clear" aria-label="Clear search" onMouseDown={(e) => e.preventDefault()} onClick={closeSearch}><CloseIcon size={18} /></button>}
       </form>
@@ -167,8 +176,15 @@ export function Home({ visible, version, hike, savedIds, offlineIds, onOpen, onO
               <span className="hm-sg-sub">Trail · {mi(m[4])} mi long</span>
             </button>
           ))}
-          {!matches.length && <div className="hm-sg-msg" role="status">{searchMsg ?? 'Press Enter to search our trails by name.'}</div>}
-          {matches.length > 0 && searchMsg && <div className="hm-sg-msg" role="status">{searchMsg}</div>}
+          {places?.map((p, i) => (
+            <button key={`${p.lon},${p.lat},${i}`} role="option" aria-selected="false" className="hm-sg" onClick={() => { closeSearch(); choose({ name: p.name, center: [p.lon, p.lat] }); }}>
+              <span className="hm-sg-name">{p.name}</span>
+              <span className="hm-sg-sub">Place · {p.detail}</span>
+            </button>
+          ))}
+          {busy && <div className="hm-sg-msg" role="status">Searching…</div>}
+          {!busy && !places && !matches.length && !searchMsg && <div className="hm-sg-msg">Press Enter to search trails and places.</div>}
+          {searchMsg && <div className="hm-sg-msg" role="status">{searchMsg}</div>}
         </div>
       )}
     </div>
