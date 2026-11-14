@@ -1,5 +1,5 @@
 {
- "_note": "Covered regions. expected_trails is a collapse tripwire, self-baselined: the count this build measured on 13 Nov 2026; the build fails if a region comes in under 50% of it. It is not an independent OSM figure. classics: each name must be found in the region's names.json with a length in len_m (metres), be ranked first by the app's own name search, and have a stored gain within max_err_pct (default 15) of published_ft (one-way headline gain in feet, source given). stored_len_m: range for the stored (stitched) length when it differs from names.json. v1: also publish the frozen old-format copy at trails/ (Washington only). max_err_pct above 15 is a temporary allowance and only goes with a known_bug note; remove both when the stitcher is fixed. Classic left out on purpose: Stawamus Chief (OpenStreetMap has no route or path covering a peak under that name; the peaks are separate spur ways named First, Second and Third Peak Trail, so no trailhead-to-summit gain can be checked). British Columbia's expected_trails is added from the first CI build's own count.",
+ "_note": "Covered regions. expected_trails is a collapse tripwire, self-baselined: the count this build measured on 13 Nov 2026; the build fails if a region comes in under 50% of it. It is not an independent OSM figure. classics: each name must be found in the region's names.json with a length in len_m (metres), be ranked first by the app's own name search, and have a stored gain within max_err_pct (default 15) of published_ft (one-way headline gain in feet, source given). stored_len_m: range for the stored (stitched) length when it differs from names.json. v1: also publish the frozen old-format copy at trails/ (Washington only). max_err_pct above 15 is a temporary allowance and only goes with a known_bug note; remove both when the stitcher is fixed. Classic left out on purpose: Stawamus Chief (OpenStreetMap has no route or path covering a peak under that name; the peaks are separate spur ways named First, Second and Third Peak Trail, so no trailhead-to-summit gain can be checked). British Columbia's expected_trails (17626) is the count of its first CI build, 14 Nov 2026.",
  "regions": [
   {
    "id": "washington",
@@ -99,6 +99,7 @@
    "name": "British Columbia",
    "cc": "ca",
    "geofabrik": "british-columbia",
+   "expected_trails": 17626,
    "classics": [
     {
      "name": "Grouse Grind",
