@@ -1,5 +1,5 @@
 {
- "_note": "Covered regions. expected_trails is a collapse tripwire, self-baselined: the count this build measured on 13 Nov 2026; the build fails if a region comes in under 50% of it. It is not an independent OSM figure. classics: each name must be found in the region's names.json with a length in len_m (metres). v1: also publish the frozen old-format copy at trails/ (Washington only). gain_ft: the headline gain range in feet (way up), checked against the stored full-line numbers. Dog Mountain was dropped: its OSM routes stitch to a chain with 3,688 ft or 1,841 ft of gain, neither close to the real 2,800 ft.",
+ "_note": "Covered regions. expected_trails is a collapse tripwire, self-baselined: the count this build measured on 13 Nov 2026; the build fails if a region comes in under 50% of it. It is not an independent OSM figure. classics: each name must be found in the region's names.json with a length in len_m (metres), be ranked first by the app's own name search, and have a stored gain within max_err_pct (default 15) of published_ft (one-way headline gain in feet, source given). stored_len_m: range for the stored (stitched) length when it differs from names.json. v1: also publish the frozen old-format copy at trails/ (Washington only).",
  "regions": [
   {
    "id": "washington",
@@ -14,10 +14,8 @@
       2500,
       3700
      ],
-     "gain_ft": [
-      900,
-      1400
-     ]
+     "published_ft": 1160,
+     "source": "https://www.wta.org/go-hiking/hikes/rattlesnake-ledge"
     },
     {
      "name": "Mount Si",
@@ -25,10 +23,23 @@
       5000,
       7500
      ],
-     "gain_ft": [
-      3000,
-      4000
-     ]
+     "published_ft": 3150,
+     "source": "https://www.wta.org/go-hiking/hikes/mount-si"
+    },
+    {
+     "name": "Dog Mountain Trails",
+     "len_m": [
+      12000,
+      14000
+     ],
+     "stored_len_m": [
+      10000,
+      12000
+     ],
+     "published_ft": 2800,
+     "max_err_pct": 35,
+     "source": "https://www.oregonhikers.org/field_guide/dog_mountain_loop_hike",
+     "note": "Known: the stitched chain is 6.89 mi, the published loop length, but it has an extra 1,128 ft up-and-down leg before the river-level trailhead; the trailhead-to-summit part alone is 2,621 ft (-6.4% against published). Not DEM noise: gain changes under 1% from 2 m to 20 m of smoothing. Tolerance widened only to catch regressions."
     },
     {
      "name": "Granite Mountain",
@@ -36,10 +47,8 @@
       5500,
       7500
      ],
-     "gain_ft": [
-      3000,
-      4300
-     ]
+     "published_ft": 3800,
+     "source": "https://www.wta.org/go-hiking/hikes/granite-mountain"
     }
    ],
    "v1": true
@@ -57,10 +66,9 @@
       8000,
       25000
      ],
-     "gain_ft": [
-      2500,
-      4500
-     ]
+     "published_ft": 3750,
+     "source": "https://www.eyehike.com/2016/?p=400",
+     "note": "Trailhead to Wahtum Lake: 1,500 ft over the first 7 miles plus 2,250 ft over the next 5, per that guide (sources vary)."
     },
     {
      "name": "Misery Ridge",
@@ -68,10 +76,9 @@
       1000,
       2000
      ],
-     "gain_ft": [
-      550,
-      1000
-     ]
+     "published_ft": 700,
+     "source": "https://modernhiker.com/hike/misery-ridge-loop/",
+     "note": "Loop figure (5.09 mi, 700 ft); other guides give 910 to 1,100 ft for the ridge climb."
     },
     {
      "name": "Tom McCall",
@@ -79,10 +86,8 @@
       2000,
       3500
      ],
-     "gain_ft": [
-      800,
-      1300
-     ]
+     "published_ft": 1070,
+     "source": "https://www.oregonhikers.org/field_guide/Mccall_point_hike"
     }
    ]
   }

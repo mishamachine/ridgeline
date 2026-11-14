@@ -24,6 +24,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 INDEX_URL = 'https://download.geofabrik.de/index-v1-nogeom.json'
 USER_AGENT = 'ridgeline-trail-build (github.com/mishamachine/ridgeline; machinemisha@gmail.com)'
 MIN_SHARE = 0.5
+MAX_GAIN_ERR_PCT = 15       # a classic's stored gain must be within this share of its published figure
 MAX_GAIN_LOSS_SHARE = 0.02   # share of trails (with 100 ft or more of gain) that may lose over 25% of it on the simplified drawn line
 
 
@@ -102,7 +103,7 @@ def find_classic(entries, classic):
 
 def stats_for(classic, stats):
     """(trail dict or None): the longest stored trail whose name has the classic's words and whose length is inside len_m."""
-    lo, hi = classic.get('len_m', [0, float('inf')])
+    lo, hi = classic.get('stored_len_m', classic.get('len_m', [0, float('inf')]))
     ok = [t for t in (stats or {}).get('trails', []) if norm(classic['name']) in norm(t['name']) and lo <= t['L'] <= hi]
     return prefer_exact(ok, lambda t: t['name'], classic['name'], lambda t: t['L'])
 
@@ -137,8 +138,12 @@ def check_region(r, report, entries, stats=None):
             else:
                 g = gain_ft(t)
                 line += f"; stored {t['L']} m, gain {g} ft"
-                if 'gain_ft' in c and not c['gain_ft'][0] <= g <= c['gain_ft'][1]:
-                    bad.append(f"{r['name']}: classic {c['name']!r}: gain {g} ft is outside {c['gain_ft']}")
+                pub = c.get('published_ft')
+                if pub:
+                    err = (g / pub - 1) * 100
+                    line += f" (published {pub} ft, {err:+.1f}%)"
+                    if abs(err) > c.get('max_err_pct', MAX_GAIN_ERR_PCT):
+                        bad.append(f"{r['name']}: classic {c['name']!r}: gain {g} ft is {err:+.1f}% from the published {pub} ft (limit {c.get('max_err_pct', MAX_GAIN_ERR_PCT)}%)")
             tp = top.get(c['name'])
             if tp is None or norm(c['name']) not in norm(tp[1]) or not c['len_m'][0] <= tp[4] <= c['len_m'][1]:
                 bad.append(f"{r['name']}: name search for {c['name']!r} ranks {tp and (tp[1], tp[4])} first, not the main trail")

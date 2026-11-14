@@ -22,9 +22,10 @@ class RegionConfig(unittest.TestCase):
             self.assertNotIn(r['id'], ids)
             ids.add(r['id'])
             self.assertRegex(r['geofabrik'], r'^[a-z-]+/[a-z0-9-]+$')
-            self.assertEqual(len(r['classics']), 3, r['id'])
+            self.assertGreaterEqual(len(r['classics']), 3, r['id'])
             for c in r['classics']:
                 self.assertLess(c['len_m'][0], c['len_m'][1])
+                self.assertTrue(c['published_ft'] > 0 and c['source'].startswith('https://'), c['name'])   # every classic carries a published gain and where it came from
             self.assertTrue(r['name'] and r['cc'])
 
     def test_matrix_lists_every_region_and_flags_the_v1_copy(self):
@@ -90,7 +91,7 @@ class Exact(unittest.TestCase):
 
 
 class Stats(unittest.TestCase):
-    R = {'name': 'Oregon', 'expected_trails': 1000, 'classics': [{'name': 'Eagle Creek Trail', 'len_m': [8000, 25000], 'gain_ft': [1000, 5000]}]}
+    R = {'name': 'Oregon', 'expected_trails': 1000, 'classics': [{'name': 'Eagle Creek Trail', 'len_m': [8000, 25000], 'published_ft': 3750}]}
     ENT = [['osm-r2', 'Eagle Creek Trail #501', 0, 0, 10310], ['osm-r1', 'Eagle Creek Trail', 0, 0, 20900]]
     TRAIL = {'name': 'Eagle Creek Trail', 'key': 'r1', 'L': 20800, 'up': 25, 'down': 1095, 'loop': False}
 
@@ -110,7 +111,17 @@ class Stats(unittest.TestCase):
         st = {'trails': [self.TRAIL], 'classics': [{'name': 'Eagle Creek Trail', 'top': short}]}
         self.assertTrue(any('ranks' in b for b in regions.check_region(self.R, {'trails': 900, 'cells': 4}, self.ENT, st)[0]))
         flat = {'trails': [{**self.TRAIL, 'up': 2, 'down': 3}], 'classics': [{'name': 'Eagle Creek Trail', 'top': self.ENT[1]}]}
-        self.assertTrue(any('gain' in b for b in regions.check_region(self.R, {'trails': 900, 'cells': 4}, self.ENT, flat)[0]))
+        self.assertTrue(any('published' in b for b in regions.check_region(self.R, {'trails': 900, 'cells': 4}, self.ENT, flat)[0]))
+
+    def test_gain_error_is_reported_and_a_wider_limit_can_be_set(self):
+        st = {'trails': [{**self.TRAIL, 'up': 1124, 'down': 537}], 'classics': [{'name': 'Eagle Creek Trail', 'top': self.ENT[1]}]}   # 3,688 ft against 3,750
+        bad, lines = regions.check_region(self.R, {'trails': 900, 'cells': 4}, self.ENT, st)
+        self.assertEqual(bad, [])
+        self.assertIn('published 3750 ft, -1.7%', lines[0])
+        over = {**self.R, 'classics': [{**self.R['classics'][0], 'published_ft': 2800}]}   # +31.7%: over the default 15%
+        self.assertTrue(regions.check_region(over, {'trails': 900, 'cells': 4}, self.ENT, st)[0])
+        wide = {**self.R, 'classics': [{**self.R['classics'][0], 'published_ft': 2800, 'max_err_pct': 35}]}
+        self.assertEqual(regions.check_region(wide, {'trails': 900, 'cells': 4}, self.ENT, st)[0], [])
 
 
 class Merge(unittest.TestCase):
