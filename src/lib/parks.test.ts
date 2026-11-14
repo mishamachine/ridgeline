@@ -20,7 +20,7 @@ const pointReyes = moveTo(littleSi, -122.95, 38.05);   // Point Reyes National S
 const yosemite = moveTo(littleSi, -119.55, 37.74);     // Yosemite Valley
 
 describe('dogs and national parks', () => {
-  it('shows Dogs: Yes (OSM) for a firm tag outside a park', () => {
+  it('shows Dogs: tagged yes for a firm tag outside a park', () => {
     expect(inNationalPark(littleSi)).toBe(false);
     expect(dogsStatus(littleSi)).toBe('yes');
     expect(highlightsOf(littleSi).map((h) => h.kind)).toContain('dogs');

@@ -37,6 +37,13 @@ async function check(page: Page, state: string, width: number, provider: string[
   expect(sizes.page[0], 'page scrolls sideways').toBeLessThanOrEqual(sizes.page[1]);
   if (sizes.home) expect(sizes.home[0], 'Home scrolls sideways').toBeLessThanOrEqual(sizes.home[1]);
   expect(sizes.small, 'tap targets under 44 px').toEqual([]);
+  // A button whose text colour matches its background has no visible label (the map button once did).
+  for (const b of await page.locator('.hm button:visible').all()) {
+    const c = await b.evaluate((el) => { const s = getComputedStyle(el); return [s.color, s.backgroundColor, (el.textContent || '').trim().slice(0, 30)]; });
+    if (c[2]) expect(c[0], `"${c[2]}" label colour vs its background`).not.toBe(c[1]);
+  }
+  const map = page.getByRole('button', { name: /Explore the map/ });
+  if (await map.count()) expect(await map.evaluate((el) => getComputedStyle(el).color), 'map button label colour').toBe('rgb(255, 255, 255)');
   expect(provider, 'no request to the map provider from Home').toEqual([]);
 }
 

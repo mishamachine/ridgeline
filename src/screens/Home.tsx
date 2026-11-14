@@ -180,7 +180,7 @@ export function Home({ visible, version, hike, savedIds, offlineIds, onOpen, onO
         <FindIcon />
         <label htmlFor="home-q" className="sr">Search a place or trail</label>
         <input id="home-q" type="search" role="combobox" aria-expanded={showSuggest && options > 0} aria-controls={options ? 'home-suggest' : undefined} aria-autocomplete="list" enterKeyHint="search"
-          placeholder={online ? 'Search a place or trail' : 'Search trails by name (offline)'} value={query}
+          placeholder={online ? 'Search a place or trail' : 'Search trails (offline)'} value={query}
           onChange={(e) => { setQuery(e.target.value); setFocused(true); setSearchMsg(null); setPlaces(null); }}
           onKeyDown={inputKey} onFocus={focusSearch} autoComplete="off" autoCorrect="off" spellCheck={false} />
         {query && <button type="button" className="hm-clear" aria-label="Clear search" onMouseDown={(e) => e.preventDefault()} onClick={closeSearch}><CloseIcon size={18} /></button>}

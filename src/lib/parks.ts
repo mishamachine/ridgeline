@@ -44,6 +44,6 @@ export function dogsStatus(t: Pick<Trail, 'highlights' | 'coords'> & Partial<Pic
   return t.highlights?.includes('dogs?') ? 'unknown' : 'none';
 }
 
-export const DOGS_YES = 'Dogs: Yes (OSM)';
+export const DOGS_YES = 'Dogs: tagged yes';
 export const DOGS_UNKNOWN = 'Dogs: Unknown';
 export const DOGS_PAGE_NOTE = 'Dogs: tagged yes in OpenStreetMap. Check local rules before you go.';

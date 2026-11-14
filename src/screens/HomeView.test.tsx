@@ -39,7 +39,7 @@ describe('Home: 1 first visit, location not asked', () => {
     expect(h).toContain('Your exact location never leaves this device.');
     expect(h).not.toContain('stays on your phone');
   });
-  it('shows the Nizam-approved row copy, the rank note button and the map entry', () => {
+  it('shows the approved row copy, the rank note button and the map entry', () => {
     expect(h).toContain('Ranked by Ridgeline’s trail score');
     expect(h).toContain('How we rank');
     expect(h).toContain('aria-expanded="false"');
@@ -204,10 +204,10 @@ describe('Home: no dead ends and structure', () => {
 });
 
 describe('Home: dogs on cards', () => {
-  it('says Dogs: Yes (OSM) on a tagged trail and keeps the row subtitle', () => {
+  it('says Dogs: tagged yes on a tagged trail and keeps the row subtitle', () => {
     const t = { ...trails[3], highlights: ['dogs'] };
     const h = html({ collections: [{ id: 'dogs', title: 'Dog-friendly', sub: 'Dogs tagged Yes in OpenStreetMap', pick: () => true, trails: [t] }] });
-    expect(h).toContain('Dogs: Yes (OSM)');
+    expect(h).toContain('Dogs: tagged yes');
     expect(h).toContain('Dogs tagged Yes in OpenStreetMap');
   });
   it('says Dogs: Unknown inside a national park', () => {

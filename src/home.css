@@ -75,7 +75,7 @@
 .hm-badge { display: inline-flex; align-items: center; gap: 4px; font: 600 12px var(--text); padding: 3px 8px; border-radius: 6px; background: var(--ink); color: #fff; }
 .hm-save { width: 44px; height: 44px; flex: none; display: grid; place-items: center; border: 0; background: transparent; }
 .hm-save[aria-pressed='true'] { color: var(--red); }
-.hm-mapfab { display: flex; align-items: center; gap: 10px; width: calc(100% - 40px); min-height: 56px; margin: 20px 20px 0; padding: 0 16px; border: 0; border-radius: 14px; background: var(--ink); color: #fff; font: 700 16px var(--display); text-align: left; }
+.hm .hm-mapfab { display: flex; align-items: center; gap: 10px; width: calc(100% - 40px); min-height: 56px; margin: 20px 20px 0; padding: 0 16px; border: 0; border-radius: 14px; background: var(--ink); color: #fff; font: 700 16px var(--display); text-align: left; }
 .hm-sp { flex: 1; }
 .hm-empty { text-align: center; padding: 28px 28px 0; display: flex; flex-direction: column; align-items: center; }
 .hm-empty h1 { font: 800 28px/1.1 var(--display); letter-spacing: -.03em; margin: 14px 0 8px; }
