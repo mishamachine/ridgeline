@@ -23,6 +23,8 @@ import type { HikeSummary } from './lib/hype';
 import { ConfirmSheet } from './components/ConfirmSheet';
 import { HikeIcon, HomeIcon, ProfileIcon, SavedIcon } from './components/NavIcons';
 import { count } from './lib/counter';
+import { isCallbackPath, completeWebSignIn } from './lib/accounts/auth';
+import { getClient } from './lib/accounts/client';
 import { setHikeActive } from './lib/swUpdate';
 import { Toaster } from './components/Toaster';
 import { Later } from './components/ScreenBoundary';
@@ -65,6 +67,11 @@ export function App() {
   const [hike, setHike] = useState<Trail | null>(null);
   const [resume, setResume] = useState<Activity | null>(null);
   useEffect(() => { count('session'); }, []);
+  // Web sign-in lands on /auth/callback: finish the session, then go to Profile. Off (and a no-op) while features.accounts is false.
+  useEffect(() => {
+    if (!features.accounts || !isCallbackPath(location.pathname, base)) return;
+    getClient()?.then(completeWebSignIn).finally(() => { history.replaceState(null, '', routePath({ kind: 'tab', tab: 'profile' }, base)); setRoute({ kind: 'tab', tab: 'profile' }); });
+  }, []);
   const [saved, setSaved] = useState<{ marked: Set<string>; offline: Set<string>; version: number }>({ marked: new Set(), offline: new Set(), version: 0 });
   const [removing, setRemoving] = useState<Trail | null>(null);
   const [onboarding, setOnboarding] = useState<null | 'first' | 'replay'>(() => (shouldShowOnboarding() ? (getSettings().onboardingSeen ? 'replay' : 'first') : null));
