@@ -12,7 +12,7 @@ describe('screenshot fixture', () => {
     expect(rows.every((r) => r.trails.length >= ROW_MIN)).toBe(true);
   });
   it('hides a row with 2 matching trails and shows it with 3', () => {
-    const [a, b, c] = trails.filter((t) => t.highlights?.includes('falls') || true).slice(0, 3);
+    const [a, b, c] = trails.slice(0, 3);
     const tagged = (t: typeof a, i: number) => ({ ...t, id: `${t.id}-${i}`, name: `${t.name} ${i}`, highlights: ['falls'], coords: t.coords.map(([x, y]) => [x + i * 0.3, y] as [number, number]) });
     expect(ROW_MIN).toBe(3);
     expect(buildCollections([a, b, c].slice(0, 2).map(tagged)).find((r) => r.id === 'falls')).toBeUndefined();

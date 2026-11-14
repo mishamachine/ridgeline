@@ -78,6 +78,14 @@ function FilterPanel({ f, set }: { f: HomeFilters; set: (f: HomeFilters) => void
   );
 }
 
+function RegionList({ p }: { p: HomeViewProps }) {
+  return (
+    <details className="hm-regions"><summary>Change region</summary>
+      <ul>{p.regions.map((r) => <li key={r.code}><button className="hm-chip" onClick={() => p.onPickRegion(r)}>{r.name}</button></li>)}</ul>
+    </details>
+  );
+}
+
 function Rail({ c, p }: { c: Collection; p: HomeViewProps }) {
   const [why, setWhy] = useState(false);
   const id = `row-${c.id}`;
@@ -165,11 +173,7 @@ export function HomeView(p: HomeViewProps) {
             {p.loc === 'denied' ? <>Location is off.<small>Showing {p.area.name}</small></> : <>Starting in {p.area.name}<small>Your exact location never leaves this device.</small></>}
           </div>
           {p.loc !== 'denied' && <button className="hm-btn hm-pri" onClick={p.onUseLocation}>Use my location</button>}
-          {p.regions.length > 0 && (
-            <details className="hm-regions"><summary>Change region</summary>
-              <ul>{p.regions.map((r) => <li key={r.code}><button className="hm-chip" onClick={() => p.onPickRegion(r)}>{r.name}</button></li>)}</ul>
-            </details>
-          )}
+          {p.regions.length > 0 && <RegionList p={p} />}
         </section>
       )}
 
@@ -196,7 +200,13 @@ export function HomeView(p: HomeViewProps) {
           )}
         </div>
       ))}
-      {p.mode === 'ready' && !p.results && p.collections.length === 0 && <p className="hm-note hm-pad">No trails found near here yet. Change region or open the map.</p>}
+      {p.mode === 'ready' && !p.results && p.collections.length === 0 && (
+        <>
+          <p className="hm-note hm-pad">No trails found near here yet. Change region or open the map.</p>
+          <button className="hm-mapfab" onClick={p.onMap}><MapIcon size={22} /> Explore the map<span className="hm-sp" /><ChevronIcon size={18} /></button>
+          {p.regions.length > 0 && <div className="hm-pad hm-gap"><RegionList p={p} /></div>}
+        </>
+      )}
 
       {!outside && p.saved.length > 0 && (
         <section className="hm-row" aria-labelledby="row-saved">

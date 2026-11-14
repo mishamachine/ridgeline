@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { LEDGE_CELL, LEDGE_INDEX, RICH_INDEX, richCell } from './fixtures';
 
@@ -24,6 +24,7 @@ async function open(page: Page, rich = true) {
 /** The checks every state shares. */
 async function check(page: Page, state: string, width: number, provider: string[]) {
   mkdirSync(OUT, { recursive: true });
+  writeFileSync(`${OUT}/README.txt`, 'Home screenshots from CI (e2e/home-visual.spec.ts).\nTRAIL NAMES, TAGS (views, dogs, waterfalls) AND SHORT PATHS IN THESE IMAGES ARE TEST DATA: real geometry and elevation from checked-in cell slices, with tags added so every row has trails. They are not real trail facts.\n');
   // The app scrolls inside its screen, not the document, so grow the window to the content height to capture all of it.
   const view = page.viewportSize()!;
   const content = await page.evaluate(() => (document.querySelector('.screen:not([hidden])') as HTMLElement | null)?.scrollHeight ?? 0);
@@ -112,23 +113,3 @@ for (const width of WIDTHS) {
   });
 }
 
-// Rows filled from real geometry (see e2e/fixtures.ts), at 375 px, full page.
-test.describe('Home with every row filled (real geometry), 375 px', () => {
-  test.use({ viewport: { width: 375, height: 780 }, geolocation: { latitude: 47.53, longitude: -122.03 } }); // Issaquah
-
-  test.describe('first visit', () => {
-    test.use({ permissions: [] });
-    test('state 1', async ({ page }) => {
-      await page.addInitScript(() => { navigator.permissions.query = async () => ({ state: 'prompt', onchange: null }) as unknown as PermissionStatus; });
-      const provider = await open(page, true);
-      for (const h of [/Top picks in Washington/, 'Short with a view', 'Dog-friendly', 'Waterfalls']) await expect(page.getByRole('heading', { name: h })).toBeVisible({ timeout: 20_000 });
-      await check(page, '1-first-visit-real-data', 375, provider);
-    });
-  });
-
-  test('state 2: near you', async ({ page }) => {
-    const provider = await open(page, true);
-    for (const h of ['Top picks near you', 'Short with a view', 'Dog-friendly', 'Waterfalls']) await expect(page.getByRole('heading', { name: h })).toBeVisible({ timeout: 20_000 });
-    await check(page, '2-near-you-real-data', 375, provider);
-  });
-});

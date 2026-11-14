@@ -193,6 +193,14 @@ describe('Home: copy for the device', () => {
 });
 
 describe('Home: no dead ends and structure', () => {
+  it('when every row is hidden, still offers the map and Change region, even with location on', () => {
+    const h = html({ collections: [], loc: 'allowed', area: { kind: 'you', name: 'you' }, regions: ALL });
+    expect(h).toContain('No trails found near here yet. Change region or open the map.');
+    expect(h).toContain('Explore the map');
+    expect(h).toContain('Change region');
+    expect(h).toContain('Oregon');
+    expect(h.match(/Explore the map/g)).toHaveLength(1);
+  });
   it('offers "Browse all trails" when trails fail to load and when outside coverage', () => {
     expect(html({ mode: 'error', collections: [] })).toContain('Browse all trails');
     expect(html({ mode: 'outside', collections: [], area: null, nearestCovered: null })).toContain('Browse all trails');
