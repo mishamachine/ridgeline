@@ -71,10 +71,10 @@ describe('stored length and gain (measured on the full line at build time)', () 
   });
   it('for a named path, ignores them when they disagree with the drawn line by more than 8% (a different stitching)', () => {
     const g = [-121.9, 47.0, -121.89, 47.0, -121.88, 47.0, -121.87, 47.0];
-    const key = 'w-121.87000,47.00000|-121.90000,47.00000';   // the two ends, sorted as text
+    const key = 'wRidge Path|-121.87000,47.00000|-121.90000,47.00000';   // name, then the two ends sorted as text
     const path = (s: number[]): CellFile => ({ v: 1, r: [], s: { [key]: s }, w: [{ id: 5, t: { name: 'Ridge Path' }, g, z: [100, 3, 3, 3] }] });
     const get = (f: CellFile) => cellsToTrails([f]).find((t) => t.name === 'Ridge Path')!;
-    const base = get(path([0, 0, 0]));
+    const base = get({ ...path([0, 0, 0]), s: undefined });
     expect(get(path([Math.round(base.lengthM * 1.02), 50, 5])).ascentM).toBe(50);          // agrees: used
     expect(get(path([Math.round(base.lengthM * 1.5), 50, 5])).ascentM).toBe(base.ascentM); // disagrees: ignored
   });
@@ -120,10 +120,10 @@ describe('branching relations (stitched differently on the simplified line)', ()
 
 describe('named paths whose shown numbers differ from the stored ones', () => {
   const g = [-121.9, 47.0, -121.89, 47.0, -121.88, 47.0, -121.87, 47.0];
-  const key = 'w-121.87000,47.00000|-121.90000,47.00000';
+  const key = 'wRidge Path|-121.87000,47.00000|-121.90000,47.00000';
   const path = (s: number[]): CellFile => ({ v: 1, r: [], s: { [key]: s }, w: [{ id: 5, t: { name: 'Ridge Path' }, g, z: [100, 3, 3, 3] }] });
   const get = (f: CellFile) => cellsToTrails([f]).find((t) => t.name === 'Ridge Path')!;
-  const L = get(path([0, 0, 0])).lengthM;
+  const L = get({ ...path([0, 0, 0]), s: undefined }).lengthM;
   it('is flagged when the length is over 10% from the stored figure, and is still returned (search, All trails, map)', () => {
     const t = get(path([Math.round(L * 1.5), 50, 5]));
     expect(t.statsMismatch).toBe(true);
@@ -132,8 +132,29 @@ describe('named paths whose shown numbers differ from the stored ones', () => {
   it('is flagged when the gain is over 10% apart although the length agrees within 10%', () => {
     expect(get(path([Math.round(L * 1.09), 300, 5])).statsMismatch).toBe(true);
   });
+  it('two different paths with the same two ends do not take each other\'s numbers (the key has the name)', () => {
+    const other: CellFile = { v: 1, r: [], s: { 'wOther Path|-121.87000,47.00000|-121.90000,47.00000': [99999, 999, 9] }, w: path([0, 0, 0]).w };
+    expect(get(other).statsMismatch).toBeUndefined();     // no entry under its own name, no x list: nothing to compare, nothing flagged
+    expect(get(other).lengthM).toBe(L);
+  });
+  it('a chain the build listed as unverified (x) is flagged although it has no stored counterpart, and is still returned', () => {
+    const f: CellFile = { ...path([0, 0, 0]), s: { 'wSomething Else|-121.0,47.0|-121.1,47.0': [1000, 1, 1] }, x: ['wRidge Path|-121.87000,47.00000|-121.90000,47.00000'] };
+    const t = get(f);
+    expect(t.statsMismatch).toBe(true);
+    expect(t.lengthM).toBe(L);
+  });
   it('is not flagged when the stored numbers are used, or when both agree within 10%', () => {
     expect(get(path([Math.round(L * 1.02), 50, 5])).statsMismatch).toBeUndefined();
-    expect(get(path([Math.round(L * 1.09), get(path([0, 0, 0])).ascentM ?? 0, 0])).statsMismatch).toBeUndefined();
+    expect(get(path([Math.round(L * 1.09), get({ ...path([0, 0, 0]), s: undefined }).ascentM ?? 0, 0])).statsMismatch).toBeUndefined();
+  });
+});
+
+describe('500 m minimum for named paths', () => {
+  const g = [-121.9, 47.0, -121.8996, 47.0, -121.8992, 47.0, -121.8988, 47.0];   // ~ 100 m drawn
+  const mk = (s?: Record<string, number[]>): CellFile => ({ v: 1, r: [], s, w: [{ id: 8, t: { name: 'Fawn Loop' }, g, z: [100, 1, 1, 1] }] });
+  const key = 'wFawn Loop|-121.89880,47.00000|-121.90000,47.00000';
+  it('shows a path whose full-line length is 500 m or more even if the simplified line is shorter', () => {
+    expect(cellsToTrails([mk()]).some((t) => t.name === 'Fawn Loop')).toBe(false);                         // drawn alone: under 500 m
+    expect(cellsToTrails([mk({ [key]: [520, 3, 1] })]).some((t) => t.name === 'Fawn Loop')).toBe(true);
   });
 });

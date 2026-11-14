@@ -17,7 +17,7 @@ export interface Trail {
   elevation?: number[];
   ascentM?: number;
   descentM?: number;
-  /** Hosted v2 data: the numbers shown (measured on the simplified line) differ by over 10% from the full-line figure stored at build time. Kept out of Home's collection rows. */
+  /** Hosted v2 data: the shown numbers differ by over 10% from the full-line figure stored at build time, or could not be matched to one. Kept out of Home's collection rows. */
   statsMismatch?: boolean;
   /**
    * Highlight kinds from the hosted data: view, lake, falls, beach, bikes, horses, dogs, nodogs, climb, long.
@@ -143,7 +143,7 @@ function makeTrail(id: string, name: string, coords: LngLat[], partial: boolean,
   };
 }
 
-/** `stored` (hosted v2 data): each route's length measured on the full line, key "r<id>"; the minimum length is judged on it for a complete route. */
+/** `stored` (hosted v2 data): each route's length measured on the full line, key "r<id>"; the minimum length is judged on it for a complete route; named paths use key "w<name>|<lon,lat>|<lon,lat>" (the two ends sorted as text). */
 export function parseOverpass(elements: OsmElement[], stored?: ReadonlyMap<string, number[]>): Trail[] {
   const trails: Trail[] = [];
   const memberWayIds = new Set<number>();
@@ -188,7 +188,10 @@ export function parseOverpass(elements: OsmElement[], stored?: ReadonlyMap<strin
   for (const [name, g] of byName) {
     if (relNames.has(name.toLowerCase())) continue;
     chainSegments(g.segs).forEach((chain, i) => {
-      if (lineLength(chain) < MIN_TRAIL_M) return;
+      // Same rule as for routes: a complete path is judged on its full-line length (key: name, then its two ends, sorted as text).
+      const ends = [chain[0], chain.at(-1)!].map((c) => `${c[0].toFixed(5)},${c[1].toFixed(5)}`).sort();
+      const full = !g.clipped ? stored?.get(`w${name}|${ends.join('|')}`)?.[0] : undefined;
+      if ((full ?? lineLength(chain)) < MIN_TRAIL_M) return;
       const id = `osm-w${Math.min(...g.ids)}-${i}`;
       trails.push(makeTrail(id, name, chain, g.clipped, `https://www.openstreetmap.org/way/${Math.min(...g.ids)}`, g.tags));
     });

@@ -1,7 +1,7 @@
 // Usage: node scripts/trail-stats.mjs <region build dir> <region id>
 // Reads the full-resolution cells (<dir>/full), stitches every trail with the app's own code (src/lib/cells.ts), and stores each
 // trail's length, ascent and descent, computed from the FULL line, into the v2 cells (<dir>/<x>_<y>.json, key "s"):
-//   s: { "<key>": [length m, ascent m, descent m] }   key "r<relation id>" for routes, "w<lon,lat>|<lon,lat>" (its two ends, sorted) for named paths.
+//   s: { "<key>": [length m, ascent m, descent m] }   key "r<relation id>" for routes, "w<name>|<lon,lat>|<lon,lat>" (name, then its two ends sorted) for named paths.
 // The app uses these instead of measuring the simplified drawn line. Also writes <dir>/stats.json (not published) with the trail list and, for each
 // classic trail in scripts/regions.json, what the app's own name search ranks first.
 import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
@@ -31,7 +31,7 @@ for (const t of trails) {
   if (t.partial || t.ascentM == null) { skipped++; continue; }
   const m = /^osm-r(\d+)$/.exec(t.id);
   const ends = [fmt(t.coords[0]), fmt(t.coords.at(-1))].sort();
-  const key = m ? `r${m[1]}` : `w${ends.join('|')}`;
+  const key = m ? `r${m[1]}` : `w${t.name}|${ends.join('|')}`;
   let into;
   if (m) into = relCells.get(+m[1]) ?? new Set();
   else {
@@ -47,7 +47,7 @@ for (const t of trails) {
 // How much of its gain a trail loses when measured on the drawn (simplified) v2 line instead of the full line.
 // The app shows the stored full-line numbers, but the profile it draws comes from the simplified line, so this is gated too.
 const v2Files = readdirSync(dir).filter((f) => /^\d+_\d+\.json$/.test(f)).map((f) => { const c = JSON.parse(readFileSync(join(dir, f), 'utf8')); delete c.s; return c; });   // drawn numbers only: no stored stats, so a re-run gives the same answer
-const keyOf = (t) => { const m = /^osm-r(\d+)$/.exec(t.id); return m ? `r${m[1]}` : `w${[t.coords[0], t.coords.at(-1)].map(fmt).sort().join('|')}`; };
+const keyOf = (t) => { const m = /^osm-r(\d+)$/.exec(t.id); return m ? `r${m[1]}` : `w${t.name}|${[t.coords[0], t.coords.at(-1)].map(fmt).sort().join('|')}`; };
 const gain = (t) => (t.loop ? t.ascentM : Math.max(t.ascentM, t.descentM ?? 0));
 const drawn = new Map(cells.cellsToTrails(v2Files).filter((t) => !t.partial && t.ascentM != null).map((t) => [keyOf(t), t]));
 const fidelity = [];
@@ -63,7 +63,9 @@ let bytes = 0;
 for (const f of readdirSync(dir).filter((f) => /^\d+_\d+\.json$/.test(f))) {
   const p = join(dir, f), c = JSON.parse(readFileSync(p, 'utf8'));
   const s = stored.get(f.replace('.json', ''));
-  if (s) { c.s = s; const body = JSON.stringify(c); writeFileSync(p, body); bytes += JSON.stringify(s).length; }
+  delete c.x; delete c.s;   // re-runs start clean
+  if (s) { c.s = s; bytes += JSON.stringify(s).length; }
+  writeFileSync(p, JSON.stringify(c));
 }
 
 // Chains that are not one route (the Dog Mountain signature): the profile dips to a low point in the middle that is far below an end,
@@ -91,7 +93,19 @@ const lowpoint = { total: withElev.length, day_total: dayTotal, day_below_both_e
 const finalFiles = readdirSync(dir).filter((f) => /^\d+_\d+\.json$/.test(f)).map((f) => JSON.parse(readFileSync(join(dir, f), 'utf8')));
 const finalTrails = cells.cellsToTrails(finalFiles);
 const finalByKey = new Map(finalTrails.map((t) => [keyOf(t), t]));
-const flagged = finalTrails.filter((t) => t.statsMismatch).length;   // kept out of Home's collection rows (still in search, All trails and the map)
+// Named-path chains the app will draw that have no stored counterpart (they stitch with other ends on the simplified line): their numbers cannot be
+// verified. List their keys in the cells they touch (x), so the app keeps them out of Home's collection rows. Still in search, All trails and the map.
+const storedKeys = new Set(list.map((l) => l.key));
+const unmatched = finalTrails.filter((t) => t.id.startsWith('osm-w') && !t.partial && t.ascentM != null && !storedKeys.has(keyOf(t)));
+const xBy = new Map();
+for (const t of unmatched) {
+  const xs = t.coords.map((c) => c[0]), ys = t.coords.map((c) => c[1]);
+  for (let x = Math.floor((Math.min(...xs) + 180) / CELL); x <= Math.floor((Math.max(...xs) + 180) / CELL); x++)
+    for (let y = Math.floor((Math.min(...ys) + 90) / CELL); y <= Math.floor((Math.max(...ys) + 90) / CELL); y++)
+      if (have.has(`${x}_${y}`)) { const set = xBy.get(`${x}_${y}`) ?? new Set(); set.add(keyOf(t)); xBy.set(`${x}_${y}`, set); }
+}
+for (const [cell, set] of xBy) { const p = join(dir, `${cell}.json`), c = JSON.parse(readFileSync(p, 'utf8')); c.x = [...set]; writeFileSync(p, JSON.stringify(c)); }
+const flagged = cells.cellsToTrails(readdirSync(dir).filter((f) => /^\d+_\d+\.json$/.test(f)).map((f) => JSON.parse(readFileSync(join(dir, f), 'utf8')))).filter((t) => t.statsMismatch).length;   // kept out of Home's collection rows
 const rfail = list.filter((l) => l.key.startsWith('r')).filter((l) => { const t = finalByKey.get(l.key); return !t || t.lengthM !== l.L; }).map((l) => ({ key: l.key, name: l.name, L: l.L }));
 // What the app shows against the stored full-line figure, for every complete trail: length or headline gain more than 10% apart, either direction.
 const SHOWN_TOL = 0.10, SHOWN_MAX_SHARE = 0.02;

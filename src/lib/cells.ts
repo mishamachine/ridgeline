@@ -15,8 +15,9 @@ type CellBranch = [number, number] | [number, number, string] | [number, number,
 type CellJunctions = [number, CellBranch[]][];
 interface CellRoute { id: number; t: Record<string, string>; n: number; m: [number, number[], number[]?, CellJunctions?][]; h?: string[]; th?: number[] }
 interface CellWay { id: number; t: Record<string, string>; g: number[]; z?: number[]; h?: string[]; th?: number[]; j?: CellJunctions }
-/** s (v2, from scripts/trail-stats.mjs): each trail's [length m, ascent m, descent m] measured on the full-resolution line. Key: "r<relation id>", or "w<lon,lat>|<lon,lat>" (its two ends, sorted) for a named path. */
-export interface CellFile { v: number; r: CellRoute[]; w: CellWay[]; s?: Record<string, number[]> }
+/** s (v2, from scripts/trail-stats.mjs): each trail's [length m, ascent m, descent m] measured on the full-resolution line. Key: "r<relation id>", or "w<name>|<lon,lat>|<lon,lat>" (its name, then its two ends sorted) for a named path. */
+/** x (v2): keys of named-path chains the build could not match to a stored full-line figure (they stitch with different ends on the simplified line), so their numbers cannot be verified. */
+export interface CellFile { v: number; r: CellRoute[]; w: CellWay[]; s?: Record<string, number[]>; x?: string[] }
 
 // Format v2 (scripts/cell_format.py): coordinates are integers at 1e-5 degrees, delta-encoded (first point absolute);
 // z is per kept vertex; `th` and junction branch points are offsets in the same units. decodeCell turns it back into v1.
@@ -42,6 +43,7 @@ export function decodeCell(f: CellFile): CellFile {
   return {
     v: 1,
     s: f.s,
+    x: f.x,
     r: f.r.map((r) => {
       const m = r.m.map(([wid, g, z, j]) => {
         const flat = decodeG(g);
@@ -170,6 +172,7 @@ export function cellsToTrails(raw: CellFile[]): Trail[] {
   const files = raw.map(decodeCell);
   const stored = new Map<string, number[]>();
   for (const f of files) for (const [k, v] of Object.entries(f.s ?? {})) stored.set(k, v);
+  const unverified = new Set(files.flatMap((f) => f.x ?? []));
   const routes = new Map<number, { t: Record<string, string>; n: number; members: Map<number, number[]> }>();
   const ways = new Map<number, CellWay>();
   const zAt = new Map<string, number>();
@@ -216,13 +219,15 @@ export function cellsToTrails(raw: CellFile[]): Trail[] {
    * a named path when they agree with the drawn line (within 8% of its length: a different stitching, e.g. from other loaded ways, is ignored).
    */
   function withStored(t: Trail): Trail {
-    if (t.partial || !stored.size || t.ascentM == null) return t;
+    if (t.partial || (!stored.size && !unverified.size) || t.ascentM == null) return t;
     const r = /^osm-r(\d+)$/.exec(t.id);
     const ends = [t.coords[0], t.coords.at(-1)!].map((c) => `${c[0].toFixed(5)},${c[1].toFixed(5)}`).sort();
-    const s = stored.get(r ? `r${r[1]}` : `w${ends.join('|')}`);
+    const wkey = `w${t.name}|${ends.join('|')}`;   // name and both ends: two different paths can share the same two ends
+    const s = stored.get(r ? `r${r[1]}` : wkey);
     // A route (relation) is identified by its id, so complete means its numbers are the right ones whatever line was drawn (a branching
     // relation can stitch to a different chain on the simplified geometry). A named path is matched by its two ends, so keep the length guard there.
-    if (!s) return t;
+    // No stored counterpart: if the build knows this chain could not be matched, its numbers cannot be verified, so flag it like a mismatch.
+    if (!s) return !r && unverified.has(wkey) ? { ...t, statsMismatch: true } : t;
     if (!r && Math.abs(t.lengthM / s[0] - 1) > 0.08) {
       // Not used: the drawn numbers stay. Flag the trail when they are over 10% from the stored ones (length, or headline gain with 30 m or more).
       const shown = t.loop ? t.ascentM : Math.max(t.ascentM, t.descentM ?? 0), full = t.loop ? s[1] : Math.max(s[1], s[2]);
