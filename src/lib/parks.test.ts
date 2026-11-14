@@ -87,5 +87,10 @@ describe('US park boxes and Canada', () => {
     expect(dogsStatus({ ...sooke, highlights: ['dogs'] })).toBe('yes');
     // the US side is unchanged: Hurricane Ridge is inside Olympic
     expect(inNationalPark(moveTo(littleSi, -123.5, 47.97))).toBe(true);
+    // the exemption stops at Haro Strait: inside the Olympic box but east of -123.25 keeps the US rules
+    expect(inNationalPark(moveTo(littleSi, -123.1, 48.32))).toBe(true);
+    expect(dogsStatus({ ...moveTo(littleSi, -123.1, 48.32), highlights: ['dogs'] })).toBe('unknown');
+    // San Juan Island (Lime Kiln, Friday Harbor) is north of the Olympic box: no park box, OSM tag decides, as before
+    for (const [lon, lat] of [[-123.15, 48.52], [-123.01, 48.53]]) expect(dogsStatus({ ...moveTo(littleSi, lon, lat), highlights: ['dogs'] })).toBe('yes');
   });
 });

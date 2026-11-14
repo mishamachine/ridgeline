@@ -36,10 +36,12 @@ export const NATIONAL_PARK_BOXES: { name: string; box: [number, number, number, 
 export const WEST_COAST_TRAIL = { name: /\bwest coast trail\b/i, box: [-125.30, 48.45, -124.30, 48.95] as [number, number, number, number] };
 
 /**
- * Canada, south Vancouver Island and the strait (Sooke, Metchosin, Victoria): the Olympic box above runs a little north of the
- * border, so points here are never counted as inside a US national park. Approximate, and Canadian park trails follow the OSM tag anyway.
+ * Canada, south Vancouver Island west of Haro Strait (Sooke, Metchosin, Victoria): the Olympic box above runs a little north of the
+ * border, so points here are never counted as inside a US national park. Kept west of -123.25 so US land (the San Juan Islands, Port
+ * Angeles side) keeps the US rules. A box, not a region code, on purpose: the hosted cells carry no region, and Washington and British
+ * Columbia boxes overlap here (border cells are built by both). Approximate; Canadian park trails follow the OSM tag anyway.
  */
-const CANADA_SOUTH_VI: [number, number, number, number] = [-124.0, 48.28, -123.0, 48.6];
+const CANADA_SOUTH_VI: [number, number, number, number] = [-124.0, 48.28, -123.25, 48.6];
 
 const inBox = (p: LngLat, [w, s, e, n]: [number, number, number, number]) => p[0] >= w && p[0] <= e && p[1] >= s && p[1] <= n;
 
