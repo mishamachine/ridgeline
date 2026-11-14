@@ -125,7 +125,7 @@ def cmd_check(rid, d):
 
 
 def merge_cell(a, b):
-    """Two cell bodies for the same grid cell (a region border): union by relation id and way id."""
+    """Two cell bodies (same format version) for the same grid cell (a region border): union by relation id and way id."""
     rels = {x['id']: x for x in a['r']}
     for x in b['r']:
         if x['id'] in rels:
@@ -138,7 +138,7 @@ def merge_cell(a, b):
     ways = {x['id']: x for x in a['w']}
     for x in b['w']:
         ways.setdefault(x['id'], x)
-    return {'v': 1, 'r': list(rels.values()), 'w': list(ways.values())}
+    return {'v': a['v'], 'r': list(rels.values()), 'w': list(ways.values())}  # both sides are in the same cell format; keep its version
 
 
 def combine(out, dirs, regs=None):

@@ -11,7 +11,7 @@ NAMES = [['osm-r1', 'Multnomah Falls Trail', -122.11, 45.57, 2400], ['osm-w9', '
 
 
 def cell(rels=(), ways=()):
-    return {'v': 1, 'r': list(rels), 'w': list(ways)}
+    return {'v': 2, 'r': list(rels), 'w': list(ways)}
 
 
 class RegionConfig(unittest.TestCase):
@@ -73,6 +73,7 @@ class Combine(unittest.TestCase):
             self.assertEqual([r['id'] for r in idx['regions']], ['a', 'b'])
             self.assertEqual(idx['regions'][1]['names'], 'names/b.json')
             m = json.load(open(os.path.join(out, '1_1.json')))
+            self.assertEqual(m['v'], 2)  # a merged border cell keeps the format version (it was written as 1 once, which broke decoding)
             self.assertEqual(len(m['r']), 1)
             self.assertEqual([x[0] for x in m['r'][0]['m']], [1, 2])
             self.assertEqual(m['r'][0]['n'], 3)
