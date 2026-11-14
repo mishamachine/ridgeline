@@ -120,7 +120,7 @@ export function Detail({ tpl, trail, bookmarked, onBack, onStart, onSavedChange 
             <div className="tile"><div className="tile-num">{mi(roundTripM(trail))} mi</div><div className="tile-lab">{trail.loop ? 'loop' : 'round trip'}</div></div>
             <div className="tile"><div className="tile-num">{gain != null ? ft(gain) : '—'}</div><div className="tile-lab">ft gain</div></div>
             <div className="tile"><div className="tile-num">{minutes != null ? hrs(minutes) : '—'}</div><div className="tile-lab">est. time</div></div>
-            <div className="tile tile-level"><div className={`tile-word${lv === 'Hard' ? ' hard' : ''}`}>{lv ?? '—'}</div><div className="tile-lab">level</div></div>
+            <div className="tile tile-level"><div className={`tile-word${lv === 'Hard' ? ' hard' : ''}`}>{lv ?? '—'}</div><div className="tile-lab">difficulty</div></div>
           </div>
           <div className="act-row">
             {options.length === 1 ? (
@@ -139,7 +139,7 @@ export function Detail({ tpl, trail, bookmarked, onBack, onStart, onSavedChange 
           {dl.progress != null && <div className="progress red" aria-hidden="true"><div style={{ width: `${dl.progress * 100}%` }} /></div>}
           {!saved && dl.progress == null && <p className="fine" style={{ marginTop: -6 }}>Saving the map takes about {mb(estimate)}.</p>}
 
-          {lv && <p className="fine">Level is computed from distance and climb, not rated by anyone. Time assumes 3 mph plus 30 min per 1,000 ft up.</p>}
+          {lv && <p className="fine">Difficulty is based only on distance and climb. It doesn’t account for terrain, weather or conditions. Time assumes 3 mph plus 30 min per 1,000 ft up.</p>}
 
           <div className="panel">
             <div className="panel-head">Elevation{trail.loop ? '' : ', one way'}</div>

@@ -20,6 +20,8 @@ import { searchPlaces, type Place } from '../lib/geocode';
 import { remember } from '../lib/lookup';
 import { shareApp } from '../lib/share';
 import { mi } from '../lib/format';
+import { roundTripMi } from '../lib/home';
+import type { BrowsePreset } from './Home';
 
 interface Props {
   tpl: string;
@@ -29,9 +31,15 @@ interface Props {
   onOpen: (t: Trail) => void;
   onOpenId: (id: string, ll: LngLat) => void;
   onToggleSave: (t: Trail) => void;
+  /** Set when Home sent the person here (See all, Explore the map); null if they never came from Home. */
+  preset?: BrowsePreset | null;
+  onHome?: () => void;
 }
 type Status = { kind: 'idle' | 'loading' | 'zoom' | 'error' | 'offline'; msg?: string };
-type Chip = 'near' | 'under3' | 'easy' | 'views' | 'dogs';
+type Chip = 'near' | 'under3' | 'easy' | 'views' | 'dogs' | 'short' | 'falls';
+
+/** The filters each Home row stands for, so "See all" lists the same trails. */
+const PRESET_CHIPS: Record<NonNullable<BrowsePreset['collection']>, Chip[]> = { top: [], view: ['short', 'views'], dogs: ['dogs'], falls: ['falls'] };
 
 const MAX_SPAN_DEG = 0.5;                          // ~35 km across: a handful of trail cells
 const DEFAULT_VIEW = { center: [-121.78, 47.49] as LngLat, zoom: 12 }; // North Bend, WA: many trails within an hour of Seattle
@@ -60,10 +68,11 @@ const List = memo(function List({ trails, savedIds, offlineIds, me, onOpen, onTo
   );
 });
 
-export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onToggleSave }: Props) {
+export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onToggleSave, preset, onHome }: Props) {
   const mapRef = useRef<MLMap | null>(null);
   const viewRef = useRef<{ center: LngLat; zoom: number }>(DEFAULT_VIEW);
   const abortRef = useRef<AbortController | null>(null);
+  const presetCenter = useRef(preset?.center);
   const [trails, setTrails] = useState<Trail[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [status, setStatus] = useState<Status>({ kind: 'loading' });
@@ -95,7 +104,9 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
       (!chips.has('under3') || tripMinutes(t) <= 180) &&
       (!chips.has('easy') || level(t) === 'Easy') &&
       (!chips.has('views') || hasHighlight(t, 'view')) &&
-      (!chips.has('dogs') || hasHighlight(t, 'dogs')));
+      (!chips.has('dogs') || hasHighlight(t, 'dogs')) &&
+      (!chips.has('short') || roundTripMi(t) < 3) &&
+      (!chips.has('falls') || hasHighlight(t, 'falls')));
     if (chips.has('near') && me) out = [...out].sort((a, b) => dist(me, a) - dist(me, b));
     return { shown: out, hasHighlights: clean.some((t) => t.highlights?.length) };
   }, [trails, chips, me]);
@@ -161,11 +172,23 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
   useEffect(() => {
     let live = true;
     getSetting<{ center: LngLat; zoom: number }>('lastView').then((last) => {
-      if (live && last && inWA(last.center)) viewRef.current = last;
+      if (live && last && inWA(last.center) && !presetCenter.current) viewRef.current = last;
       if (live) loadArea();
     });
     return () => { live = false; abortRef.current?.abort(); };
   }, [loadArea]);
+
+  // Home's "See all" and "Explore the map": apply that row's filters and look where Home was looking.
+  useEffect(() => {
+    if (!preset) return;
+    setChips(new Set(preset.collection ? PRESET_CHIPS[preset.collection] : []));
+    setMode(preset.map ? 'map' : 'list');
+    if (preset.center) {
+      viewRef.current = { center: preset.center, zoom: 12 };
+      mapRef.current?.jumpTo({ center: preset.center, zoom: 12 });
+      loadArea();
+    }
+  }, [preset?.id]);
 
   function onReady(map: MLMap) {
     mapRef.current = map;
@@ -245,7 +268,8 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
   return (
     <>
       <div className="find-head">
-        <PageHead title="Find" byline><button className="round" aria-label="Share Ridgeline" onClick={shareApp}><ShareIcon /></button></PageHead>
+        {onHome && <button className="hm-link hm-back" onClick={onHome}>‹ Home</button>}
+        <PageHead title="All trails" byline><button className="round" aria-label="Share Ridgeline" onClick={shareApp}><ShareIcon /></button></PageHead>
         <div className="searchbox">
           <form className="search2" onSubmit={onSearch} role="search">
             <FindIcon />
@@ -286,6 +310,8 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
           <button className="chip2" aria-pressed={chips.has('easy')} onClick={() => toggle('easy')}>Easy</button>
           {hasHighlights && <button className="chip2" aria-pressed={chips.has('views')} onClick={() => toggle('views')}>Views</button>}
           {hasHighlights && <button className="chip2" aria-pressed={chips.has('dogs')} onClick={() => toggle('dogs')}>Dogs OK</button>}
+          <button className="chip2" aria-pressed={chips.has('short')} onClick={() => toggle('short')}>Under 3 mi</button>
+          {hasHighlights && <button className="chip2" aria-pressed={chips.has('falls')} onClick={() => toggle('falls')}>Waterfalls</button>}
         </div>
         <div className="row-between">
           <div className="count" role="status">

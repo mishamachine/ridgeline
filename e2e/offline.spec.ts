@@ -2,14 +2,20 @@ import { expect, test } from '@playwright/test';
 
 // The promise of the app: save a trail with a signal, lose the signal, and the trail page and Navigate still open.
 // Runs on the production build, so it also proves the code-split chunks are in the service worker's precache.
-test('Find shows its map after the lazy map chunk loads, with no page errors', async ({ page }) => {
+test('Home loads no map; "Explore the map" shows it after the lazy map chunk loads, with no page errors', async ({ page }) => {
   await page.route('https://tiles.openfreemap.org/**', (route) => route.fulfill(route.request().url().endsWith('/planet')
     ? { json: { tiles: ['https://tiles.openfreemap.org/planet/20261101_000000_pt/{z}/{x}/{y}.pbf'], minzoom: 0, maxzoom: 14 } }
     : { status: 200, contentType: 'application/x-protobuf', body: '' }));
   await page.addInitScript(() => { try { localStorage.setItem('ridgeline:settings', JSON.stringify({ onboardingSeen: true })); } catch { /* ignore */ } });
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
+  const mapRequests: string[] = [];
+  page.on('request', (r) => { if (r.url().startsWith('https://tiles.openfreemap.org/')) mapRequests.push(r.url()); });
   await page.goto('/');
+  await expect(page.getByRole('button', { name: 'Home' })).toBeVisible();
+  await expect(page.getByText('Ridgeline never collects your location.')).toBeVisible({ timeout: 20_000 });
+  expect(mapRequests).toEqual([]); // no map tiles until someone asks for the map
+  await page.getByRole('button', { name: /Explore the map/ }).click();
   await expect(page.locator('.map canvas').first()).toBeVisible({ timeout: 20_000 });
   expect(errors).toEqual([]);
 });

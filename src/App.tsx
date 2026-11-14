@@ -27,6 +27,7 @@ import { setHikeActive } from './lib/swUpdate';
 import { Toaster } from './components/Toaster';
 import { Later } from './components/ScreenBoundary';
 import { Find } from './screens/Find';
+import { Home, type BrowsePreset } from './screens/Home';
 import { Hike } from './screens/Hike';
 import { Saved } from './screens/Saved';
 import { Onboarding } from './screens/Onboarding';
@@ -44,7 +45,7 @@ const Landing = lazy(() => import('./screens/Landing').then((m) => ({ default: m
 export type { Tab };
 
 const TABS: { tab: Tab; label: string; icon: () => React.ReactElement }[] = [
-  { tab: 'find', label: 'Find', icon: () => <FindIcon /> },
+  { tab: 'find', label: 'Home', icon: () => <FindIcon /> },
   { tab: 'saved', label: 'Saved', icon: () => <SavedIcon /> },
   { tab: 'hike', label: 'Hike', icon: () => <HikeIcon /> },
   { tab: 'profile', label: 'Profile', icon: () => <ProfileIcon /> },
@@ -56,6 +57,8 @@ const readRoute = (): Route => parseRoute(location.pathname, location.search, ba
 export function App() {
   const [tpl, setTpl] = useState<string | null>(null);
   const profileOpened = useRef(false);
+  const [browse, setBrowse] = useState<BrowsePreset | null>(null); // Home's "See all" / "Explore the map": the full list and map
+  const browseOpened = useRef(false);                           // the map and its tiles load only once someone asks for them
   const [route, setRoute] = useState<Route>(readRoute);
   const [trail, setTrail] = useState<Trail | null>(null);       // trail shown on a /trail/<id> page
   const [trailState, setTrailState] = useState<'idle' | 'loading' | 'missing'>('idle');
@@ -127,7 +130,7 @@ export function App() {
   const openTrail = useCallback((t: Trail) => { remember([t]); setTrail(t); go({ kind: 'trail', id: t.id, ll: [t.coords[0][0], t.coords[0][1]] }); }, [go]);
   const openId = useCallback((id: string, ll: LngLat) => go({ kind: 'trail', id, ll }), [go]);
   const goTab = useCallback((t: Tab) => {
-    if (route.kind === 'tab' && route.tab === t) { window.scrollTo(0, 0); return; } // re-tap: nothing new to go back to
+    if (route.kind === 'tab' && route.tab === t) { if (t === 'find') setBrowse(null); window.scrollTo(0, 0); return; } // re-tap: nothing new to go back to (Home's tab returns to Home)
     go({ kind: 'tab', tab: t });
   }, [go, route]);
   const backToProfile = useCallback(() => { if (depth > 0) history.back(); else go({ kind: 'tab', tab: 'profile' }, true); }, [depth, go]);
@@ -186,6 +189,7 @@ export function App() {
   const onHike = route.kind === 'hike';
   const bookmarkedNow = useMemo(() => (trail ? saved.marked.has(trail.id) : false), [trail, saved]);
 
+  if (browse) browseOpened.current = true;
   if (tab === 'profile') profileOpened.current = true; // the Profile chunk loads the first time the tab is opened
   if (!tpl) return <div className="app"><Placeholder title="Loading Ridgeline…" /></div>;
 
@@ -194,9 +198,17 @@ export function App() {
   return (
     <div className="app">
       {/* Tabs stay mounted so the map, list and any recording keep their state. */}
-      <div className="screen" hidden={tab !== 'find'}>
-        <Find tpl={tpl} visible={tab === 'find'} savedIds={saved.marked} offlineIds={saved.offline} onOpen={openTrail} onOpenId={openId} onToggleSave={toggleSave} />
+      <div className="screen" hidden={tab !== 'find' || !!browse}>
+        <Home visible={tab === 'find' && !browse} version={saved.version} hike={hike} savedIds={saved.marked} offlineIds={saved.offline}
+          onOpen={openTrail} onOpenId={openId} onToggleSave={toggleSave} onResume={() => go({ kind: 'tab', tab: 'hike' })}
+          onBrowse={(p) => setBrowse({ ...p, id: Date.now() })} />
       </div>
+      {browseOpened.current && (
+        <div className="screen" hidden={tab !== 'find' || !browse}>
+          <Find tpl={tpl} visible={tab === 'find' && !!browse} savedIds={saved.marked} offlineIds={saved.offline} onOpen={openTrail} onOpenId={openId} onToggleSave={toggleSave}
+            preset={browse} onHome={() => setBrowse(null)} />
+        </div>
+      )}
       <div className="screen" hidden={tab !== 'saved'}>
         <Saved visible={tab === 'saved'} version={saved.version} onOpen={openTrail} onChange={refreshSaved} onFind={() => goTab('find')} />
       </div>
