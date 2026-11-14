@@ -21,7 +21,7 @@ export const awayLabel = (m: number) => (m < 1 ? 'Under 1 mi away' : `${Math.rou
 
 export function statsLine(t: Trail): string {
   const gain = gainM(t);
-  const parts = [`${mi(roundTripM(t))} mi${t.loop ? ' loop' : ''}`];
+  const parts = [`${mi(roundTripM(t))} mi round trip`]; // a loop is a round trip too
   if (gain != null) parts.push(`${ft(gain)} ft gain`, `~${hrs(tripMinutes(t))}`);
   return parts.join(' · ');
 }

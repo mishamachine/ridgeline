@@ -1,13 +1,11 @@
-// Place search (Nominatim), leaning on Washington so "Rainier" means the mountain, not a town in Oregon.
+// Place search (Nominatim): one request per Enter, US and Canada (BC), no regional bias.
 export interface Place { name: string; detail: string; lon: number; lat: number; bbox: [number, number, number, number] }
 
-// west, north, east, south
-export const WA_VIEWBOX = '-124.9,49.1,-116.9,45.5';
 const URL_BASE = 'https://nominatim.openstreetmap.org/search';
 
-/** One request: US only, with Washington as a preference (viewbox, not bounded), so "Rainier" finds the mountain first. */
+/** One request: US and Canada. */
 export function placeQueryUrl(q: string): string {
-  const p = new URLSearchParams({ format: 'jsonv2', limit: '5', countrycodes: 'us', viewbox: WA_VIEWBOX, bounded: '0', q });
+  const p = new URLSearchParams({ format: 'jsonv2', limit: '5', countrycodes: 'us,ca', q });
   return `${URL_BASE}?${p}`;
 }
 
@@ -22,6 +20,9 @@ export function toPlaces(hits: Hit[]): Place[] {
 }
 
 const cache = new Map<string, Place[]>();
+
+/** Answer already in memory for this query, if any. */
+export const cachedPlaces = (q: string) => cache.get(q.trim().toLowerCase());
 
 /** One request per search, only when the user submits (never while typing); repeats come from memory. */
 export async function searchPlaces(q: string, signal?: AbortSignal): Promise<Place[]> {

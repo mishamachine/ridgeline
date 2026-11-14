@@ -21,12 +21,13 @@ import { detectPlatform } from './lib/maps';
 import { toCelebrateSummary } from './components/nav/summary';
 import type { HikeSummary } from './lib/hype';
 import { ConfirmSheet } from './components/ConfirmSheet';
-import { FindIcon, HikeIcon, ProfileIcon, SavedIcon } from './components/NavIcons';
+import { HikeIcon, HomeIcon, ProfileIcon, SavedIcon } from './components/NavIcons';
 import { count } from './lib/counter';
 import { setHikeActive } from './lib/swUpdate';
 import { Toaster } from './components/Toaster';
 import { Later } from './components/ScreenBoundary';
 import { Find } from './screens/Find';
+import { Home, type BrowsePreset } from './screens/Home';
 import { Hike } from './screens/Hike';
 import { Saved } from './screens/Saved';
 import { Onboarding } from './screens/Onboarding';
@@ -44,7 +45,7 @@ const Landing = lazy(() => import('./screens/Landing').then((m) => ({ default: m
 export type { Tab };
 
 const TABS: { tab: Tab; label: string; icon: () => React.ReactElement }[] = [
-  { tab: 'find', label: 'Find', icon: () => <FindIcon /> },
+  { tab: 'find', label: 'Home', icon: () => <HomeIcon /> },
   { tab: 'saved', label: 'Saved', icon: () => <SavedIcon /> },
   { tab: 'hike', label: 'Hike', icon: () => <HikeIcon /> },
   { tab: 'profile', label: 'Profile', icon: () => <ProfileIcon /> },
@@ -56,6 +57,8 @@ const readRoute = (): Route => parseRoute(location.pathname, location.search, ba
 export function App() {
   const [tpl, setTpl] = useState<string | null>(null);
   const profileOpened = useRef(false);
+  const [browse, setBrowse] = useState<BrowsePreset | null>(null); // Home's "See all" / "Explore the map": the full list and map
+  const browseOpened = useRef(false);                           // the map and its tiles load only once someone asks for them
   const [route, setRoute] = useState<Route>(readRoute);
   const [trail, setTrail] = useState<Trail | null>(null);       // trail shown on a /trail/<id> page
   const [trailState, setTrailState] = useState<'idle' | 'loading' | 'missing'>('idle');
@@ -71,6 +74,10 @@ export function App() {
   useEffect(() => { setHikeActive(!!hike || !!done); }, [hike, done]); // an update never reloads under a hike or its celebration
   const [depth, setDepth] = useState(0); // pages the app itself pushed, so Back knows whether it can go back
 
+  // The tile template (a small file from OpenFreeMap) is fetched only when a map screen is about to show: Home asks nothing of it.
+  const needsMap = !!browse || route.kind === 'trail' || !!hike;
+  useEffect(() => { if (needsMap && !tpl) getTileTemplate().then(setTpl); }, [needsMap, tpl]);
+
   const refreshSaved = useCallback(async () => {
     const all = await listAllSaved();
     setSaved((s) => ({
@@ -82,7 +89,6 @@ export function App() {
 
   useEffect(() => {
     closeAbandoned().catch(() => {}); // hikes left open for over 6 hours are closed as Unfinished
-    getTileTemplate().then(setTpl);
     refreshSaved();
   }, [refreshSaved]);
 
@@ -127,7 +133,7 @@ export function App() {
   const openTrail = useCallback((t: Trail) => { remember([t]); setTrail(t); go({ kind: 'trail', id: t.id, ll: [t.coords[0][0], t.coords[0][1]] }); }, [go]);
   const openId = useCallback((id: string, ll: LngLat) => go({ kind: 'trail', id, ll }), [go]);
   const goTab = useCallback((t: Tab) => {
-    if (route.kind === 'tab' && route.tab === t) { window.scrollTo(0, 0); return; } // re-tap: nothing new to go back to
+    if (route.kind === 'tab' && route.tab === t) { if (t === 'find') setBrowse(null); window.scrollTo(0, 0); return; } // re-tap: nothing new to go back to (Home's tab returns to Home)
     go({ kind: 'tab', tab: t });
   }, [go, route]);
   const backToProfile = useCallback(() => { if (depth > 0) history.back(); else go({ kind: 'tab', tab: 'profile' }, true); }, [depth, go]);
@@ -186,17 +192,25 @@ export function App() {
   const onHike = route.kind === 'hike';
   const bookmarkedNow = useMemo(() => (trail ? saved.marked.has(trail.id) : false), [trail, saved]);
 
+  if (browse) browseOpened.current = true;
   if (tab === 'profile') profileOpened.current = true; // the Profile chunk loads the first time the tab is opened
-  if (!tpl) return <div className="app"><Placeholder title="Loading Ridgeline…" /></div>;
 
   const hiking = !!hike && tab === 'hike';
 
   return (
     <div className="app">
       {/* Tabs stay mounted so the map, list and any recording keep their state. */}
-      <div className="screen" hidden={tab !== 'find'}>
-        <Find tpl={tpl} visible={tab === 'find'} savedIds={saved.marked} offlineIds={saved.offline} onOpen={openTrail} onOpenId={openId} onToggleSave={toggleSave} />
+      <div className="screen" hidden={tab !== 'find' || !!browse}>
+        <Home visible={tab === 'find' && !browse} version={saved.version} hike={hike} savedIds={saved.marked} offlineIds={saved.offline}
+          onOpen={openTrail} onOpenId={openId} onToggleSave={toggleSave} onResume={() => go({ kind: 'tab', tab: 'hike' })}
+          onBrowse={(p) => setBrowse({ ...p, id: Date.now() })} />
       </div>
+      {browseOpened.current && (
+        <div className="screen" hidden={tab !== 'find' || !browse}>
+          {tpl ? <Find tpl={tpl} visible={tab === 'find' && !!browse} savedIds={saved.marked} offlineIds={saved.offline} onOpen={openTrail} onOpenId={openId} onToggleSave={toggleSave}
+            preset={browse} onHome={() => setBrowse(null)} /> : <Placeholder title="Loading map…" />}
+        </div>
+      )}
       <div className="screen" hidden={tab !== 'saved'}>
         <Saved visible={tab === 'saved'} version={saved.version} onOpen={openTrail} onChange={refreshSaved} onFind={() => goTab('find')} />
       </div>
@@ -211,7 +225,7 @@ export function App() {
 
       {hike && (
         <div className="screen" hidden={!hiking}>
-          <Later><Navigate key={hike.id} tpl={tpl} trail={hike} resume={resume ?? undefined} saved={saved.offline.has(hike.id)} onEnd={() => { const t = hike; setHike(null); openTrail(t); }} onFinish={(sm, a) => finishHike(hike, sm, a)} /></Later>
+          <Later>{!tpl ? <Placeholder title="Loading map…" /> : <Navigate key={hike.id} tpl={tpl} trail={hike} resume={resume ?? undefined} saved={saved.offline.has(hike.id)} onEnd={() => { const t = hike; setHike(null); openTrail(t); }} onFinish={(sm, a) => finishHike(hike, sm, a)} />}</Later>
         </div>
       )}
 
@@ -247,7 +261,7 @@ export function App() {
 
       {onTrail && (
         <div className="screen overlay">
-          {trail && trail.id === route.id && trailState !== 'loading' ? (
+          {trail && trail.id === route.id && trailState !== 'loading' && tpl ? (
             <Later><Detail key={trail.id} tpl={tpl} trail={trail} bookmarked={bookmarkedNow} onBack={back} onStart={startHike} onSavedChange={refreshSaved} /></Later>
           ) : trailState === 'missing' ? (
             <div className="page">

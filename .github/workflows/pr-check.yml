@@ -83,3 +83,12 @@ jobs:
       - run: npm run build
       - run: npx playwright install chromium --with-deps
       - run: npm run e2e
+
+      # Home screenshots at 320, 375 and 414 px (e2e/home-visual.spec.ts), for a person to look at. Only that folder is uploaded.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: home-visual
+          path: test-results/home-visual/
+          if-no-files-found: warn
+          retention-days: 14

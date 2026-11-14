@@ -12,6 +12,7 @@ import { getSaved, SavedTrail } from '../lib/store';
 import { removeTrailOffline, tilesForTrail } from '../lib/offline';
 import { bboxOf } from '../lib/geo';
 import { ft, hrs, mb, mi } from '../lib/format';
+import { DOGS_PAGE_NOTE, DOGS_UNKNOWN, dogsStatus } from '../lib/parks';
 import { gainM, level, roundTripM, tripMinutes } from '../lib/plan';
 import { detectPlatform, driveLabel, mapsOptions, trailheadOf } from '../lib/maps';
 import { shareTrail } from '../lib/share';
@@ -68,6 +69,7 @@ export function Detail({ tpl, trail, bookmarked, onBack, onStart, onSavedChange 
   };
 
   const lv = level(trail);
+  const dogs = dogsStatus(trail);
   const gain = gainM(trail);
   const minutes = gain != null ? tripMinutes(trail) : null;
   const estimate = useMemo(() => tilesForTrail(trail).length * AVG_TILE_BYTES, [trail]);
@@ -112,15 +114,17 @@ export function Detail({ tpl, trail, bookmarked, onBack, onStart, onSavedChange 
             <h1 className="trail-title">{trail.name}</h1>
             <div className="trail-sub">{trail.loop ? 'Loop' : 'Out and back'} · from OpenStreetMap</div>
             <HighlightChips trail={trail} max={5} />
+            {dogs === 'yes' && <p className="fine">{DOGS_PAGE_NOTE}</p>}
+            {dogs === 'unknown' && <p className="fine">{DOGS_UNKNOWN}. Check local rules before you go.</p>}
           </div>
 
           {trail.partial && <p className="note">This route continues past the area loaded. Only the section shown is included.</p>}
 
           <div className="tiles">
-            <div className="tile"><div className="tile-num">{mi(roundTripM(trail))} mi</div><div className="tile-lab">{trail.loop ? 'loop' : 'round trip'}</div></div>
+            <div className="tile"><div className="tile-num">{mi(roundTripM(trail))}</div><div className="tile-lab">mi round trip</div></div>
             <div className="tile"><div className="tile-num">{gain != null ? ft(gain) : '—'}</div><div className="tile-lab">ft gain</div></div>
             <div className="tile"><div className="tile-num">{minutes != null ? hrs(minutes) : '—'}</div><div className="tile-lab">est. time</div></div>
-            <div className="tile tile-level"><div className={`tile-word${lv === 'Hard' ? ' hard' : ''}`}>{lv ?? '—'}</div><div className="tile-lab">level</div></div>
+            <div className="tile tile-level"><div className={`tile-word${lv === 'Hard' ? ' hard' : ''}`}>{lv ?? '—'}</div><div className="tile-lab">difficulty</div></div>
           </div>
           <div className="act-row">
             {options.length === 1 ? (
@@ -139,7 +143,7 @@ export function Detail({ tpl, trail, bookmarked, onBack, onStart, onSavedChange 
           {dl.progress != null && <div className="progress red" aria-hidden="true"><div style={{ width: `${dl.progress * 100}%` }} /></div>}
           {!saved && dl.progress == null && <p className="fine" style={{ marginTop: -6 }}>Saving the map takes about {mb(estimate)}.</p>}
 
-          {lv && <p className="fine">Level is computed from distance and climb, not rated by anyone. Time assumes 3 mph plus 30 min per 1,000 ft up.</p>}
+          {lv && <p className="fine">Difficulty is based only on distance and climb. It doesn’t account for terrain, weather or conditions. Time assumes 3 mph plus 30 min per 1,000 ft up.</p>}
 
           <div className="panel">
             <div className="panel-head">Elevation{trail.loop ? '' : ', one way'}</div>

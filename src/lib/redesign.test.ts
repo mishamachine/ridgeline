@@ -156,11 +156,11 @@ describe('name search', () => {
 });
 
 describe('place search', () => {
-  it('makes one US request that prefers Washington (viewbox, not bounded)', () => {
+  it('makes one US and Canada request with no regional bias', () => {
     const u = new URL(placeQueryUrl('Mount Rainier'));
-    expect(u.searchParams.get('countrycodes')).toBe('us');
-    expect(u.searchParams.get('viewbox')).toBe('-124.9,49.1,-116.9,45.5');
-    expect(u.searchParams.get('bounded')).toBe('0');
+    expect(u.searchParams.get('countrycodes')).toBe('us,ca');
+    expect(u.searchParams.has('viewbox')).toBe(false);
+    expect(u.searchParams.has('bounded')).toBe(false);
   });
   it('asks once per query and answers repeats from memory', async () => {
     let calls = 0;

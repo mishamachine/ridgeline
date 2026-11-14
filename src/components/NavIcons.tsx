@@ -5,6 +5,7 @@ const base = (size = 24) => ({
 });
 
 export const FindIcon = ({ size }: P) => <svg {...base(size)}><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>;
+export const HomeIcon = ({ size }: P) => <svg {...base(size)}><path d="M3 11l9-8 9 8" /><path d="M5 10v10h5v-6h4v6h5V10" /></svg>;
 export const SavedIcon = ({ size, filled }: P) => <svg {...base(size)} fill={filled ? 'currentColor' : 'none'}><path d="M6 3h12v18l-6-4.5L6 21z" /></svg>;
 export const HikeIcon = ({ size }: P) => <svg {...base(size)}><path d="M3 20l6-10 4 6 3-4 5 8z" /><path d="M9 10V4l4 1.5L9 7" /></svg>;
 export const ProfileIcon = ({ size }: P) => <svg {...base(size)}><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 3.5-6 8-6s8 2 8 6" /></svg>;
@@ -15,3 +16,4 @@ export const CheckIcon = ({ size }: P) => <svg {...base(size)}><path d="M5 12.5l
 export const ListIcon = ({ size }: P) => <svg {...base(size)}><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01" /></svg>;
 export const MapIcon = ({ size }: P) => <svg {...base(size)}><path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2z" /><path d="M9 4v14M15 6v14" /></svg>;
 export const CloseIcon = ({ size }: P) => <svg {...base(size)}><path d="M6 6l12 12M18 6L6 18" /></svg>;
+export const FilterIcon = ({ size }: P) => <svg {...base(size)}><path d="M4 7h10M18 7h2M4 17h2M10 17h10" /><circle cx="16" cy="7" r="2" /><circle cx="8" cy="17" r="2" /></svg>;
