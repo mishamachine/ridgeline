@@ -91,6 +91,16 @@ const lowpoint = { total: withElev.length, day_total: dayTotal, day_below_both_e
 const finalFiles = readdirSync(dir).filter((f) => /^\d+_\d+\.json$/.test(f)).map((f) => JSON.parse(readFileSync(join(dir, f), 'utf8')));
 const finalByKey = new Map(cells.cellsToTrails(finalFiles).map((t) => [keyOf(t), t]));
 const rfail = list.filter((l) => l.key.startsWith('r')).filter((l) => { const t = finalByKey.get(l.key); return !t || t.lengthM !== l.L; }).map((l) => ({ key: l.key, name: l.name, L: l.L }));
+// What the app shows against the stored full-line figure, for every complete trail: length or headline gain more than 10% apart, either direction.
+const SHOWN_TOL = 0.10, SHOWN_MAX_SHARE = 0.02;
+const shownOff = [];
+for (const l of list) {
+  const t = finalByKey.get(l.key);
+  const rawGain = l.loop ? l.up : Math.max(l.up, l.down);
+  const off = !t || Math.abs(t.lengthM / l.L - 1) > SHOWN_TOL || (rawGain >= 30 && Math.abs(gain(t) / rawGain - 1) > SHOWN_TOL);
+  if (off) shownOff.push({ key: l.key, name: l.name, L: l.L, shownL: t ? Math.round(t.lengthM) : null, gain: Math.round(rawGain), shownGain: t ? Math.round(gain(t)) : null });
+}
+const shown = { total: list.length, off: shownOff.length, share: list.length ? shownOff.length / list.length : 0, tolerance: SHOWN_TOL, max_share: SHOWN_MAX_SHARE, examples: shownOff.slice(0, 10) };
 // Complete trails whose drawn length differs from the full length by more than 8% in either direction (listed; routes use the stored numbers anyway).
 const drift = fidelity.filter((f) => Math.abs(f.drawnL / f.L - 1) > 0.08).map((f) => ({ key: f.key, name: f.name, L: f.L, drawnL: f.drawnL }));
 
@@ -98,10 +108,12 @@ const drift = fidelity.filter((f) => Math.abs(f.drawnL / f.L - 1) > 0.08).map((f
 const regions = JSON.parse(readFileSync('./scripts/regions.json', 'utf8')).regions;
 const entries = JSON.parse(readFileSync(join(dir, 'names.json'), 'utf8')).e;
 const classics = (regions.find((r) => r.id === regionId)?.classics ?? []).map((c) => ({ name: c.name, top: names.searchNames(entries, c.name, 1)[0] ?? null }));
-writeFileSync(join(dir, 'stats.json'), JSON.stringify({ trails: list, classics, stored: list.length, skipped, bytes, loss, fidelity, lowpoint, drift, rfail }));
+writeFileSync(join(dir, 'stats.json'), JSON.stringify({ trails: list, classics, stored: list.length, skipped, bytes, loss, fidelity, lowpoint, drift, rfail, shown }));
 console.log(`drawn-profile gain loss: ${loss.over25} of ${loss.judged} trails (${(loss.share * 100).toFixed(2)}%) lose more than 25% of their gain on the simplified line`);
 console.log(`mid-chain low points (>${LOW_M} m below an end, full-resolution profiles): below both ends ${lowpoint.below_both_ends}, below the start end ${lowpoint.below_start_end}, of ${lowpoint.total} stitched trails; of which up to 20 km long: ${lowpoint.day_below_both_ends} below both ends, ${lowpoint.day_below_start_end} below the start end, of ${lowpoint.day_total}; chosen trailhead more than 150 m from both chain ends: ${lowpoint.trailhead_off_end}`);
 console.log(`drawn length differs from the full length by more than 8%: ${drift.length} of ${fidelity.length} complete trails; complete routes not showing their stored numbers: ${rfail.length}`);
 for (const r of rfail.slice(0, 20)) console.log(`::error::route ${r.key} (${r.name}) does not use its stored numbers`);
+console.log(`shown vs stored (length or gain more than ${SHOWN_TOL * 100}% apart, either direction): ${shown.off} of ${shown.total} complete trails (${(shown.share * 100).toFixed(2)}%), gate ${SHOWN_MAX_SHARE * 100}%`);
 console.log(`trail stats: ${list.length} trails stored (${skipped} partial or without elevation skipped), ${(bytes / 1e6).toFixed(2)} MB added to the cells, ${((Date.now() - t0) / 1000).toFixed(0)} s`);
-if (rfail.length) process.exit(1);
+if (shown.share > SHOWN_MAX_SHARE) console.log(`::error::${shown.off} complete trails show a length or gain more than 10% from the stored full-line figure`);
+if (rfail.length || shown.share > SHOWN_MAX_SHARE) process.exit(1);
