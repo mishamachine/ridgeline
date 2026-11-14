@@ -1,5 +1,5 @@
 {
- "_note": "Covered regions. expected_trails is a collapse tripwire, self-baselined: the count this build measured on 13 Nov 2026 (California: 14 Nov 2026); the build fails if a region comes in under 50% of it. It is not an independent OSM figure. classics: each name must be found in the region's names.json with a length in len_m (metres), be ranked first by the app's own name search, and have a stored gain within max_err_pct (default 15) of published_ft (one-way headline gain in feet, source given). stored_len_m: range for the stored (stitched) length when it differs from names.json. v1: also publish the frozen old-format copy at trails/ (Washington only). max_err_pct above 15 is a temporary allowance and only goes with a known_bug note; remove both when the stitcher is fixed. published_len_mi (with len_source): the classic's published length in miles, one way for an out-and-back (half the round trip) or the loop; the stored length must be within 15% of it (max_len_err_pct to change), else the build fails unless len_exception explains a known definitional gap. Classic left out on purpose: Stawamus Chief (OpenStreetMap has no route or path covering a peak under that name; the peaks are separate spur ways named First, Second and Third Peak Trail, so no trailhead-to-summit gain can be checked). British Columbia's expected_trails (17626) is the count of its first CI build, 14 Nov 2026.",
+ "_note": "Covered regions. expected_trails is a collapse tripwire, self-baselined: the count this build measured on 13 Nov 2026 (California: 14 Nov 2026); the build fails if a region comes in under 50% of it. It is not an independent OSM figure. classics: each name must be found in the region's names.json with a length in len_m (metres), be ranked first by the app's own name search, and have a stored gain within max_err_pct (default 15) of published_ft (one-way headline gain in feet, source given). stored_len_m: range for the stored (stitched) length when it differs from names.json. v1: also publish the frozen old-format copy at trails/ (Washington only). max_err_pct above 15 is a temporary allowance and only goes with a known_bug note; remove both when the stitcher is fixed. published_len_mi (with len_source): the classic's published length in miles, one way for an out-and-back (half the round trip) or the loop; the stored length must be within 15% of it (max_len_err_pct to change), else the build fails unless len_exception explains a known definitional gap. Classic left out on purpose: Stawamus Chief (OpenStreetMap has no route or path covering a peak under that name; the peaks are separate spur ways named First, Second and Third Peak Trail, so no trailhead-to-summit gain can be checked). British Columbia's expected_trails (17626) is the count of its first CI build, 14 Nov 2026. Grouse Grind is not a classic (its mapped length is 1.92 km against 2.5 km published, a gap not explained); it stays in the app (batch-2 data list).",
  "regions": [
   {
    "id": "washington",
@@ -196,19 +196,6 @@
    "expected_trails": 17626,
    "classics": [
     {
-     "name": "Grouse Grind",
-     "len_m": [
-      1500,
-      3200
-     ],
-     "published_ft": 2625,
-     "source": "https://metrovancouver.org/services/regional-parks/Documents/grouse-mountain-regional-park-brochure.pdf",
-     "note": "Metro Vancouver's brochure: the trail climbs 800 m (2,625 ft). Other guides give 789 to 855 m. The OSM route relation is the Grind itself, about 1.9 km on the map.",
-     "published_len_mi": 1.55,
-     "len_source": "https://metrovancouver.org/services/regional-parks/Documents/grouse-mountain-regional-park-brochure.pdf",
-     "len_exception": "Metro Vancouver's brochure gives the Grind as 2.5 km (about 1.55 mi); the OSM route is 1.92 km on the map. The gain matches, and the cause of the length gap is not established (other guides say 2.9 km)."
-    },
-    {
      "name": "Garibaldi Lake",
      "len_m": [
       8000,
@@ -231,6 +218,18 @@
      "note": "One-way gain to the lake, 1,160 m per that guide (BC Parks' description gives a 1,200 m change over 7 km; other guides 1,220 to 1,250 m). OSM names the trail 'Wedgemount Lake Trail', 5.6 km mapped. Length: 12 km round trip per that guide (6 km one way, 3.73 mi); BC Parks' description says 7 km one way, which would put the map 20% short.",
      "published_len_mi": 3.73,
      "len_source": "https://www.vancouvertrails.com/trails/wedgemount-lake/"
+    },
+    {
+     "name": "Elfin Lakes",
+     "len_m": [
+      8000,
+      12000
+     ],
+     "published_ft": 1969,
+     "published_len_mi": 6.84,
+     "source": "https://backcountrybc.ca/index.php/resources/babc-trail-database/287-bc-parks-trails/288-garibaldi-provincial-park-trails/29-elfin-lakes-trail",
+     "len_source": "https://backcountrybc.ca/index.php/resources/babc-trail-database/287-bc-parks-trails/288-garibaldi-provincial-park-trails/29-elfin-lakes-trail",
+     "note": "One source for both figures: parking lot to Elfin Lakes, 11 km (6.84 mi) and 600 m (1,969 ft) of elevation change, one way (a database listed under BC Parks trails; the page does not name BC Parks as the author; other guides give 600 to 690 m). OSM names the trail 'Elfin Lakes Trail'; the stitched chain is 10.6 km."
     }
    ],
    "code": "BC"
