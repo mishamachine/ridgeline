@@ -56,6 +56,9 @@ describe('routes', () => {
     const profile = readFileSync('src/screens/Profile.tsx', 'utf8');
     expect(profile).toContain("Your exact location is never sent to our servers. To show trails near you, Ridgeline downloads trail data for the area around you, so our host can tell roughly which area (about 25 km across) you're in.");
     expect(profile).toContain('Stays on your phone');
+    const support = readFileSync('public/support/index.html', 'utf8');
+    expect(support).toContain("Your exact location is never sent to our servers. To show trails near you, Ridgeline downloads trail data for the area around you, so our host can tell roughly which area (about 25 km across) you're in.");
+    expect(support).not.toContain('Your location is never sent to us.');
     expect(readFileSync('src/screens/Onboarding.tsx', 'utf8')).toContain("Your exact location stays on your phone. It\\'s never sent to our servers.");
   });
   it('refuses a bad hike id', () => {
