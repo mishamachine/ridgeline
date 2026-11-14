@@ -39,6 +39,12 @@ class RegionConfig(unittest.TestCase):
         self.assertEqual([x['id'] for x in m if x['v1']], ['washington'])
         self.assertIs(m[0]['v1'], True)
 
+    def test_covered_regions_are_wa_or_ca_and_california_uses_the_geofabrik_state_extract(self):
+        by = {r['id']: r for r in regions.load_regions()}
+        self.assertEqual([r['code'] for r in regions.load_regions()], ['WA', 'OR', 'CA'])   # the app's coverage line reads these from the built index
+        self.assertEqual(by['california']['geofabrik'], 'us/california')
+        self.assertFalse(by['california'].get('v1'))
+
     def test_url_comes_from_the_geofabrik_index_by_its_real_ids(self):
         # Geofabrik's index lists ids like "us/georgia" (parent "north-america") next to "georgia" (parent "europe").
         idx = {'features': [{'properties': {'id': 'georgia', 'parent': 'europe', 'urls': {'pbf': 'EU'}}},

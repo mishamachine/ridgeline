@@ -93,6 +93,45 @@
     }
    ],
    "code": "OR"
+  },
+  {
+   "id": "california",
+   "name": "California",
+   "cc": "us",
+   "geofabrik": "us/california",
+   "classics": [
+    {
+     "name": "Mist Trail",
+     "len_m": [
+      3500,
+      5500
+     ],
+     "published_ft": 1900,
+     "source": "https://en.wikipedia.org/wiki/Mist_Trail",
+     "note": "Happy Isles to the top of Nevada Fall (the OSM relation ends there): 2.7 mi one way and 1,900 ft per that page, which cites the National Park Service. Gain to the top of Vernal Fall alone is about 1,000 ft."
+    },
+    {
+     "name": "Matt Davis Trail",
+     "len_m": [
+      5000,
+      11000
+     ],
+     "published_ft": 770,
+     "source": "https://ridgetrail.org/wp-content/uploads/2017/06/Marin_Mount-Tamalpais-State-Park-and-Bolinas-Ridge_2026.pdf",
+     "note": "Bay Area Ridge Trail guide: 6.4 mi one way for hikers, 770 ft gain and 730 ft loss. The Matt Davis route is also hiked as a 6.6 mi loop with Steep Ravine (about 1,700 ft, The Outbound), but OSM has no loop relation."
+    },
+    {
+     "name": "Devils Backbone Trail",
+     "len_m": [
+      1800,
+      6000
+     ],
+     "published_ft": 2350,
+     "source": "https://www.hikespeak.com/trails/devils-backbone-trail-baldy/",
+     "note": "Baldy Notch to the summit of Mount San Antonio: 3.3 mi and 2,350 ft one way, per that page. OSM spells it without the apostrophe."
+    }
+   ],
+   "code": "CA"
   }
  ]
 }

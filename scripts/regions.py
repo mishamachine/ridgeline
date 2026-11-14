@@ -225,6 +225,9 @@ def cmd_check(rid, d):
             if stats and stats.get('shown'):
                 sh = stats['shown']
                 f.write(f"Shown against stored (length or gain more than {sh['tolerance'] * 100:.0f}% apart, either direction): {sh['off']} of {sh['total']} complete trails ({sh['share'] * 100:.2f}%); gate {sh['max_share'] * 100:.0f}%. Kept out of Home's collection rows (still in search, All trails and on the map): {sh.get('flagged', 0)}.\n\n")
+            if stats and stats.get('under500') is not None:
+                u = stats['under500']
+                f.write(f"Complete trails shown under the 500 m minimum: {len(u)}" + (' (' + '; '.join(f"{x['name']} {x['L']} m" for x in u[:8]) + ')' if u else '') + '.\n\n')
             if stats and stats.get('drift') is not None:
                 dr = stats['drift']
                 f.write(f"Complete trails whose drawn length differs from the full length by more than 8%: {len(dr)} (routes show their stored numbers regardless). " + ('Largest: ' + '; '.join(f"{d['name']} ({d['L']} m full, {d['drawnL']} m drawn)" for d in sorted(dr, key=lambda d: -abs(d['drawnL'] - d['L']))[:8]) if dr else '') + '\n\n')
