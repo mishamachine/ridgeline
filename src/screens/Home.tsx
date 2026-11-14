@@ -10,6 +10,7 @@ import { remember } from '../lib/lookup';
 import { onEnter } from '../lib/homeSearch';
 import type { Place } from '../lib/geocode';
 import { loadNameIndex, searchNames, type NameEntry } from '../lib/nameIndex';
+import { useSettings } from '../lib/settings';
 import { listAllSaved, type SavedItem } from '../lib/saved';
 import { getSetting, putSetting } from '../lib/store';
 import type { Trail } from '../lib/trails';
@@ -45,6 +46,7 @@ export function Home({ visible, version, hike, savedIds, offlineIds, onOpen, onO
   const [failed, setFailed] = useState(false);
   const [retry, setRetry] = useState(0);
   const [saved, setSaved] = useState<SavedItem[]>([]);
+  const [{ units }] = useSettings();
   const [filters, setFilters] = useState<HomeFilters>(NO_FILTERS);
   const [filtersOpen, setFiltersOpen] = useState(false);
 
@@ -115,8 +117,8 @@ export function Home({ visible, version, hike, savedIds, offlineIds, onOpen, onO
     // origin is read through originKey so a new array with the same numbers does not reload
   }, [originKey, online, index, retry]);
 
-  const collections = useMemo(() => (trails && origin ? buildCollections(trails, origin) : []), [trails, originKey]);
-  const results = useMemo(() => (trails && origin && isFiltering(filters) ? applyFilters(trails, filters, origin) : null), [trails, originKey, filters]);
+  const collections = useMemo(() => (trails && origin ? buildCollections(trails, origin, units) : []), [trails, originKey, units]);
+  const results = useMemo(() => (trails && origin && isFiltering(filters) ? applyFilters(trails, filters, origin, units) : null), [trails, originKey, filters, units]);
 
   let mode: HomeMode = 'loading';
   if (!online) mode = 'offline';

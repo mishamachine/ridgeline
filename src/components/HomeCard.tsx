@@ -1,6 +1,8 @@
 import { memo } from 'react';
 import { M_TO_FT } from '../lib/geo';
-import { ft, mi } from '../lib/format';
+import { ft, km, metres10, mi } from '../lib/format';
+import { METRIC_COPY } from '../lib/metricCopy';
+import { useSettings, type Units } from '../lib/settings';
 import { gainM, level, roundTripM } from '../lib/plan';
 import { DOGS_UNKNOWN, DOGS_YES, dogsStatus } from '../lib/parks';
 import type { Trail } from '../lib/trails';
@@ -19,12 +21,17 @@ interface Props {
 }
 
 /** Distance is always the whole outing, so the label is always "round trip". */
-export const distanceLabel = (t: Trail) => `${mi(roundTripM(t))} mi round trip`;
+export const distanceLabel = (t: Trail, u: Units = 'imperial') => (u === 'metric' ? METRIC_COPY.roundTrip(km(roundTripM(t))) : `${mi(roundTripM(t))} mi round trip`);
 /** Gain is rounded to the nearest 50 ft: no false precision. */
-export const gainLabel = (t: Trail) => { const g = gainM(t); return g == null ? null : `About ${ft(Math.round(g * M_TO_FT / 50) * 50 / M_TO_FT)} ft gain`; };
+export const gainLabel = (t: Trail, u: Units = 'imperial') => {
+  const g = gainM(t);
+  if (g == null) return null;
+  return u === 'metric' ? METRIC_COPY.gainAbout(metres10(g)) : `About ${ft(Math.round(g * M_TO_FT / 50) * 50 / M_TO_FT)} ft gain`;
+};
 
 export const HomeCard = memo(function HomeCard({ trail, saved, offline, driveLater = DRIVE_TIME_ENABLED, onOpen, onToggleSave }: Props) {
-  const gain = gainLabel(trail);
+  const [{ units }] = useSettings();
+  const gain = gainLabel(trail, units);
   const lv = level(trail);
   const dogs = dogsStatus(trail);
   return (
@@ -32,7 +39,7 @@ export const HomeCard = memo(function HomeCard({ trail, saved, offline, driveLat
       <button className="hm-card-main" onClick={() => onOpen(trail)}>
         <span className="hm-thumb"><RouteSketch coords={trail.coords} /></span>
         <span className="hm-name">{trail.name}</span>
-        <span className="hm-m1">{distanceLabel(trail)}</span>
+        <span className="hm-m1">{distanceLabel(trail, units)}</span>
         <span className="hm-m2">{gain}{gain && lv ? ' · ' : ''}{lv}</span>
         {dogs !== 'none' && <span className={`hm-tg${dogs === 'yes' ? '' : ' hm-dim'}`}>{dogs === 'yes' ? DOGS_YES : DOGS_UNKNOWN}</span>}
       </button>

@@ -7,8 +7,10 @@ import { FilterIcon, MapIcon } from '../components/NavIcons';
 import type { SavedItem } from '../lib/saved';
 import type { Trail } from '../lib/trails';
 import { DRIVE_TIME_ENABLED } from '../lib/flags';
+import { METRIC_COPY } from '../lib/metricCopy';
+import { useSettings } from '../lib/settings';
 import {
-  DIFFICULTIES, DIFFICULTY_NOTE, HOW_WE_RANK, LENGTHS, SORTS, coverageLine,
+  DIFFICULTIES, DIFFICULTY_NOTE, HOW_WE_RANK, LENGTHS, SORTS, coverageLine, subFor,
   type Collection, type HomeFilters, type Region,
 } from '../lib/home';
 
@@ -59,10 +61,11 @@ function Chip({ on, children, onClick, disabled }: { on?: boolean; children: Rea
 }
 
 function FilterPanel({ f, set }: { f: HomeFilters; set: (f: HomeFilters) => void }) {
+  const [{ units }] = useSettings();
   return (
     <section className="hm-filters" id="home-filters" aria-label="Filter and sort">
       <div role="group" aria-label="Length (round trip)" className="hm-chips">
-        {LENGTHS.map((l) => <Chip key={l.id} on={f.length === l.id} onClick={() => set({ ...f, length: f.length === l.id ? null : l.id })}>{l.label}</Chip>)}
+        {LENGTHS.map((l) => <Chip key={l.id} on={f.length === l.id} onClick={() => set({ ...f, length: f.length === l.id ? null : l.id })}>{units === 'metric' ? METRIC_COPY.lengthChips[l.id] : l.label}</Chip>)}
       </div>
       <div role="group" aria-label="Difficulty" className="hm-chips">
         {DIFFICULTIES.map((d) => <Chip key={d} on={f.difficulty === d} onClick={() => set({ ...f, difficulty: f.difficulty === d ? null : d })}>{d}</Chip>)}
@@ -88,6 +91,7 @@ function RegionList({ p }: { p: HomeViewProps }) {
 }
 
 function Rail({ c, p }: { c: Collection; p: HomeViewProps }) {
+  const [{ units }] = useSettings();
   const [why, setWhy] = useState(false);
   const id = `row-${c.id}`;
   return (
@@ -95,7 +99,7 @@ function Rail({ c, p }: { c: Collection; p: HomeViewProps }) {
       <div className="hm-rowh">
         <div>
           <h2 id={id}>{rowTitle(c, p.area)}</h2>
-          <p>{c.sub}{c.id === 'top' && <> <button className="hm-why" aria-expanded={why} onClick={() => setWhy(!why)}>How we rank</button></>}</p>
+          <p>{subFor(c, units)}{c.id === 'top' && <> <button className="hm-why" aria-expanded={why} onClick={() => setWhy(!why)}>How we rank</button></>}</p>
           {why && c.id === 'top' && <p className="hm-note" role="note">{HOW_WE_RANK}</p>}
         </div>
         <button className="hm-link" aria-label={`See all: ${c.title}`} onClick={() => p.onSeeAll(c.id)}>See all</button>

@@ -17,7 +17,7 @@ import { GpsEngine, GpsState } from '../lib/gps/engine';
 import { WebLocationSource } from '../lib/gps/source';
 import { isNative } from '../lib/native/platform';
 import { createNativeLocationSource, updateNavNotification } from '../lib/native/location';
-import { QUALITY_LABEL } from '../lib/gps/quality';
+import { accuracyLine } from '../lib/gps/quality';
 import { requestCompassPermission, startCompass } from '../lib/gps/compass';
 import { findReversals } from '../lib/gps/reversals';
 import { Announcer } from '../lib/voice/announcer';
@@ -76,6 +76,8 @@ export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) 
   const [headingBack, setHeadingBack] = useState(false);
   const [settings, updateSettings] = useSettings();
   const units = settings.units;
+  const unitsRef = useRef(units);   // the map-click handler is registered once, so it reads the current units from here
+  unitsRef.current = units;
   const voiceOn = settings.voice;
   const voiceRef = useRef(voiceOn);
   voiceRef.current = voiceOn;
@@ -314,7 +316,7 @@ export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) 
     map.setPaintProperty('me-dot', 'circle-stroke-color', ['case', ['boolean', ['get', 'anchored'], false], INK, '#FFFFFF']);
     map.on('click', (e) => {
       if (!hereRef.current) return;
-      const r = engine.manualAnchor([e.lngLat.lng, e.lngLat.lat]);
+      const r = engine.manualAnchor([e.lngLat.lng, e.lngLat.lat], unitsRef.current);
       hereRef.current = false;
       setHere(false);
       setHereMsg(r.ok ? 'Position set to the trail. It clears when GPS agrees again.' : r.reason);
@@ -392,9 +394,8 @@ export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) 
   const status = g.error?.code === 'denied' || g.error?.code === 'unsupported' ? g.error.message
     : g.recalTimedOut ? 'No fresh GPS yet. Move to open sky and wait.'
     : g.recalibrating ? 'Recalibrating GPS…'
-    : g.accuracyFt == null ? 'Looking for GPS…'
-    : g.warmingUp ? `GPS warming up ±${g.accuracyFt} ft`
-    : `GPS ${QUALITY_LABEL[g.quality!]} ±${g.accuracyFt} ft`;
+    : g.accuracyM == null ? 'Looking for GPS…'
+    : accuracyLine({ m: g.accuracyM, warming: g.warmingUp, quality: g.quality }, units);
   const caution = g.quality === 'weak' || g.recalTimedOut || !online || g.error != null;
   const net = online ? '' : saved ? ' · No signal, map saved' : ' · No signal';
 

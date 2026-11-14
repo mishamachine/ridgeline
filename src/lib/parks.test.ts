@@ -4,7 +4,7 @@ import { cellsToTrails } from './cells';
 import { highlightsOf, hasHighlight } from '../components/Chips';
 import { statsLine } from '../components/TrailCard';
 import { buildCollections, regionNameAt } from './home';
-import { dogsStatus, inNationalPark, NATIONAL_PARK_BOXES } from './parks';
+import { dogsStatus, inNationalPark, isWestCoastTrail, NATIONAL_PARK_BOXES } from './parks';
 import type { Trail } from './trails';
 
 // Real trail shapes (Little Si has an OSM dogs tag), moved to a spot inside a park to test the park rule.
@@ -75,5 +75,45 @@ describe('distance wording', () => {
   it('names the region of a trail for suggestions, not a distance', () => {
     expect(regionNameAt(-121.75, 47.49)).toBe('Washington');
     expect(regionNameAt(-97.7, 30.3)).toBeNull();
+  });
+});
+
+describe('Canada dogs', () => {
+  const inCanadianPark = (name = littleSi.name) => ({ ...moveTo(littleSi, -125.6, 49.1), name });   // Pacific Rim area, not the West Coast Trail box
+  it('follows the OSM tag in a Canadian national park: no park boxes', () => {
+    for (const [lon, lat] of [[-125.6, 49.1], [-117.5, 51.3], [-116.5, 51.4], [-116.0, 50.9], [-118.1, 51.0]]) {   // Pacific Rim, Glacier, Yoho, Kootenay, Revelstoke
+      const t = moveTo(littleSi, lon, lat);
+      expect(inNationalPark(t)).toBe(false);
+      expect(dogsStatus(t)).toBe('yes');
+    }
+    expect(dogsStatus({ ...inCanadianPark(), highlights: ['nodogs'] })).toBe('none');
+    expect(highlightsOf({ ...inCanadianPark(), highlights: ['nodogs'] }).map((h) => h.kind)).toContain('nodogs');
+  });
+  it('the West Coast Trail is always Dogs: Unknown, by name inside its box', () => {
+    const wct = moveTo({ ...littleSi, name: 'West Coast Trail' }, -124.9, 48.7);
+    expect(isWestCoastTrail(wct)).toBe(true);
+    expect(dogsStatus(wct)).toBe('unknown');
+    expect(dogsStatus({ ...wct, highlights: ['dogs'] })).toBe('unknown');
+    expect(hasHighlight({ ...wct, highlights: ['dogs'] }, 'dogs')).toBe(false);
+    expect(dogsStatus({ ...wct, highlights: undefined })).toBe('unknown');
+  });
+  it('a same-named trail elsewhere, or another trail in the box, is not caught', () => {
+    expect(dogsStatus(moveTo({ ...littleSi, name: 'West Coast Trail' }, -122.0, 47.5))).toBe('yes');
+    expect(isWestCoastTrail(moveTo({ ...littleSi, name: 'Pacific Crest Trail' }, -124.9, 48.7))).toBe(false);
+  });
+});
+
+describe('US park boxes and Canada', () => {
+  it('Sooke (south Vancouver Island) is outside the Olympic box: the OSM tag decides', () => {
+    const sooke = moveTo(littleSi, -123.68, 48.33);
+    expect(inNationalPark(sooke)).toBe(false);
+    expect(dogsStatus({ ...sooke, highlights: ['dogs'] })).toBe('yes');
+    // the US side is unchanged: Hurricane Ridge is inside Olympic
+    expect(inNationalPark(moveTo(littleSi, -123.5, 47.97))).toBe(true);
+    // the exemption stops at Haro Strait: inside the Olympic box but east of -123.25 keeps the US rules
+    expect(inNationalPark(moveTo(littleSi, -123.1, 48.32))).toBe(true);
+    expect(dogsStatus({ ...moveTo(littleSi, -123.1, 48.32), highlights: ['dogs'] })).toBe('unknown');
+    // San Juan Island (Lime Kiln, Friday Harbor) is north of the Olympic box: no park box, OSM tag decides, as before
+    for (const [lon, lat] of [[-123.15, 48.52], [-123.01, 48.53]]) expect(dogsStatus({ ...moveTo(littleSi, lon, lat), highlights: ['dogs'] })).toBe('yes');
   });
 });
