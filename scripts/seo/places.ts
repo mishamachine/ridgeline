@@ -1,5 +1,5 @@
-// Coarse "near <town>" labels for Washington, from public town coordinates. Not a geocoder: a trail gets the
-// nearest town on this list when one is within MAX_KM, else just "Washington".
+// Coarse "near <town>" labels, from public town coordinates (Washington towns only so far). Not a geocoder: a trail gets the
+// nearest town on this list when one is within MAX_KM, else the name of the covered region it is in (from the data), else "in this area".
 import { haversine, type LngLat } from '../../src/lib/geo';
 
 export const PLACES: [string, number, number][] = [
@@ -22,11 +22,11 @@ export const PLACES: [string, number, number][] = [
 ];
 const MAX_KM = 35;
 
-export function areaOf(p: LngLat): string {
+export function areaOf(p: LngLat, regionName?: string): string {
   let best: string | null = null, d = Infinity;
   for (const [name, lon, lat] of PLACES) {
     const m = haversine(p, [lon, lat]);
     if (m < d) { d = m; best = name; }
   }
-  return best && d <= MAX_KM * 1000 ? `near ${best}, WA` : 'in Washington';
+  return best && d <= MAX_KM * 1000 ? `near ${best}, WA` : regionName ? `in ${regionName}` : 'in this area';
 }

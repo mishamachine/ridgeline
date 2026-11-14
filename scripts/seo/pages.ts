@@ -6,6 +6,7 @@ import { filterTrails, isJunkName, isRoute, relevance } from '../../src/lib/qual
 import { ELEVATION_NOTICE, SAFETY_LINE } from '../../src/lib/credits';
 import type { Trail } from '../../src/lib/trails';
 import { areaOf } from './places';
+import { regionAt, type CoverageRegion } from '../../src/lib/coverage';
 
 export const MIN_MI = 1, MAX_MI = 15, DEFAULT_CAP = 300;
 const ID_OK = /^osm-[rw]\d{1,15}(-\d{1,6})?$/;
@@ -113,8 +114,8 @@ export function gainFt(t: Trail): number | null {
   return g == null ? null : Math.round(g * M_TO_FT / 10) * 10;
 }
 
-export function describe(t: Trail): string {
-  const d = mi(roundTripM(t)), area = areaOf(t.coords[0]);
+export function describe(t: Trail, regions: CoverageRegion[] = []): string {
+  const d = mi(roundTripM(t)), area = areaOf(t.coords[0], regionAt(regions, t.coords[0])?.name);
   const shape = t.loop ? `a ${d} mi loop` : `a ${mi(t.lengthM)} mi trail (${d} mi out and back)`;
   const hl = certainHighlights(t);
   const parts = [`${t.name} is ${shape} ${area}, mapped in OpenStreetMap.`];
@@ -125,7 +126,7 @@ export function describe(t: Trail): string {
   return parts.join(' ');
 }
 
-export interface Opts { base: string; appBase: string; template: string }
+export interface Opts { base: string; appBase: string; template: string; /** Covered regions from trails/index.json, to name the area of a trail far from a listed town. */ regions?: CoverageRegion[] }
 
 /** Remove everything the page re-declares, so the template's own head tags do not double up. */
 function stripHead(html: string): string {
@@ -140,10 +141,10 @@ function stripHead(html: string): string {
 
 export function renderPage(t: Trail, o: Opts): Page {
   if (!ID_OK.test(t.id)) throw new Error('unsafe trail id');
-  const area = areaOf(t.coords[0]);
+  const area = areaOf(t.coords[0], regionAt(o.regions ?? [], t.coords[0])?.name);
   const d = mi(roundTripM(t));
   const title = `${t.name} — ${d} mi hike ${area} | Ridgeline`;
-  const description = describe(t);
+  const description = describe(t, o.regions);
   const url = `${o.base}/trail/${t.id}/`;
   const image = `${o.base}/og-image.png`;
   const th = t.trailhead ?? t.coords[0];

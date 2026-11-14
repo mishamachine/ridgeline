@@ -46,11 +46,11 @@ One-time setup: in the repo, go to **Settings → Pages → Source** and choose 
 
 Elevation is derived from the Copernicus WorldDEM-90 under its general-public licence (free of charge; reproduction, distribution and adaptation allowed). Because the app shows values computed from the DEM, the licence's notice for adapted data applies. It is shown under the elevation profile on every trail page, with these exact words:
 
-> produced using Copernicus WorldDEM™-90 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved
+> produced using Copernicus WorldDEM-90 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved
 
 and the licence's liability sentence:
 
-> The organisations in charge of the Copernicus programme by law or by delegation do not incur any liability for any use of the Copernicus WorldDEM™-90
+> The organisations in charge of the Copernicus programme by law or by delegation do not incur any liability for any use of the Copernicus WorldDEM-90
 
 The text lives in `src/lib/credits.ts`. Do not paraphrase it. The app must not suggest that it is endorsed by Copernicus, ESA, DLR or Airbus. Licence: [ESA/Copernicus data access licences (PDF), "Copernicus WorldDEM-90" section](https://dataspace.copernicus.eu/sites/default/files/media/files/2025-06/copernicus_contributing_mission_data_access_v2_cop_dem_licenses.pdf). Dataset page: <https://registry.opendata.aws/copernicus-dem/>.
 

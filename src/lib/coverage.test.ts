@@ -31,3 +31,17 @@ describe('support page attribution', () => {
     expect(text).toContain("Ridgeline's trail data contains information from OpenStreetMap, made available under the Open Database License (ODbL). The trail database we derive from it is available under the ODbL on request: machinemisha@gmail.com.");
   });
 });
+
+describe('Copernicus credit and coverage copy', () => {
+  it('uses the credit line verbatim', async () => {
+    const { ELEVATION_NOTICE } = await import('./credits');
+    expect(ELEVATION_NOTICE).toBe('produced using Copernicus WorldDEM-90 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved');
+  });
+  it('says the same coverage sentence on the support page and llms.txt, with no single-region scope', async () => {
+    const { readFileSync } = await import('node:fs');
+    const sentence = 'Ridgeline covers trails in the regions listed in the app; more regions coming.';
+    expect(readFileSync('public/support/index.html', 'utf8')).toContain(sentence);
+    expect(readFileSync('public/llms.txt', 'utf8')).toContain(sentence);
+    expect(readFileSync('public/support/index.html', 'utf8')).not.toMatch(/maps for Washington/);
+  });
+});

@@ -77,9 +77,11 @@ describe('page text', () => {
     expect(describeTrail(trail({ trailheadIsParking: false }))).toMatch(/out and back/);
     expect(describeTrail(trail({ trailheadIsParking: false }))).not.toMatch(/car park|parking/i);
   });
-  it('labels the area by the nearest listed town, else Washington', () => {
+  it('labels the area by the nearest listed town, else the covered region, else a neutral phrase', () => {
     expect(areaOf([-121.55, 47.82])).toBe('near Index, WA');
-    expect(areaOf([-119.9, 46.9])).toBe('in Washington');
+    expect(areaOf([-119.9, 46.9], 'Washington')).toBe('in Washington');
+    expect(areaOf([-121.7, 44.5], 'Oregon')).toBe('in Oregon');
+    expect(areaOf([-121.7, 44.5])).toBe('in this area');
   });
 });
 

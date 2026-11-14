@@ -137,7 +137,7 @@ export function evaluate(f: HikeFacts[]): Omit<Badge, 'earnedAt'>[] {
   const climbSub = climbFt >= CLIMB_TARGET_FT ? '10,000 ft climbed' : `${climbFt.toLocaleString('en-US')} of 10,000 ft`;
   const rows: Omit<Badge, 'earnedAt'>[] = [
     { id: 'first-trail', name: 'First Trail', earned: first, progress: { have: Math.min(f.length, 1), need: 1 }, sub: first ? 'Recorded a hike' : 'Record your first hike' },
-    { id: 'ledge-sitter', name: 'Ledge Sitter', earned: classics.length > 0, progress: { have: Math.min(classics.length, 1), need: 1 }, sub: classics.length ? classics[0].classic! : 'Finish a Washington classic' },
+    { id: 'ledge-sitter', name: 'Ledge Sitter', earned: classics.length > 0, progress: { have: Math.min(classics.length, 1), need: 1 }, sub: classics.length ? classics[0].classic! : 'Finish a classic hike' },
     { id: 'trail-buddy', name: 'Trail Buddy', earned: f.some((h) => h.dog), progress: { have: f.some((h) => h.dog) ? 1 : 0, need: 1 }, sub: f.some((h) => h.dog) ? 'Hiked with a dog' : 'Mark a hike with your dog' },
     { id: 'early-bird', name: 'Early Bird', earned: f.some((h) => h.early), progress: { have: f.some((h) => h.early) ? 1 : 0, need: 1 }, sub: 'Start between 4 and 7am' },
     { id: 'lake-hopper', name: 'Lake Hopper', earned: lakes >= 3, ...count(lakes, 3, 'lakes', '3 lakes') },
