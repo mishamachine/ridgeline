@@ -302,7 +302,6 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
               {!places && (
                 <button className="sg sg-place" disabled={placeBusy} onClick={onSearch}>
                   <span className="sg-name">{placeBusy ? 'Searching places…' : `Search places for “${q}”`}</span>
-                  <span className="sg-sub">{regions.length ? 'Covered areas first' : 'Place search'}</span>
                 </button>
               )}
               {placeMsg && <div className="sg-msg">{placeMsg}</div>}

@@ -65,10 +65,18 @@ describe('stored length and gain (measured on the full line at build time)', () 
     const t = ledge(withS({ r5588030: [3100, 340, 25] }));
     expect([t.lengthM, t.ascentM, t.descentM]).toEqual([3100, 340, 25]);
   });
-  it('ignores them when they disagree with the drawn line by more than 8% (a different stitching)', () => {
+  it('uses them for a complete route even when they differ a lot from the drawn line (a branching relation stitches differently on it)', () => {
     const t = ledge(withS({ r5588030: [Math.round(drawn.lengthM * 1.2), 999, 999] }));
-    expect(t.lengthM).toBe(drawn.lengthM);
-    expect(t.ascentM).toBe(drawn.ascentM);
+    expect([t.lengthM, t.ascentM]).toEqual([Math.round(drawn.lengthM * 1.2), 999]);
+  });
+  it('for a named path, ignores them when they disagree with the drawn line by more than 8% (a different stitching)', () => {
+    const g = [-121.9, 47.0, -121.89, 47.0, -121.88, 47.0, -121.87, 47.0];
+    const key = 'w-121.87000,47.00000|-121.90000,47.00000';   // the two ends, sorted as text
+    const path = (s: number[]): CellFile => ({ v: 1, r: [], s: { [key]: s }, w: [{ id: 5, t: { name: 'Ridge Path' }, g, z: [100, 3, 3, 3] }] });
+    const get = (f: CellFile) => cellsToTrails([f]).find((t) => t.name === 'Ridge Path')!;
+    const base = get(path([0, 0, 0]));
+    expect(get(path([Math.round(base.lengthM * 1.02), 50, 5])).ascentM).toBe(50);          // agrees: used
+    expect(get(path([Math.round(base.lengthM * 1.5), 50, 5])).ascentM).toBe(base.ascentM); // disagrees: ignored
   });
   it('ignores them for a partial trail (members in cells that are not loaded)', () => {
     const f = withS({ r5588030: [3100, 340, 25] });
@@ -78,4 +86,34 @@ describe('stored length and gain (measured on the full line at build time)', () 
     expect(t.lengthM).toBe(drawn.lengthM);
   });
   it('without them the drawn numbers stand', () => { expect(ledge(v2['ledge'][0]).lengthM).toBe(drawn.lengthM); });
+});
+
+describe('branching relations (stitched differently on the simplified line)', () => {
+  // A trunk plus two branches that all join end to end on the drawn line: the app's chain is ~16 km, but the build measured the
+  // trail on the full line as 8,493 m and 959 m up. For a complete route the stored numbers are the right ones.
+  const seg = (lon0: number, n: number, step = 0.0045) => Array.from({ length: n }, (_, i) => [lon0 + i * step, 47.0]).flat();
+  const wayZ = (n: number, z0: number) => [z0, ...Array(n - 1).fill(6)];
+  const cell = (n: number, s?: Record<string, number[]>): CellFile => ({
+    v: 1, s, w: [],
+    r: [{ id: 77, t: { name: 'Emerald Ridge' }, n, m: [[1, seg(-121.9, 21), wayZ(21, 500)], [2, seg(-121.9 + 20 * 0.0045, 21), wayZ(21, 620)], [3, seg(-121.9 + 40 * 0.0045, 21), wayZ(21, 740)]] }],
+  });
+  const trail = (f: CellFile) => cellsToTrails([f]).find((t) => t.id === 'osm-r77');
+
+  it('uses the stored numbers for a complete route even when the drawn chain is much longer', () => {
+    const drawn = trail(cell(3))!;
+    expect(drawn.lengthM).toBeGreaterThan(12000);                       // the chain the simplified geometry gives
+    const t = trail(cell(3, { r77: [8493, 959, 120] }))!;
+    expect([t.lengthM, t.ascentM, t.descentM]).toEqual([8493, 959, 120]);
+  });
+  it('does not use them for a route clipped by the view (a member is in a cell that is not loaded)', () => {
+    const t = trail(cell(4, { r77: [8493, 959, 120] }))!;
+    expect(t.partial).toBe(true);
+    expect(t.lengthM).toBeGreaterThan(12000);
+  });
+  it('judges the 500 m minimum on the stored length for a complete route, and keeps clipped slivers out', () => {
+    const tiny: CellFile = { v: 1, w: [], s: { r5: [2400, 300, 10] }, r: [{ id: 5, t: { name: 'North Spur' }, n: 1, m: [[9, seg(-121.9, 6, 0.0003), wayZ(6, 500)]] }] };   // drawn chain ~ 110 m
+    expect(cellsToTrails([tiny]).some((t) => t.id === 'osm-r5')).toBe(true);
+    const clipped: CellFile = { ...tiny, r: [{ ...tiny.r[0], n: 2 }] };
+    expect(cellsToTrails([clipped]).some((t) => t.id === 'osm-r5')).toBe(false);
+  });
 });

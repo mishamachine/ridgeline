@@ -203,7 +203,7 @@ export function cellsToTrails(raw: CellFile[]): Trail[] {
   }
   for (const [id, w] of ways) elements.push({ type: 'way', id, tags: w.t, geometry: pairs(w.g) });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return parseOverpass(elements as any).map((t0) => {
+  return parseOverpass(elements as any, stored).map((t0) => {
     // Build the profile only if every vertex has a height (older files have none).
     const z = t0.coords.map((c) => zAt.get(`${c[0]},${c[1]}`));
     const profile = z.some((v) => v === undefined) ? [] : profileFromVertices(t0.coords, z as number[]);
@@ -212,15 +212,17 @@ export function cellsToTrails(raw: CellFile[]): Trail[] {
 
   /**
    * The drawn line of a v2 trail is simplified (5 m), so its measured length and climb differ a little. For a complete trail
-   * (every member loaded) use the numbers measured at build time on the full line, when the file has them and they agree
-   * with the drawn line (within 8% of its length: a different stitching, e.g. from other loaded ways, is ignored).
+   * (every member loaded) use the numbers measured at build time on the full line, when the file has them: always for a route, and for
+   * a named path when they agree with the drawn line (within 8% of its length: a different stitching, e.g. from other loaded ways, is ignored).
    */
   function withStored(t: Trail): Trail {
     if (t.partial || !stored.size || t.ascentM == null) return t;
     const r = /^osm-r(\d+)$/.exec(t.id);
     const ends = [t.coords[0], t.coords.at(-1)!].map((c) => `${c[0].toFixed(5)},${c[1].toFixed(5)}`).sort();
     const s = stored.get(r ? `r${r[1]}` : `w${ends.join('|')}`);
-    if (!s || Math.abs(t.lengthM / s[0] - 1) > 0.08) return t;
+    // A route (relation) is identified by its id, so complete means its numbers are the right ones whatever line was drawn (a branching
+    // relation can stitch to a different chain on the simplified geometry). A named path is matched by its two ends, so keep the length guard there.
+    if (!s || (!r && Math.abs(t.lengthM / s[0] - 1) > 0.08)) return t;
     return { ...t, lengthM: s[0], ascentM: s[1], descentM: s[2] };
   }
 

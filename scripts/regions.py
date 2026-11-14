@@ -4,6 +4,7 @@ Region tooling for the multi-region trail build (scripts/regions.json).
 
   regions.py matrix                       JSON for the GitHub Actions matrix
   regions.py fetch <id> <dest.pbf>        download the region's Geofabrik extract (URL from Geofabrik's JSON index)
+  regions.py fallback <id>                after a failed download: use the cached extract only if under 28 days old
   regions.py note <id> <state> [key]      job-summary line: cache hit or miss, the PBF date
   regions.py check <id> <dir>             report + fail if under 50% of the expected trail count or a classic is missing
   regions.py combine <out> <dir>...       merge per-region build dirs (each named by region id) into <out>/v2, plus the frozen v1 copy in <out>
@@ -72,10 +73,38 @@ def cmd_matrix():
     print(json.dumps({'include': [{'id': r['id'], 'name': r['name'], 'v1': bool(r.get('v1'))} for r in load_regions()]}))
 
 
+def verify_md5(dest, url):
+    """Geofabrik publishes <extract>.md5 next to each extract: the download must match it, or it is deleted and the step fails."""
+    import hashlib
+    want = http_get(url + '.md5').decode().split()[0].lower()
+    h = hashlib.md5()
+    with open(dest, 'rb') as f:
+        for chunk in iter(lambda: f.read(1 << 20), b''):
+            h.update(chunk)
+    if h.hexdigest() != want:
+        os.remove(dest)
+        sys.exit(f'md5 mismatch for {url}: got {h.hexdigest()}, Geofabrik says {want}')
+    print(f'md5 ok ({want})')
+
+
+def cmd_fallback(rid, max_days=28):
+    """After a failed download: the cached extract may be used only if it is not too old."""
+    from email.utils import parsedate_to_datetime
+    side = os.path.join('extract', rid + '.osm.pbf.json')
+    if not (os.path.exists(side) and os.path.exists(os.path.join('extract', rid + '.osm.pbf'))):
+        sys.exit(f'::error::Geofabrik download failed for {rid} and there is no cached extract')
+    lm = json.load(open(side)).get('last_modified')
+    age = (datetime.now(timezone.utc) - parsedate_to_datetime(lm)).days if lm else None
+    if age is None or age > max_days:
+        sys.exit(f'::error::Geofabrik download failed for {rid} and the cached extract is {age if age is not None else "of unknown"} days old (limit {max_days})')
+    print(f'::warning::Geofabrik download failed for {rid}; building from the cached extract, {age} days old')
+
+
 def cmd_fetch(rid, dest):
     url = pbf_url(region(rid)['geofabrik'], json.loads(http_get(INDEX_URL)))
     print(f'downloading {url}')
     modified = http_get(url, dest)
+    verify_md5(dest, url)
     with open(dest + '.json', 'w') as f:   # kept with the cached extract: where and which version it is
         json.dump({'url': url, 'last_modified': modified, 'downloaded': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%MZ')}, f)
     print(f'{dest}: {os.path.getsize(dest) / 1e6:.0f} MB, last modified {modified}')
@@ -193,7 +222,10 @@ def cmd_check(rid, d):
     if summary:
         with open(summary, 'a') as f:
             f.write('| Region | Trails | Cells | MB (v2) | MB (full resolution) | Build minutes | With elevation | Collapse tripwire (self-baselined) | Places |\n|---|---|---|---|---|---|---|---|---|\n' + row + '\n\n')
-            if stats and stats.get('lowpoint'):
+            if stats and stats.get('drift') is not None:
+                dr = stats['drift']
+                f.write(f"Complete trails whose drawn length differs from the full length by more than 8%: {len(dr)} (routes show their stored numbers regardless). " + ('Largest: ' + '; '.join(f"{d['name']} ({d['L']} m full, {d['drawnL']} m drawn)" for d in sorted(dr, key=lambda d: -abs(d['drawnL'] - d['L']))[:8]) if dr else '') + '\n\n')
+            if stats and stats.get('lowpoint') and stats['lowpoint']['total']:
                 lp = stats['lowpoint']
                 f.write(f"Mid-chain low points (a leg that dips more than 100 m below an end, the Dog Mountain signature): {lp['below_both_ends']} of {lp['total']} stitched trails ({lp['below_both_ends'] / lp['total'] * 100:.2f}%) below both ends; {lp['below_start_end']} ({lp['below_start_end'] / lp['total'] * 100:.2f}%) below the start end and climbing again.\n\n")
             if stats:
@@ -203,6 +235,17 @@ def cmd_check(rid, d):
     for b in bad:
         print(f'::error::{b}')
     sys.exit(1 if bad else 0)
+
+
+def cell_center(keys, size=0.25):
+    """[lon, lat] of the covered cell whose centre is nearest the mean of all the cells' centres: a point that has trails, unlike a bbox midpoint
+    (which can fall in the sea or another state). None when there are no cells."""
+    pts = [((int(k.split('_')[0]) + 0.5) * size - 180, (int(k.split('_')[1]) + 0.5) * size - 90) for k in keys]
+    if not pts:
+        return None
+    mx, my = sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)
+    best = min(pts, key=lambda p: (p[0] - mx) ** 2 + (p[1] - my) ** 2)
+    return [round(best[0], 4), round(best[1], 4)]
 
 
 def merge_cell(a, b):
@@ -260,7 +303,7 @@ def combine(root, dirs, regs=None):
         places['region'] = rid
         with open(os.path.join(out, 'places', rid + '.json'), 'w', encoding='utf-8') as f:
             json.dump(places, f, separators=(',', ':'), ensure_ascii=False)
-        listing.append({'id': rid, 'code': r['code'], 'name': r['name'], 'cc': r['cc'], 'center': [round((idx['bbox'][0] + idx['bbox'][2]) / 2, 4), round((idx['bbox'][1] + idx['bbox'][3]) / 2, 4)] if idx['bbox'] else None, 'bbox': idx['bbox'], 'cells': len(idx['cells']), 'names': f'names/{rid}.json', 'places': f'places/{rid}.json'})
+        listing.append({'id': rid, 'code': r['code'], 'name': r['name'], 'cc': r['cc'], 'center': cell_center(idx['cells']), 'bbox': idx['bbox'], 'cells': len(idx['cells']), 'names': f'names/{rid}.json', 'places': f'places/{rid}.json'})
         if idx['bbox']:
             boxes.append(idx['bbox'])
         sources.append(r['name'])
@@ -278,8 +321,8 @@ def combine(root, dirs, regs=None):
         with open(os.path.join(out, kind, 'manifest.json'), 'w') as f:
             json.dump({'v': 1, 'shards': [{'id': r['id'], 'file': r[kind], 'bbox': r['bbox']} for r in listing]}, f, separators=(',', ':'))
     v1 = [d for d in dirs if by_id[os.path.basename(os.path.normpath(d)).removeprefix('trails-')].get('v1')]
-    if len(v1) > 1:
-        sys.exit('only one region may keep the frozen v1 copy')
+    if len(v1) != 1:
+        sys.exit('exactly one region must keep the frozen v1 copy ("v1": true in regions.json); found %d' % len(v1))
     for d in v1:  # the old path: this region's full-resolution old-format cells, index.json and names.json, as the old reader expects
         for f in os.listdir(os.path.join(d, 'full')):
             shutil.copyfile(os.path.join(d, 'full', f), os.path.join(root, f))
@@ -297,6 +340,8 @@ if __name__ == '__main__':
         cmd_matrix()
     elif a[:1] == ['fetch'] and len(a) == 3:
         cmd_fetch(a[1], a[2])
+    elif a[:1] == ['fallback'] and len(a) == 2:
+        cmd_fallback(a[1])
     elif a[:1] == ['note'] and len(a) >= 3:
         cmd_note(a[1], a[2], a[3] if len(a) > 3 else '')
     elif a[:1] == ['check'] and len(a) == 3:

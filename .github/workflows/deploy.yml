@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
   pull_request: # builds only (never deploys) when the trail pipeline changes
     branches: [main]
-    paths: ['scripts/**', '.github/workflows/deploy.yml', 'src/lib/cells.ts', 'src/lib/nameIndex.ts', 'src/lib/coverage.ts', 'src/lib/placeIndex.ts']
+    paths: ['scripts/**', '.github/workflows/deploy.yml', 'src/lib/cells.ts', 'src/lib/nameIndex.ts', 'src/lib/coverage.ts', 'src/lib/placeIndex.ts', 'src/lib/trails.ts', 'src/lib/geo.ts']
 
 permissions:
   contents: read # write access is granted per job: the build job (Hostinger branch) and the deploy job (Pages) only
@@ -78,21 +78,16 @@ jobs:
           path: |
             extract/${{ matrix.id }}.osm.pbf
             extract/${{ matrix.id }}.osm.pbf.json
-          key: pbf-${{ matrix.id }}-${{ steps.week.outputs.iso }}
-          restore-keys: pbf-${{ matrix.id }}-
+          key: pbf-${{ matrix.id }}--${{ steps.week.outputs.iso }}
+          restore-keys: pbf-${{ matrix.id }}--
       - name: Download the extract (Geofabrik JSON index, identifying User-Agent); at most once a week per region
         id: dl
         if: steps.pbf.outputs.cache-hit != 'true'
         continue-on-error: true
         run: mkdir -p extract && python scripts/regions.py fetch ${{ matrix.id }} extract/${{ matrix.id }}.osm.pbf
-      - name: Download failed, use the older cached extract (warning) or stop
+      - name: If the download failed, use the older cached extract (warning) when it is under 28 days old, else stop
         if: steps.pbf.outputs.cache-hit != 'true' && steps.dl.outcome == 'failure'
-        run: |
-          if [ -s extract/${{ matrix.id }}.osm.pbf ]; then
-            echo "::warning::Geofabrik download failed for ${{ matrix.id }}; building from the cached extract (${{ steps.pbf.outputs.cache-matched-key }})"
-          else
-            echo "::error::Geofabrik download failed for ${{ matrix.id }} and there is no cached extract"; exit 1
-          fi
+        run: python scripts/regions.py fallback ${{ matrix.id }}
       - name: Save the extract at once, so a cancelled build does not download it again
         if: steps.pbf.outputs.cache-hit != 'true' && steps.dl.outcome == 'success'
         uses: actions/cache/save@v4
@@ -100,13 +95,14 @@ jobs:
           path: |
             extract/${{ matrix.id }}.osm.pbf
             extract/${{ matrix.id }}.osm.pbf.json
-          key: pbf-${{ matrix.id }}-${{ steps.week.outputs.iso }}
+          key: pbf-${{ matrix.id }}--${{ steps.week.outputs.iso }}
       - name: Report the extract in the job summary
         run: |
           if [ "${{ steps.pbf.outputs.cache-hit }}" = "true" ]; then state="cache hit (this week's copy, no download)"
           elif [ "${{ steps.dl.outcome }}" = "success" ]; then state="cache miss, downloaded"
           else state="download FAILED, built from an older cached copy"; fi
-          python scripts/regions.py note ${{ matrix.id }} "$state" "${{ steps.pbf.outputs.cache-matched-key }}"
+          if [ "${{ steps.dl.outcome }}" = "success" ]; then key="pbf-${{ matrix.id }}--${{ steps.week.outputs.iso }} (saved)"; else key="${{ steps.pbf.outputs.cache-matched-key }}"; fi
+          python scripts/regions.py note ${{ matrix.id }} "$state" "$key"
       - name: Cache Copernicus DEM tiles (per region)
         uses: actions/cache@v4
         with:

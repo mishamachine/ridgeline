@@ -72,6 +72,67 @@ class Download(unittest.TestCase):
                 os.chdir(cwd)
 
 
+class Center(unittest.TestCase):
+    def test_nearest_covered_cell_to_the_mean(self):
+        # an L-shaped coverage: the bbox midpoint is in the empty corner, the centre must be on a covered cell
+        keys = ['0_0', '1_0', '2_0', '3_0', '0_1', '0_2', '0_3']
+        c = regions.cell_center(keys)
+        pts = [((int(k.split('_')[0]) + 0.5) * 0.25 - 180, (int(k.split('_')[1]) + 0.5) * 0.25 - 90) for k in keys]
+        self.assertIn(tuple(c), [(round(x, 4), round(y, 4)) for x, y in pts])
+        self.assertIsNone(regions.cell_center([]))
+
+    def test_combine_needs_exactly_one_v1_region(self):
+        with tempfile.TemporaryDirectory() as t:
+            d = os.path.join(t, 'trails-a')
+            os.makedirs(d)
+            json.dump({'bbox': [0, 0, 1, 1], 'cells': []}, open(os.path.join(d, 'index.json'), 'w'))
+            json.dump({'v': 1, 'e': []}, open(os.path.join(d, 'names.json'), 'w'))
+            json.dump({'v': 1, 'e': []}, open(os.path.join(d, 'places.json'), 'w'))
+            with self.assertRaises(SystemExit):
+                regions.combine(os.path.join(t, 'out'), [d], [{'id': 'a', 'code': 'AA', 'name': 'A', 'cc': 'us'}])
+
+
+class Safety(unittest.TestCase):
+    def test_md5_must_match_and_a_bad_file_is_deleted(self):
+        import hashlib
+        with tempfile.TemporaryDirectory() as t:
+            f = os.path.join(t, 'x.pbf')
+            open(f, 'wb').write(b'abc')
+            real = regions.http_get
+            try:
+                regions.http_get = lambda url, dest=None: (hashlib.md5(b'abc').hexdigest() + '  x.pbf\n').encode()
+                regions.verify_md5(f, 'u')
+                self.assertTrue(os.path.exists(f))
+                regions.http_get = lambda url, dest=None: b'0' * 32 + b'  x.pbf\n'
+                with self.assertRaises(SystemExit):
+                    regions.verify_md5(f, 'u')
+                self.assertFalse(os.path.exists(f))
+            finally:
+                regions.http_get = real
+
+    def test_fallback_extract_must_be_under_28_days_old(self):
+        from datetime import datetime, timedelta, timezone
+        from email.utils import format_datetime
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as t:
+            os.chdir(t)
+            try:
+                os.makedirs('extract')
+                open('extract/oregon.osm.pbf', 'wb').write(b'x')
+                def meta(days):
+                    json.dump({'last_modified': format_datetime(datetime.now(timezone.utc) - timedelta(days=days), usegmt=True)}, open('extract/oregon.osm.pbf.json', 'w'))
+                meta(10)
+                regions.cmd_fallback('oregon')            # fine, with a warning
+                meta(40)
+                with self.assertRaises(SystemExit):
+                    regions.cmd_fallback('oregon')
+                os.remove('extract/oregon.osm.pbf')
+                with self.assertRaises(SystemExit):
+                    regions.cmd_fallback('oregon')
+            finally:
+                os.chdir(cwd)
+
+
 class Checks(unittest.TestCase):
     R = {'name': 'Oregon', 'expected_trails': 1000, 'classics': [
         {'name': 'Multnomah Falls', 'len_m': [1000, 4000]}, {'name': 'Misery Ridge', 'len_m': [1000, 2000]}, {'name': 'Tom McCall', 'len_m': [2000, 3500]}]}
@@ -197,7 +258,7 @@ class Combine(unittest.TestCase):
             self.assertEqual(idx['bbox'], [0, 0, 2, 2])
             self.assertEqual([r['id'] for r in idx['regions']], ['a', 'b'])
             self.assertEqual(idx['regions'][0]['code'], 'AA')
-            self.assertEqual(idx['regions'][1]['center'], [1.5, 1.5])   # the Home screen reads code, name and center from here
+            self.assertEqual(idx['regions'][1]['center'], [-179.625, -89.625])   # a covered cell near the middle, not a bbox midpoint
             self.assertEqual(idx['regions'][1]['names'], 'names/b.json')
             self.assertEqual(idx['regions'][0]['places'], 'places/a.json')
             m = json.load(open(os.path.join(v2, '1_1.json')))

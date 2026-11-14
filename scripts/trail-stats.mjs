@@ -87,11 +87,21 @@ const day = (l) => l.lengthM <= 20000;
 const lowpoint = { total: withElev.length, day_total: dayTotal, day_below_both_ends: lows.filter((l) => l.bothEnds && day(l)).length, day_below_start_end: lows.filter((l) => l.startEnd && day(l)).length, below_both_ends: lows.filter((l) => l.bothEnds).length, below_start_end: lows.filter((l) => l.startEnd).length, trailhead_off_end: farTh.length,
   examples: lows.filter((l) => l.bothEnds && day(l) && l.id.startsWith('osm-r')).sort((a, b) => b.lengthM - a.lengthM).slice(0, 8) };
 
+// What the app will show: stitch the finished v2 cells (stored stats included). Every complete route (osm-r) must come out with its stored numbers.
+const finalFiles = readdirSync(dir).filter((f) => /^\d+_\d+\.json$/.test(f)).map((f) => JSON.parse(readFileSync(join(dir, f), 'utf8')));
+const finalByKey = new Map(cells.cellsToTrails(finalFiles).map((t) => [keyOf(t), t]));
+const rfail = list.filter((l) => l.key.startsWith('r')).filter((l) => { const t = finalByKey.get(l.key); return !t || t.lengthM !== l.L; }).map((l) => ({ key: l.key, name: l.name, L: l.L }));
+// Complete trails whose drawn length differs from the full length by more than 8% in either direction (listed; routes use the stored numbers anyway).
+const drift = fidelity.filter((f) => Math.abs(f.drawnL / f.L - 1) > 0.08).map((f) => ({ key: f.key, name: f.name, L: f.L, drawnL: f.drawnL }));
+
 // What the app's own name search ranks first for each classic trail.
 const regions = JSON.parse(readFileSync('./scripts/regions.json', 'utf8')).regions;
 const entries = JSON.parse(readFileSync(join(dir, 'names.json'), 'utf8')).e;
 const classics = (regions.find((r) => r.id === regionId)?.classics ?? []).map((c) => ({ name: c.name, top: names.searchNames(entries, c.name, 1)[0] ?? null }));
-writeFileSync(join(dir, 'stats.json'), JSON.stringify({ trails: list, classics, stored: list.length, skipped, bytes, loss, fidelity, lowpoint }));
+writeFileSync(join(dir, 'stats.json'), JSON.stringify({ trails: list, classics, stored: list.length, skipped, bytes, loss, fidelity, lowpoint, drift, rfail }));
 console.log(`drawn-profile gain loss: ${loss.over25} of ${loss.judged} trails (${(loss.share * 100).toFixed(2)}%) lose more than 25% of their gain on the simplified line`);
 console.log(`mid-chain low points (>${LOW_M} m below an end, full-resolution profiles): below both ends ${lowpoint.below_both_ends}, below the start end ${lowpoint.below_start_end}, of ${lowpoint.total} stitched trails; of which up to 20 km long: ${lowpoint.day_below_both_ends} below both ends, ${lowpoint.day_below_start_end} below the start end, of ${lowpoint.day_total}; chosen trailhead more than 150 m from both chain ends: ${lowpoint.trailhead_off_end}`);
+console.log(`drawn length differs from the full length by more than 8%: ${drift.length} of ${fidelity.length} complete trails; complete routes not showing their stored numbers: ${rfail.length}`);
+for (const r of rfail.slice(0, 20)) console.log(`::error::route ${r.key} (${r.name}) does not use its stored numbers`);
 console.log(`trail stats: ${list.length} trails stored (${skipped} partial or without elevation skipped), ${(bytes / 1e6).toFixed(2)} MB added to the cells, ${((Date.now() - t0) / 1000).toFixed(0)} s`);
+if (rfail.length) process.exit(1);

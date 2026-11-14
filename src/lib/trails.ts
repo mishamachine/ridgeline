@@ -141,7 +141,8 @@ function makeTrail(id: string, name: string, coords: LngLat[], partial: boolean,
   };
 }
 
-export function parseOverpass(elements: OsmElement[]): Trail[] {
+/** `stored` (hosted v2 data): each route's length measured on the full line, key "r<id>"; the minimum length is judged on it for a complete route. */
+export function parseOverpass(elements: OsmElement[], stored?: ReadonlyMap<string, number[]>): Trail[] {
   const trails: Trail[] = [];
   const memberWayIds = new Set<number>();
   const keepTags = (t: Record<string, string> = {}) => {
@@ -164,7 +165,8 @@ export function parseOverpass(elements: OsmElement[]): Trail[] {
       segs.push(...r.segs);
     }
     const chain = chainSegments(segs)[0];
-    if (!chain || lineLength(chain) < MIN_TRAIL_M) continue;
+    // A complete route is judged on its full-line length; one clipped by the view on the line that is here, so a sliver stays out.
+    if (!chain || ((!clipped ? stored?.get(`r${el.id}`)?.[0] : undefined) ?? lineLength(chain)) < MIN_TRAIL_M) continue;
     trails.push(makeTrail(`osm-r${el.id}`, name, chain, clipped, `https://www.openstreetmap.org/relation/${el.id}`, keepTags(el.tags)));
   }
 
