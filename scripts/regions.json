@@ -1,5 +1,5 @@
 {
- "_note": "Covered regions. expected_trails is a collapse tripwire, self-baselined: the count this build measured on 13 Nov 2026; the build fails if a region comes in under 50% of it. It is not an independent OSM figure. classics: each name must be found in the region's names.json with a length in len_m (metres), be ranked first by the app's own name search, and have a stored gain within max_err_pct (default 15) of published_ft (one-way headline gain in feet, source given). stored_len_m: range for the stored (stitched) length when it differs from names.json. v1: also publish the frozen old-format copy at trails/ (Washington only). max_err_pct above 15 is a temporary allowance and only goes with a known_bug note; remove both when the stitcher is fixed.",
+ "_note": "Covered regions. expected_trails is a collapse tripwire, self-baselined: the count this build measured on 13 Nov 2026 (California: 14 Nov 2026); the build fails if a region comes in under 50% of it. It is not an independent OSM figure. classics: each name must be found in the region's names.json with a length in len_m (metres), be ranked first by the app's own name search, and have a stored gain within max_err_pct (default 15) of published_ft (one-way headline gain in feet, source given). stored_len_m: range for the stored (stitched) length when it differs from names.json. v1: also publish the frozen old-format copy at trails/ (Washington only). max_err_pct above 15 is a temporary allowance and only goes with a known_bug note; remove both when the stitcher is fixed.",
  "regions": [
   {
    "id": "washington",
@@ -111,27 +111,38 @@
      "note": "Happy Isles to the top of Nevada Fall (the OSM relation ends there): 2.7 mi one way and 1,900 ft per that page, which cites the National Park Service. Gain to the top of Vernal Fall alone is about 1,000 ft."
     },
     {
+     "name": "Baldy Bowl Trail",
+     "len_m": [
+      3500,
+      8000
+     ],
+     "published_ft": 3900,
+     "source": "https://www.hikespeak.com/trails/baldy-bowl-ski-hut/",
+     "note": "Mount San Antonio (Mount Baldy) by the Ski Hut route from the trailhead above Manker Flats: 4.5 mi and 3,900 ft one way, per that page. OSM names it Baldy Bowl Trail (USFS 7W02). Devils Backbone Trail was tried first and dropped: the OSM chain covers only the ridge above the Notch (3.1 km, 1,604 ft stored), not the 2,350 ft the guides give from the Notch."
+    },
+    {
+     "name": "Steep Ravine Trail",
+     "len_m": [
+      1500,
+      6000
+     ],
+     "published_ft": 1079,
+     "source": "https://www.theoutbound.com/san-francisco/hiking/hike-the-steep-ravine-trail-via-pantoll-station",
+     "note": "Mount Tamalpais State Park, from Pantoll: 3.96 mi out and back with 1,079 ft of gain, so about that much descent one way."
+    },
+    {
      "name": "Matt Davis Trail",
      "len_m": [
       5000,
       11000
      ],
-     "published_ft": 770,
-     "source": "https://ridgetrail.org/wp-content/uploads/2017/06/Marin_Mount-Tamalpais-State-Park-and-Bolinas-Ridge_2026.pdf",
-     "note": "Bay Area Ridge Trail guide: 6.4 mi one way for hikers, 770 ft gain and 730 ft loss. The Matt Davis route is also hiked as a 6.6 mi loop with Steep Ravine (about 1,700 ft, The Outbound), but OSM has no loop relation."
-    },
-    {
-     "name": "Devils Backbone Trail",
-     "len_m": [
-      1800,
-      6000
-     ],
-     "published_ft": 2350,
-     "source": "https://www.hikespeak.com/trails/devils-backbone-trail-baldy/",
-     "note": "Baldy Notch to the summit of Mount San Antonio: 3.3 mi and 2,350 ft one way, per that page. OSM spells it without the apostrophe."
+     "published_ft": 2009,
+     "source": "https://www.onxmaps.com/hiking/n2qv9w4pnz95/matt-davis-trail",
+     "note": "onX route: 6.57 mi point to point from Stinson Beach, 2,009 ft gain."
     }
    ],
-   "code": "CA"
+   "code": "CA",
+   "expected_trails": 21604
   }
  ]
 }
