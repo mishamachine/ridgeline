@@ -15,6 +15,8 @@ export interface CelebrateProps {
   badgeCount?: number;
   onDone: () => void;
   onShareApp: () => void;
+  /** Optional soft card (the guest sign-in prompt), shown under the Share button. */
+  guestPrompt?: React.ReactNode;
   /** Replaced by the native share wrapper later. */
   share?: ShareFiles;
 }
@@ -44,7 +46,7 @@ function Confetti() {
   );
 }
 
-export function Celebrate({ summary, newBadges, badgeCount, onDone, onShareApp, share = shareFiles }: CelebrateProps) {
+export function Celebrate({ summary, newBadges, badgeCount, onDone, onShareApp, guestPrompt, share = shareFiles }: CelebrateProps) {
   const [step, setStep] = useState<'hype' | 'share'>('hype');
   const heading = useRef<HTMLHeadingElement>(null);
   const first = useRef(true);
@@ -90,6 +92,7 @@ export function Celebrate({ summary, newBadges, badgeCount, onDone, onShareApp, 
       )}
       <div className="cel-actions">
         <button className="cel-btn" onClick={() => setStep('share')}><ShareIcon />Share my hike</button>
+        {guestPrompt}
         <button className="cel-ghost" onClick={onDone}>Done</button>
         <button className="cel-link" onClick={onShareApp}>Know someone who'd love this? Share Ridgeline</button>
       </div>

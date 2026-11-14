@@ -2,11 +2,13 @@ import UIKit
 import Capacitor
 import CoreLocation
 import UserNotifications
+import AuthenticationServices
 
 /// Registers the local plugin (it is not an npm package, so Capacitor does not find it by itself).
 class RidgelineViewController: CAPBridgeViewController {
     override open func capacitorDidLoad() {
         bridge?.registerPluginInstance(HikePlugin())
+        bridge?.registerPluginInstance(AppleButtonPlugin())
     }
 }
 
@@ -155,4 +157,63 @@ public class HikePlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManagerDelegate 
         let code = (error as? CLError)?.code == .denied ? 1 : 2
         notifyListeners("locationError", data: ["code": code, "message": error.localizedDescription])
     }
+}
+
+/// "RidgelineAppleButton": shows Apple's own system button (ASAuthorizationAppleIDButton, type "Sign in with Apple") over the web page at the
+/// rectangle the page gives it, so the button is Apple's control and no Apple artwork is stored in the app or the repo.
+/// The page measures a placeholder element and calls show() again when it scrolls or resizes; a tap comes back as the "tap" event.
+/// The sign-in itself is done by the social-login plugin, not here. NOT tested on a device or simulator: built in CI only.
+@objc(AppleButtonPlugin)
+public class AppleButtonPlugin: CAPPlugin, CAPBridgedPlugin {
+    public let identifier = "AppleButtonPlugin"
+    public let jsName = "RidgelineAppleButton"
+    public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "show", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "hide", returnType: CAPPluginReturnPromise)
+    ]
+
+    private var button: ASAuthorizationAppleIDButton?
+    private var style: ASAuthorizationAppleIDButton.Style = .black
+    /// Each sign-in screen has its own token; only the screen that last showed the button may move or hide it.
+    private var owner: String?
+
+    /// x, y, width, height are PAGE coordinates in points (the page adds its scroll position); `dark` is true on a dark background (the button is then white).
+    @objc func show(_ call: CAPPluginCall) {
+        let x = call.getDouble("x") ?? 0, y = call.getDouble("y") ?? 0
+        let w = call.getDouble("width") ?? 0, h = call.getDouble("height") ?? 0
+        let dark = call.getBool("dark") ?? false
+        guard let token = call.getString("token"), w > 0, h > 0 else { call.reject("bad arguments"); return }
+        DispatchQueue.main.async {
+            guard let web = self.bridge?.webView, let host = web.superview else { call.reject("no web view"); return }
+            let wanted: ASAuthorizationAppleIDButton.Style = dark ? .white : .black
+            if self.button == nil || self.style != wanted {
+                self.button?.removeFromSuperview()
+                let b = ASAuthorizationAppleIDButton(authorizationButtonType: .signIn, authorizationButtonStyle: wanted)
+                b.cornerRadius = 4
+                b.addTarget(self, action: #selector(self.tapped), for: .touchUpInside)
+                host.addSubview(b)
+                self.button = b
+                self.style = wanted
+            }
+            self.owner = token
+            // The scroll view turns page coordinates into the host view's, taking the safe-area inset and the scroll offset into account.
+            let origin = web.scrollView.convert(CGPoint(x: x, y: y), to: host)
+            self.button?.frame = CGRect(x: origin.x, y: origin.y, width: w, height: h)
+            call.resolve()
+        }
+    }
+
+    @objc func hide(_ call: CAPPluginCall) {
+        let token = call.getString("token")
+        DispatchQueue.main.async {
+            if token == nil || token == self.owner {
+                self.button?.removeFromSuperview()
+                self.button = nil
+                self.owner = nil
+            }
+            call.resolve()
+        }
+    }
+
+    @objc private func tapped() { notifyListeners("tap", data: ["token": owner ?? ""]) }
 }
