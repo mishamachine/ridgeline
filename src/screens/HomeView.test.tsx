@@ -54,7 +54,7 @@ describe('Home: 1 first visit, location not asked', () => {
     expect(h).toMatch(/Easy|Moderate|Hard/);
     expect(h).not.toContain('Mild');
     expect(h).toMatch(/aria-label="Save Rattlesnake Ledge Trail"/);
-    expect(h).toContain('Drive time: later');
+    expect(h).not.toContain('Drive time');
   });
   it('shows the data-driven coverage line and the Change region chip', () => {
     expect(h).toContain('Trails in WA. More regions coming.');
@@ -145,11 +145,12 @@ describe('Home: 6 offline', () => {
 });
 
 describe('Home: filters, difficulty and how-we-rank copy', () => {
-  it('shows length, difficulty (Easy / Moderate / Hard), dogs, drive time and sort, with the difficulty explainer', () => {
+  it('shows length, difficulty (Easy / Moderate / Hard), dogs and sort (no drive-time placeholder), with the difficulty explainer', () => {
     const h = html({ filtersOpen: true });
     for (const s of ['Under 3 mi', '3–6 mi', '6–10 mi', '10+ mi', 'Easy', 'Moderate', 'Hard', 'Dogs: tagged yes', 'Sort: Best', 'Sort: Nearest', 'Sort: Shortest']) expect(h).toContain(s);
     expect(h).toContain('Difficulty is based only on distance and climb. It doesn’t account for terrain, weather or conditions.');
-    expect(h).toMatch(/<button[^>]*disabled[^>]*>Drive time: later/);
+    expect(h).not.toContain('Drive time');
+    expect(h).not.toContain('drive time');
     expect(h).not.toContain('Mild');
   });
   it('replaces the rows with results while a filter is on, with a count', () => {
