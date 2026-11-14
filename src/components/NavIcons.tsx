@@ -5,6 +5,7 @@ const base = (size = 24) => ({
 });
 
 export const FindIcon = ({ size }: P) => <svg {...base(size)}><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>;
+export const HomeIcon = ({ size }: P) => <svg {...base(size)}><path d="M3 11l9-8 9 8" /><path d="M5 10v10h5v-6h4v6h5V10" /></svg>;
 export const SavedIcon = ({ size, filled }: P) => <svg {...base(size)} fill={filled ? 'currentColor' : 'none'}><path d="M6 3h12v18l-6-4.5L6 21z" /></svg>;
 export const HikeIcon = ({ size }: P) => <svg {...base(size)}><path d="M3 20l6-10 4 6 3-4 5 8z" /><path d="M9 10V4l4 1.5L9 7" /></svg>;
 export const ProfileIcon = ({ size }: P) => <svg {...base(size)}><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 3.5-6 8-6s8 2 8 6" /></svg>;

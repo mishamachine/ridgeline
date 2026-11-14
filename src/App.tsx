@@ -21,7 +21,7 @@ import { detectPlatform } from './lib/maps';
 import { toCelebrateSummary } from './components/nav/summary';
 import type { HikeSummary } from './lib/hype';
 import { ConfirmSheet } from './components/ConfirmSheet';
-import { FindIcon, HikeIcon, ProfileIcon, SavedIcon } from './components/NavIcons';
+import { HikeIcon, HomeIcon, ProfileIcon, SavedIcon } from './components/NavIcons';
 import { count } from './lib/counter';
 import { setHikeActive } from './lib/swUpdate';
 import { Toaster } from './components/Toaster';
@@ -45,7 +45,7 @@ const Landing = lazy(() => import('./screens/Landing').then((m) => ({ default: m
 export type { Tab };
 
 const TABS: { tab: Tab; label: string; icon: () => React.ReactElement }[] = [
-  { tab: 'find', label: 'Home', icon: () => <FindIcon /> },
+  { tab: 'find', label: 'Home', icon: () => <HomeIcon /> },
   { tab: 'saved', label: 'Saved', icon: () => <SavedIcon /> },
   { tab: 'hike', label: 'Hike', icon: () => <HikeIcon /> },
   { tab: 'profile', label: 'Profile', icon: () => <ProfileIcon /> },

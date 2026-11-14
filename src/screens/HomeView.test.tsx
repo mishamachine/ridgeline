@@ -55,9 +55,9 @@ describe('Home: 1 first visit, location not asked', () => {
     expect(h).toMatch(/aria-label="Save Rattlesnake Ledge Trail"/);
     expect(h).toContain('Drive time: later');
   });
-  it('shows the data-driven coverage line and offers no region chip when only one region exists', () => {
+  it('shows the data-driven coverage line and the Change region chip', () => {
     expect(h).toContain('Trails in WA. More regions coming.');
-    expect(h).not.toContain('Change region');
+    expect(h).toContain('Change region'); // always on the card, even with one region (the list then has just that one)
   });
   it('offers "Change region" when several regions are covered, listing them from the data', () => {
     const m = html({ regions: ALL });

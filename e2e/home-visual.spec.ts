@@ -1,18 +1,18 @@
 import { mkdirSync } from 'node:fs';
-import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
+import { LEDGE_CELL, LEDGE_INDEX, RICH_INDEX, richCell } from './fixtures';
 
 // Home at 320, 375 and 414 px in four states, as screenshots for a person to look at (CI uploads test-results/home-visual/),
 // plus two hard checks: no sideways scroll, and tap targets of at least 44 px. Same trail stubs as offline.spec.ts: the index and
 // the real Rattlesnake Ledge cell; nothing else is fetched, and no request may go to the map provider.
-const ledgeCell = JSON.parse(readFileSync(new URL('../src/lib/fixtures/wa-cells.json', import.meta.url), 'utf8')).ledge[0];
-const INDEX = { v: 1, built: '2026-11-06T00:00:00Z', source: 'e2e fixture', elevation: 'Copernicus DEM GLO-90', cell: 0.25, bbox: [-122, 47.25, -121.5, 47.5], cells: ['232_549'] };
+// Two fixtures (e2e/fixtures.ts): the single real Ledge cell, and a "rich" merged file built from the six real slices in the repo
+// (real geometry and heights, tags added so every row fills) behind a block of cells around Seattle and Snoqualmie.
 const OUT = 'test-results/home-visual';
 const WIDTHS = [320, 375, 414];
 
-async function open(page: Page) {
-  await page.route('**/trails/index.json', (route) => route.fulfill({ json: INDEX }));
-  await page.route('**/trails/232_549.json', (route) => route.fulfill({ json: ledgeCell }));
+async function open(page: Page, rich = false) {
+  await page.route('**/trails/index.json', (route) => route.fulfill({ json: rich ? RICH_INDEX : LEDGE_INDEX }));
+  await page.route(/\/trails\/\d+_\d+\.json$/, (route) => route.fulfill({ json: rich ? richCell() : LEDGE_CELL }));
   await page.route('**/trails/names.json', (route) => route.fulfill({ json: { v: 1, e: [] } }));
   const provider: string[] = [];
   page.on('request', (r) => { if (/openfreemap\.org/.test(r.url())) provider.push(r.url()); });
@@ -80,6 +80,22 @@ for (const width of WIDTHS) {
       });
     });
 
+    test('state 6: returning user, saved trail and a hike in progress', async ({ page, context }) => {
+      await context.route('https://tiles.openfreemap.org/**', (route) => route.fulfill(route.request().url().endsWith('/planet')
+        ? { json: { tiles: ['https://tiles.openfreemap.org/planet/20261101_000000_pt/{z}/{x}/{y}.pbf'], minzoom: 0, maxzoom: 14 } }
+        : { status: 200, contentType: 'application/x-protobuf', body: '' }));
+      await open(page);
+      await expect(page.getByRole('heading', { name: 'Top picks near you' })).toBeVisible({ timeout: 20_000 });
+      await page.getByRole('button', { name: /Rattlesnake Ledge Trail/ }).first().click();       // opens the trail page (in the app, no reload)
+      await page.getByRole('button', { name: 'Save to Saved' }).click();
+      await page.getByRole('button', { name: 'Start hike' }).click();
+      await expect(page.getByText('climb left')).toBeVisible({ timeout: 20_000 });
+      await page.goBack(); await page.goBack();                                                    // hike tab, trail page, then Home
+      await expect(page.getByText('Hike in progress')).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByRole('heading', { name: 'Saved' })).toBeVisible();
+      await check(page, '6-returning', width, []); // the map was opened on the trail page, so the no-provider rule does not apply here
+    });
+
     test('state 5: offline', async ({ page, context }) => {
       const provider = await open(page);
       await expect(page.getByRole('heading', { name: 'Top picks near you' })).toBeVisible({ timeout: 20_000 });
@@ -89,3 +105,24 @@ for (const width of WIDTHS) {
     });
   });
 }
+
+// Rows filled from real geometry (see e2e/fixtures.ts), at 375 px, full page.
+test.describe('Home with every row filled (real geometry), 375 px', () => {
+  test.use({ viewport: { width: 375, height: 780 }, geolocation: { latitude: 47.53, longitude: -122.03 } }); // Issaquah
+
+  test.describe('first visit', () => {
+    test.use({ permissions: [] });
+    test('state 1', async ({ page }) => {
+      await page.addInitScript(() => { navigator.permissions.query = async () => ({ state: 'prompt', onchange: null }) as unknown as PermissionStatus; });
+      const provider = await open(page, true);
+      for (const h of [/Top picks in Washington/, 'Short with a view', 'Dog-friendly', 'Waterfalls']) await expect(page.getByRole('heading', { name: h })).toBeVisible({ timeout: 20_000 });
+      await check(page, '1-first-visit-real-data', 375, provider);
+    });
+  });
+
+  test('state 2: near you', async ({ page }) => {
+    const provider = await open(page, true);
+    for (const h of ['Top picks near you', 'Short with a view', 'Dog-friendly', 'Waterfalls']) await expect(page.getByRole('heading', { name: h })).toBeVisible({ timeout: 20_000 });
+    await check(page, '2-near-you-real-data', 375, provider);
+  });
+});

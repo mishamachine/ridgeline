@@ -165,7 +165,7 @@ export function HomeView(p: HomeViewProps) {
             {p.loc === 'denied' ? <>Location is off.<small>Showing {p.area.name}</small></> : <>Starting in {p.area.name}<small>Your exact location never leaves this device.</small></>}
           </div>
           {p.loc !== 'denied' && <button className="hm-btn hm-pri" onClick={p.onUseLocation}>Use my location</button>}
-          {(p.loc === 'denied' || p.regions.length > 1) && (
+          {p.regions.length > 0 && (
             <details className="hm-regions"><summary>Change region</summary>
               <ul>{p.regions.map((r) => <li key={r.code}><button className="hm-chip" onClick={() => p.onPickRegion(r)}>{r.name}</button></li>)}</ul>
             </details>
