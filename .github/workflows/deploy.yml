@@ -90,7 +90,7 @@ jobs:
           key: copernicus-dem-90m-v1-${{ matrix.id }}
           restore-keys: copernicus-dem-90m-v1
       - name: Build trail data (elevation from Copernicus DEM GLO-90)
-        run: python scripts/build_trails.py extract/${{ matrix.id }}.osm.pbf out/${{ matrix.id }} "OpenStreetMap via Geofabrik (${{ matrix.name }})"
+        run: python scripts/build_trails.py extract/${{ matrix.id }}.osm.pbf out/${{ matrix.id }} "OpenStreetMap via Geofabrik (${{ matrix.name }})" ${{ matrix.v1 }}
       - name: Check counts, expected range and classic trails (fails the build)
         run: python scripts/regions.py check ${{ matrix.id }} out/${{ matrix.id }}
       - uses: actions/upload-artifact@v4
@@ -119,7 +119,7 @@ jobs:
         with:
           pattern: trails-*
           path: regions
-      - name: Combine the regions into dist/trails (cells, index with the regions list, names per region)
+      - name: Combine the regions (v2 in dist/trails/v2: cells, index with the regions list, names and places per region; the frozen Washington v1 copy in dist/trails)
         run: python scripts/regions.py combine dist/trails regions/*
       - name: Build a root-domain copy for Hostinger (hike.bbprojectfactory.com)
         run: |
@@ -145,7 +145,7 @@ jobs:
         with:
           path: dist
   deploy:
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     environment:

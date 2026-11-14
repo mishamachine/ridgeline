@@ -5,7 +5,7 @@ import type { CoverageRegion } from './coverage';
 import { cumulative, M_TO_FT, M_TO_MI, haversine, type LngLat } from './geo';
 import { HIGHLIGHT_CLIMB_FT, HIGHLIGHT_LONG_MI, parseOverpass, profileFromVertices, withElevation, type Junction, type Trail } from './trails';
 
-export interface CellIndex { v: number; built: string; source: string; elevation?: string; cell: number; bbox: [number, number, number, number] | null; cells: string[]; /** Covered regions, from builds that list them. */ regions?: CoverageRegion[] }
+export interface CellIndex { v: number; built: string; source: string; elevation?: string; cell: number; bbox: [number, number, number, number] | null; cells: string[]; /** Covered regions, from builds that list them. */ regions?: CoverageRegion[]; /** Where this index was read from (set by the app): trails/v2/ or, for older deploys, trails/. */ base?: string }
 /** z: elevation (m) per vertex, delta-encoded: [z0, z1 - z0, z2 - z1, ...]. */
 /**
  * Optional, from newer builds (old apps ignore them):
@@ -58,12 +58,24 @@ export function decodeCell(f: CellFile): CellFile {
 
 let indexPromise: Promise<CellIndex | null> | null = null;
 
-/** Coverage index. Null when no hosted data is deployed (e.g. local dev). */
+/** Data versions, newest first: v2 lives at trails/v2/, the frozen old format (Washington only) at trails/. */
+const DATA_PATHS = ['v2/', ''];
+
+async function loadIndex(): Promise<CellIndex | null> {
+  for (const sub of DATA_PATHS) {
+    try {
+      const r = await fetch(`${trailBase()}${sub}index.json`);
+      if (!r.ok) continue;
+      const idx = (await r.json()) as CellIndex;
+      if (Array.isArray(idx?.cells)) return { ...idx, base: `${trailBase()}${sub}` };
+    } catch { /* offline, or not JSON: try the next path */ }
+  }
+  return null;
+}
+
+/** Coverage index, read from trails/v2/ first and from trails/ when that is missing. Null when no hosted data is deployed (e.g. local dev). */
 export function getIndex(): Promise<CellIndex | null> {
-  indexPromise ??= fetch(`${trailBase()}index.json`)
-    .then((r) => (r.ok ? (r.json() as Promise<CellIndex>) : null))
-    .catch(() => null)
-    .then((idx) => { if (!idx) indexPromise = null; return idx; }); // retry next time if it failed
+  indexPromise ??= loadIndex().then((idx) => { if (!idx) indexPromise = null; return idx; }); // retry next time if it failed
   return indexPromise;
 }
 
@@ -233,7 +245,7 @@ export async function fetchCellTrails(b: BBox, signal?: AbortSignal): Promise<Tr
   const available = new Set(index.cells);
   const wanted = cellsFor(b, index.cell).filter((c) => available.has(c));
   const files = await Promise.all(wanted.map(async (c) => {
-    const res = await fetch(`${trailBase()}${c}.json`, { signal });
+    const res = await fetch(`${index.base ?? trailBase()}${c}.json`, { signal });
     if (!res.ok) throw new Error(`Couldn't load trails (${res.status}).`);
     return (await res.json()) as CellFile;
   }));

@@ -21,10 +21,10 @@ export function decodePlaces(file: { region?: string; e?: PlaceRow[] }): PlaceHi
   return (file.e ?? []).map(([name, kind, lat, lon]) => ({ name, kind, lat: lat / SCALE, lon: lon / SCALE, region: file.region ?? '' }));
 }
 
-function shard(r: CoverageRegion): Promise<PlaceHit[]> {
+function shard(r: CoverageRegion, base: string): Promise<PlaceHit[]> {
   let p = shards.get(r.id);
   if (!p) {
-    p = fetch(`${trailBase()}${r.places ?? `places/${r.id}.json`}`)
+    p = fetch(`${base}${r.places ?? `places/${r.id}.json`}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((f) => (f ? decodePlaces(f) : []))
       .catch(() => [] as PlaceHit[])
@@ -36,9 +36,11 @@ function shard(r: CoverageRegion): Promise<PlaceHit[]> {
 
 /** Places for the nearest covered region and those within ~150 km of `near`; every region without it. Empty when none is deployed. */
 export async function loadPlaces(near?: LngLat): Promise<PlaceHit[]> {
-  const regions = regionsOf(await getIndex().catch(() => null)).filter((r) => r.places);
+  const index = await getIndex().catch(() => null);
+  const base = index?.base ?? trailBase();
+  const regions = regionsOf(index).filter((r) => r.places);
   const pick = near ? byDistance(regions, near).filter((r, i) => i === 0 || distanceDeg(r, near) <= NEAR_DEG) : regions;
-  return (await Promise.all(pick.map(shard))).flat();
+  return (await Promise.all(pick.map((r) => shard(r, base)))).flat();
 }
 
 /** Best matches for typed text: exact, then starts-with, then word-starts, bigger places first, nearer ones first. */

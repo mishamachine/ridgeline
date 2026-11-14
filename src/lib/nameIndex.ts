@@ -13,13 +13,13 @@ const NEAR_DEG = 1.5;   // regions within this many degrees of the map (about 15
 const shards = new Map<string, Promise<NameEntry[]>>();
 let legacy: Promise<NameEntry[]> | null = null;
 
-const fetchNames = (file: string): Promise<NameEntry[]> =>
-  fetch(`${trailBase()}${file}`).then((r) => (r.ok ? (r.json() as Promise<NameFile>) : null)).then((f) => f?.e ?? []).catch(() => []);
+const fetchNames = (url: string): Promise<NameEntry[]> =>
+  fetch(url).then((r) => (r.ok ? (r.json() as Promise<NameFile>) : null)).then((f) => f?.e ?? []).catch(() => []);
 
-function shard(r: CoverageRegion): Promise<NameEntry[]> {
+function shard(r: CoverageRegion, base: string): Promise<NameEntry[]> {
   let p = shards.get(r.id);
   if (!p) {
-    p = fetchNames(r.names ?? `names/${r.id}.json`).then((e) => { if (!e.length) shards.delete(r.id); return e; });
+    p = fetchNames(`${base}${r.names ?? `names/${r.id}.json`}`).then((e) => { if (!e.length) shards.delete(r.id); return e; });
     shards.set(r.id, p);
   }
   return p;
@@ -36,9 +36,11 @@ const dedupe = (lists: NameEntry[][]): NameEntry[] => {
  * Empty when none is deployed. Builds with no region list fall back to the single names.json.
  */
 export async function loadNameIndex(near?: LngLat): Promise<NameEntry[]> {
-  const regions = regionsOf(await getIndex().catch(() => null)).filter((r) => r.names);
-  if (!regions.length) {
-    legacy ??= fetchNames('names.json').then((e) => { if (!e.length) legacy = null; return e; });
+  const index = await getIndex().catch(() => null);
+  const base = index?.base ?? trailBase();
+  const regions = regionsOf(index).filter((r) => r.names);
+  if (!regions.length) {  // older data: the single names.json next to index.json
+    legacy ??= fetchNames(`${base}names.json`).then((e) => { if (!e.length) legacy = null; return e; });
     return legacy;
   }
   let pick = regions;
@@ -46,7 +48,7 @@ export async function loadNameIndex(near?: LngLat): Promise<NameEntry[]> {
     const sorted = byDistance(regions, near);
     pick = sorted.filter((r, i) => i === 0 || distanceDeg(r, near) <= NEAR_DEG);
   }
-  return dedupe(await Promise.all(pick.map(shard)));
+  return dedupe(await Promise.all(pick.map((r) => shard(r, base))));
 }
 
 export const norm = (s: string) =>
