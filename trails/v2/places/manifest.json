@@ -1,0 +1,1 @@
+{"v":1,"shards":[{"id":"california","file":"places/california.json","bbox":[-124.5,32.5,-114.0,42.25]},{"id":"oregon","file":"places/oregon.json","bbox":[-124.75,41.75,-116.25,46.25]},{"id":"washington","file":"places/washington.json","bbox":[-124.75,45.5,-116.75,49.25]}]}

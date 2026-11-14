@@ -1,0 +1,39 @@
+# Ridgeline on Apache/LiteSpeed (Hostinger)
+SetEnvIf Origin "^(capacitor|https)://localhost$" CORS_ORIGIN=$0
+RewriteEngine On
+# www to apex first (always to https, one hop), then http to https; HSTS below (1 year, no preload yet)
+RewriteCond %{HTTP_HOST} ^www\.(.+)$ [NC]
+RewriteRule ^ https://%1%{REQUEST_URI} [L,R=301]
+RewriteCond %{HTTPS} off
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# Single-page app: /trail/<id>, /s and /saved all load the app (real files and folders are served as they are)
+# /trail/<id>/index.html pages are real files (pre-rendered for search); /trail/ itself is the app
+RewriteRule ^trail/?$ /index.html [L]
+RewriteCond %{REQUEST_URI} !^/(trails|assets|\.well-known)/
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ /index.html [L]
+
+# Correct types for ES-module workers and the web app manifest
+AddType application/javascript .mjs .js
+AddType application/manifest+json .webmanifest
+AddType application/json .json
+
+<IfModule mod_headers.c>
+  # Always check for app updates
+  <FilesMatch "^(sw\.js|registerSW\.js|index\.html|manifest\.webmanifest)$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
+  # Trail data (the only .json files served) is public: the native apps may read it from their WebView origin
+  # (capacitor://localhost on iOS, https://localhost on Android) and nobody else is allowed cross-origin.
+  <FilesMatch "\.json$">
+    Header set Access-Control-Allow-Origin "%{CORS_ORIGIN}e" env=CORS_ORIGIN
+    Header merge Vary Origin
+  </FilesMatch>
+  Header always set Strict-Transport-Security "max-age=31536000"
+</IfModule>
+
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/css application/javascript application/json application/manifest+json
+</IfModule>
