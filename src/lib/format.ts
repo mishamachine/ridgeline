@@ -1,4 +1,5 @@
 import { M_TO_FT, M_TO_MI } from './geo';
+import type { Units } from './settings';
 
 export const mi = (m: number) => (m * M_TO_MI < 10 ? (m * M_TO_MI).toFixed(1) : Math.round(m * M_TO_MI).toString());
 export const ft = (m: number) => Math.round(m * M_TO_FT).toLocaleString('en-US');
@@ -23,3 +24,10 @@ export function hrs(minutes: number): string {
   const h = Math.floor(total / 60), m = total % 60;
   return m === 0 ? `${h}h` : `${h}h ${String(m).padStart(2, '0')}`;
 }
+
+/** Kilometres for a whole-outing distance: one decimal under 10 km, whole numbers above. */
+export const km = (m: number) => (m < 10000 ? (m / 1000).toFixed(1) : Math.round(m / 1000).toString());
+/** Climb in metres, rounded to the nearest 10 m (the metric counterpart of the 50 ft rounding on Home cards). */
+export const metres10 = (m: number) => (Math.round(m / 10) * 10).toLocaleString('en-US');
+export const metres = (m: number) => Math.round(m).toLocaleString('en-US');
+export type { Units };

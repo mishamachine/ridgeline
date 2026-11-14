@@ -28,6 +28,13 @@ export const NATIONAL_PARK_BOXES: { name: string; box: [number, number, number, 
   { name: 'Point Reyes National Seashore', box: [-123.15, 37.95, -122.75, 38.30] },
 ];
 
+/**
+ * Canada: trails follow the OpenStreetMap dog tag like anywhere else (no park boxes). One exception: the West Coast Trail
+ * (Pacific Rim National Park Reserve), where dog rules are strict, is always "Unknown". Matched by name inside a rough box
+ * around the trail on Vancouver Island, so a same-named trail elsewhere is not caught. The box is approximate, not Parks Canada data.
+ */
+export const WEST_COAST_TRAIL = { name: /\bwest coast trail\b/i, box: [-125.30, 48.45, -124.30, 48.95] as [number, number, number, number] };
+
 const inBox = (p: LngLat, [w, s, e, n]: [number, number, number, number]) => p[0] >= w && p[0] <= e && p[1] >= s && p[1] <= n;
 
 /** True when any part of the trail, or its trailhead, lies inside a listed national park. */
@@ -36,10 +43,17 @@ export function inNationalPark(t: Pick<Trail, 'coords'> & Partial<Pick<Trail, 't
   return NATIONAL_PARK_BOXES.some((p) => pts.some((c) => inBox(c, p.box)));
 }
 
+/** True for the West Coast Trail (by name, with part of the trail inside its box). */
+export function isWestCoastTrail(t: Partial<Pick<Trail, 'name' | 'coords' | 'trailhead'>>): boolean {
+  if (!t.name || !WEST_COAST_TRAIL.name.test(t.name)) return false;
+  const pts: LngLat[] = t.trailhead ? [t.trailhead, ...(t.coords ?? [])] : (t.coords ?? []);
+  return pts.some((c) => inBox(c, WEST_COAST_TRAIL.box));
+}
+
 export type DogsStatus = 'yes' | 'unknown' | 'none';
 /** "yes" only for a firm OSM dog tag outside a national park. A maybe tag, or any trail in a national park, is "unknown". */
-export function dogsStatus(t: Pick<Trail, 'highlights' | 'coords'> & Partial<Pick<Trail, 'trailhead'>>): DogsStatus {
-  if (inNationalPark(t)) return 'unknown';
+export function dogsStatus(t: Pick<Trail, 'highlights' | 'coords'> & Partial<Pick<Trail, 'trailhead' | 'name'>>): DogsStatus {
+  if (inNationalPark(t) || isWestCoastTrail(t)) return 'unknown';
   if (t.highlights?.includes('dogs')) return 'yes';
   return t.highlights?.includes('dogs?') ? 'unknown' : 'none';
 }

@@ -5,6 +5,7 @@ import { level, roundTripM } from './plan';
 import { filterTrails, rankTrails } from './quality';
 import { trailheadOf } from './maps';
 import { dogsStatus } from './parks';
+import type { Units } from './settings';
 import type { Difficulty, Trail } from './trails';
 
 /** A region we can name. `center` is a covered spot inside it, taken from the data. */
@@ -147,14 +148,16 @@ export interface HomeFilters { length: LengthBucket | null; difficulty: Difficul
 export const NO_FILTERS: HomeFilters = { length: null, difficulty: null, dogs: false, sort: 'best' };
 export const isFiltering = (f: HomeFilters) => f.length !== null || f.difficulty !== null || f.dogs || f.sort !== 'best';
 
-export function inBucket(t: Trail, b: LengthBucket): boolean {
+/** Metric buckets break at 5, 10 and 15 km of round trip (imperial: 3, 6 and 10 mi). */
+export function inBucket(t: Trail, b: LengthBucket, units: Units = 'imperial'): boolean {
+  if (units === 'metric') { const k = roundTripM(t) / 1000; return b === 'under3' ? k < 5 : b === '3to6' ? k >= 5 && k < 10 : b === '6to10' ? k >= 10 && k < 15 : k >= 15; }
   const m = roundTripMi(t);
   return b === 'under3' ? m < 3 : b === '3to6' ? m >= 3 && m < 6 : b === '6to10' ? m >= 6 && m < 10 : m >= 10;
 }
 
-export function applyFilters(trails: Trail[], f: HomeFilters, origin?: LngLat): Trail[] {
+export function applyFilters(trails: Trail[], f: HomeFilters, origin?: LngLat, units: Units = 'imperial'): Trail[] {
   const out = rankTrails(filterTrails(trails), origin).filter((t) =>
-    (!f.length || inBucket(t, f.length)) && (!f.difficulty || level(t) === f.difficulty) && (!f.dogs || dogsStatus(t) === 'yes'));
+    (!f.length || inBucket(t, f.length, units)) && (!f.difficulty || level(t) === f.difficulty) && (!f.dogs || dogsStatus(t) === 'yes'));
   const away = (t: Trail) => { const th = trailheadOf(t); return origin ? haversine(origin, [th.lon, th.lat]) : 0; };
   if (f.sort === 'nearest' && origin) out.sort((a, b) => away(a) - away(b));
   if (f.sort === 'shortest') out.sort((a, b) => roundTripM(a) - roundTripM(b));

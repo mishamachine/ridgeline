@@ -21,8 +21,8 @@ class RegionConfig(unittest.TestCase):
         for r in regions.load_regions():
             self.assertNotIn(r['id'], ids)
             ids.add(r['id'])
-            self.assertRegex(r['geofabrik'], r'^[a-z-]+/[a-z0-9-]+$')
-            self.assertGreaterEqual(len(r['classics']), 3, r['id'])
+            self.assertRegex(r['geofabrik'], r'^([a-z-]+/)?[a-z0-9-]+$')   # Geofabrik ids: "us/oregon", but Canadian provinces are just "british-columbia"
+            self.assertGreaterEqual(len(r['classics']), 2, r['id'])
             for c in r['classics']:
                 self.assertLess(c['len_m'][0], c['len_m'][1])
                 self.assertTrue(c['published_ft'] > 0 and c['source'].startswith('https://'), c['name'])   # every classic carries a published gain and where it came from
@@ -47,6 +47,37 @@ class RegionConfig(unittest.TestCase):
         self.assertEqual(regions.pbf_url('georgia', idx), 'EU')
         with self.assertRaises(KeyError):
             regions.pbf_url('us/atlantis', idx)
+
+
+class Report(unittest.TestCase):
+    R = {'name': 'Somewhere'}
+    REP = {'trails': 900, 'cells': 4, 'mb': 12.5, 'build_minutes': 7}
+    ST = {'lowpoint': {'total': 200, 'below_both_ends': 3}, 'shown': {'total': 400, 'off': 8, 'flagged': 5}}
+
+    def test_row_carries_every_per_region_figure(self):
+        row = regions.report_row(self.R, self.REP, self.ST, 'PASS (900 vs 50% of 800)')
+        self.assertEqual(row, '| Somewhere | 900 | 4 | 12.5 | 7 | PASS (900 vs 50% of 800) | 1.50% | 2.00% | 5 |')
+        self.assertEqual(row.count('|'), regions.REPORT_HEAD.splitlines()[0].count('|'))
+
+    def test_row_without_stats_says_n_a(self):
+        self.assertIn('| n/a | n/a | n/a |', regions.report_row(self.R, self.REP, None, 'n/a'))
+
+    def test_published_size_must_leave_room_under_1_gb(self):
+        with tempfile.TemporaryDirectory() as t:
+            open(os.path.join(t, 'a.json'), 'wb').write(b'x' * 1000)
+            regions.cmd_size(t)   # small: passes
+            old = regions.MAX_HOST_MB
+            regions.MAX_HOST_MB = 0.0005
+            try:
+                with self.assertRaises(SystemExit):
+                    regions.cmd_size(t)
+            finally:
+                regions.MAX_HOST_MB = old
+        self.assertLess(regions.MAX_HOST_MB, 1000)
+
+    def test_british_columbia_is_in_the_geofabrik_index_by_its_bare_id(self):
+        idx = {'features': [{'properties': {'id': 'british-columbia', 'parent': 'canada', 'urls': {'pbf': 'BC'}}}]}
+        self.assertEqual(regions.pbf_url(regions.region('british-columbia')['geofabrik'], idx), 'BC')
 
 
 class Download(unittest.TestCase):

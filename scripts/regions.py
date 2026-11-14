@@ -7,6 +7,7 @@ Region tooling for the multi-region trail build (scripts/regions.json).
   regions.py fallback <id>                after a failed download: use the cached extract only if under 28 days old
   regions.py note <id> <state> [key]      job-summary line: cache hit or miss, the PBF date
   regions.py check <id> <dir>             report + fail if under 50% of the expected trail count or a classic is missing
+  regions.py size <dir>                   fail if the published trail data is over 950 MB (each host must stay under 1 GB)
   regions.py combine <out> <dir>...       merge per-region build dirs (each named by region id) into <out>/v2, plus the frozen v1 copy in <out>
 
 Geofabrik etiquette: one download per region per week (the workflow caches on the ISO week), an identifying
@@ -27,6 +28,7 @@ INDEX_URL = 'https://download.geofabrik.de/index-v1-nogeom.json'
 USER_AGENT = 'ridgeline-trail-build (machinemisha@gmail.com; github.com/mishamachine/ridgeline)'
 MIN_SHARE = 0.5
 MAX_GAIN_ERR_PCT = 15       # a classic's stored gain must be within this share of its published figure
+MAX_HOST_MB = 950           # each host (GitHub Pages, Hostinger) must stay under 1 GB; the trail data may use this much, the app and pages the rest
 MAX_GAIN_LOSS_SHARE = 0.02   # share of trails (with 100 ft or more of gain) that may lose over 25% of it on the simplified drawn line
 
 
@@ -200,6 +202,36 @@ def check_region(r, report, entries, stats=None):
     return bad, lines
 
 
+def report_row(r, rep, stats, tripwire):
+    """One row with every figure the PR check reports per region, so a region can be read in one line."""
+    pct = lambda n, d: f'{n / d * 100:.2f}%' if d else 'n/a'
+    lp = (stats or {}).get('lowpoint') or {}
+    sh = (stats or {}).get('shown') or {}
+    return (f"| {r['name']} | {rep['trails']} | {rep['cells']} | {rep['mb']} | {rep['build_minutes']} | {tripwire} | "
+            f"{pct(lp.get('below_both_ends', 0), lp.get('total', 0))} | {pct(sh.get('off', 0), sh.get('total', 0))} | {sh.get('flagged', 'n/a')} |")
+
+
+REPORT_HEAD = ('| Region | Trails | Cells | MB (v2) | Build minutes | Collapse tripwire (self-baselined) | Stitcher: below both ends | '
+               'Shown vs stored mismatch | Home-row exclusions |\n|---|---|---|---|---|---|---|---|---|\n')
+
+
+def dir_mb(path):
+    return sum(os.path.getsize(os.path.join(a, f)) for a, _, fs in os.walk(path) for f in fs) / 1e6
+
+
+def cmd_size(root):
+    """Fails when the published trail data (<root>, including the frozen v1 copy) would not leave a host under 1 GB."""
+    mb = dir_mb(root)
+    line = f'Published trail data: {mb:.0f} MB; limit {MAX_HOST_MB} MB so each host stays under 1 GB with the app.'
+    print(line)
+    summary = os.environ.get('GITHUB_STEP_SUMMARY')
+    if summary:
+        with open(summary, 'a') as f:
+            f.write(line + '\n\n')
+    if mb > MAX_HOST_MB:
+        sys.exit(f'::error::{line}')
+
+
 def cmd_check(rid, d):
     r = region(rid)
     with open(os.path.join(d, 'report.json')) as f:
@@ -216,12 +248,14 @@ def cmd_check(rid, d):
     row = (f"| {r['name']} | {rep['trails']} | {rep['cells']} | {rep['mb']} | {rep.get('mb_full', 'n/a')} | {rep['build_minutes']} | "
            f"{rep['elevation_pct']}% | {tripwire} | {rep.get('places', 'n/a')} |")
     print(row)
+    print(report_row(r, rep, stats, tripwire))
     for ln in lines:
         print('classic', ln)
     summary = os.environ.get('GITHUB_STEP_SUMMARY')
     if summary:
         with open(summary, 'a') as f:
             f.write('| Region | Trails | Cells | MB (v2) | MB (full resolution) | Build minutes | With elevation | Collapse tripwire (self-baselined) | Places |\n|---|---|---|---|---|---|---|---|---|\n' + row + '\n\n')
+            f.write(REPORT_HEAD + report_row(r, rep, stats, tripwire) + '\n\n')
             if stats and stats.get('shown'):
                 sh = stats['shown']
                 f.write(f"Shown against stored (length or gain more than {sh['tolerance'] * 100:.0f}% apart, either direction): {sh['off']} of {sh['total']} complete trails ({sh['share'] * 100:.2f}%); gate {sh['max_share'] * 100:.0f}%. Kept out of Home's collection rows (still in search, All trails and on the map): {sh.get('flagged', 0)}.\n\n")
@@ -335,6 +369,7 @@ def combine(root, dirs, regs=None):
 def cmd_combine(out, dirs):
     idx = combine(out, dirs)
     print(f"combined {len(idx['regions'])} regions, {len(idx['cells'])} cells -> {out}/v2")
+    cmd_size(out)
 
 
 if __name__ == '__main__':
@@ -349,6 +384,8 @@ if __name__ == '__main__':
         cmd_note(a[1], a[2], a[3] if len(a) > 3 else '')
     elif a[:1] == ['check'] and len(a) == 3:
         cmd_check(a[1], a[2])
+    elif a[:1] == ['size'] and len(a) == 2:
+        cmd_size(a[1])
     elif a[:1] == ['combine'] and len(a) >= 3:
         cmd_combine(a[1], a[2:])
     else:

@@ -7,6 +7,8 @@ import { FilterIcon, MapIcon } from '../components/NavIcons';
 import type { SavedItem } from '../lib/saved';
 import type { Trail } from '../lib/trails';
 import { DRIVE_TIME_ENABLED } from '../lib/flags';
+import { METRIC_COPY } from '../lib/metricCopy';
+import { useSettings } from '../lib/settings';
 import {
   DIFFICULTIES, DIFFICULTY_NOTE, HOW_WE_RANK, LENGTHS, SORTS, coverageLine,
   type Collection, type HomeFilters, type Region,
@@ -59,10 +61,11 @@ function Chip({ on, children, onClick, disabled }: { on?: boolean; children: Rea
 }
 
 function FilterPanel({ f, set }: { f: HomeFilters; set: (f: HomeFilters) => void }) {
+  const [{ units }] = useSettings();
   return (
     <section className="hm-filters" id="home-filters" aria-label="Filter and sort">
       <div role="group" aria-label="Length (round trip)" className="hm-chips">
-        {LENGTHS.map((l) => <Chip key={l.id} on={f.length === l.id} onClick={() => set({ ...f, length: f.length === l.id ? null : l.id })}>{l.label}</Chip>)}
+        {LENGTHS.map((l) => <Chip key={l.id} on={f.length === l.id} onClick={() => set({ ...f, length: f.length === l.id ? null : l.id })}>{units === 'metric' ? METRIC_COPY.lengthChips[l.id] : l.label}</Chip>)}
       </div>
       <div role="group" aria-label="Difficulty" className="hm-chips">
         {DIFFICULTIES.map((d) => <Chip key={d} on={f.difficulty === d} onClick={() => set({ ...f, difficulty: f.difficulty === d ? null : d })}>{d}</Chip>)}

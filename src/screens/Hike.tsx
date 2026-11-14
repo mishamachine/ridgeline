@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Placeholder } from '../components/Bobo';
 import { PageHead } from '../components/PageHead';
 import { statsLine } from '../components/TrailCard';
+import { useSettings } from '../lib/settings';
 import { forHike, listAllSaved, type SavedItem } from '../lib/saved';
 import type { Trail } from '../lib/trails';
 import { Record } from './Record';
@@ -12,6 +13,7 @@ interface Props { visible: boolean; version: number; onStart: (t: Trail) => void
 
 /** The Hike tab when no hike is running: pick a saved trail, or record without one. */
 export function Hike({ visible, version, onStart, onFind, onResume }: Props) {
+  const [{ units }] = useSettings();
   const [items, setItems] = useState<SavedItem[] | null>(null);
   const [seg, setSeg] = useState<'trail' | 'free'>('trail');
   const [open, setOpen] = useState<Activity | null>(null); // a hike that was left running, under 6 hours ago
@@ -50,7 +52,7 @@ export function Hike({ visible, version, onStart, onFind, onResume }: Props) {
           {items?.map((i) => (
             <button key={i.trail.id} className="pick" onClick={() => onStart(i.trail)}>
               <span className="card-name">{i.trail.name}</span>
-              <span className="card-stats">{statsLine(i.trail)}</span>
+              <span className="card-stats">{statsLine(i.trail, units)}</span>
               <span className="card-foot">{i.offline ? <span className="pill">Ready offline</span> : <span className="away">Needs signal for the map</span>}</span>
             </button>
           ))}
