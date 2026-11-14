@@ -23,15 +23,13 @@ files.forEach((f, i) => { for (const r of f.r) { const s = relCells.get(r.id) ??
 const have = new Set(keys);
 const trails = cells.cellsToTrails(files);
 
-const fmt = (p) => `${p[0].toFixed(5)},${p[1].toFixed(5)}`;
 const stored = new Map();   // cell key -> { trail key: [L, up, down] }
 const list = [];
 let skipped = 0;
 for (const t of trails) {
   if (t.partial || t.ascentM == null) { skipped++; continue; }
   const m = /^osm-r(\d+)$/.exec(t.id);
-  const ends = [fmt(t.coords[0]), fmt(t.coords.at(-1))].sort();
-  const key = m ? `r${m[1]}` : `w${t.name}|${ends.join('|')}`;
+  const key = m ? `r${m[1]}` : cells.pathStatKey(t.name, t.coords[0], t.coords.at(-1));
   let into;
   if (m) into = relCells.get(+m[1]) ?? new Set();
   else {
@@ -47,7 +45,7 @@ for (const t of trails) {
 // How much of its gain a trail loses when measured on the drawn (simplified) v2 line instead of the full line.
 // The app shows the stored full-line numbers, but the profile it draws comes from the simplified line, so this is gated too.
 const v2Files = readdirSync(dir).filter((f) => /^\d+_\d+\.json$/.test(f)).map((f) => { const c = JSON.parse(readFileSync(join(dir, f), 'utf8')); delete c.s; return c; });   // drawn numbers only: no stored stats, so a re-run gives the same answer
-const keyOf = (t) => { const m = /^osm-r(\d+)$/.exec(t.id); return m ? `r${m[1]}` : `w${t.name}|${[t.coords[0], t.coords.at(-1)].map(fmt).sort().join('|')}`; };
+const keyOf = (t) => { const m = /^osm-r(\d+)$/.exec(t.id); return m ? `r${m[1]}` : cells.pathStatKey(t.name, t.coords[0], t.coords.at(-1)); };
 const gain = (t) => (t.loop ? t.ascentM : Math.max(t.ascentM, t.descentM ?? 0));
 const drawn = new Map(cells.cellsToTrails(v2Files).filter((t) => !t.partial && t.ascentM != null).map((t) => [keyOf(t), t]));
 const fidelity = [];
@@ -120,16 +118,20 @@ const shown = { flagged, total: list.length, off: shownOff.length, share: list.l
 // Complete trails whose drawn length differs from the full length by more than 8% in either direction (listed; routes use the stored numbers anyway).
 const drift = fidelity.filter((f) => Math.abs(f.drawnL / f.L - 1) > 0.08).map((f) => ({ key: f.key, name: f.name, L: f.L, drawnL: f.drawnL }));
 
+// Complete trails the app would show under the 500 m minimum (stored length for a complete trail, drawn for the rest): should be none.
+const under500 = finalTrails.filter((t) => !t.partial && t.lengthM < 500).map((t) => ({ name: t.name, id: t.id, L: Math.round(t.lengthM) }));
+
 // What the app's own name search ranks first for each classic trail.
 const regions = JSON.parse(readFileSync('./scripts/regions.json', 'utf8')).regions;
 const entries = JSON.parse(readFileSync(join(dir, 'names.json'), 'utf8')).e;
 const classics = (regions.find((r) => r.id === regionId)?.classics ?? []).map((c) => ({ name: c.name, top: names.searchNames(entries, c.name, 1)[0] ?? null }));
-writeFileSync(join(dir, 'stats.json'), JSON.stringify({ trails: list, classics, stored: list.length, skipped, bytes, loss, fidelity, lowpoint, drift, rfail, shown }));
+writeFileSync(join(dir, 'stats.json'), JSON.stringify({ trails: list, classics, stored: list.length, skipped, bytes, loss, fidelity, lowpoint, drift, rfail, shown, under500 }));
 console.log(`drawn-profile gain loss: ${loss.over25} of ${loss.judged} trails (${(loss.share * 100).toFixed(2)}%) lose more than 25% of their gain on the simplified line`);
 console.log(`mid-chain low points (>${LOW_M} m below an end, full-resolution profiles): below both ends ${lowpoint.below_both_ends}, below the start end ${lowpoint.below_start_end}, of ${lowpoint.total} stitched trails; of which up to 20 km long: ${lowpoint.day_below_both_ends} below both ends, ${lowpoint.day_below_start_end} below the start end, of ${lowpoint.day_total}; chosen trailhead more than 150 m from both chain ends: ${lowpoint.trailhead_off_end}`);
 console.log(`drawn length differs from the full length by more than 8%: ${drift.length} of ${fidelity.length} complete trails; complete routes not showing their stored numbers: ${rfail.length}`);
 for (const r of rfail.slice(0, 20)) console.log(`::error::route ${r.key} (${r.name}) does not use its stored numbers`);
 console.log(`shown vs stored (length or gain more than ${SHOWN_TOL * 100}% apart, either direction): ${shown.off} of ${shown.total} complete trails (${(shown.share * 100).toFixed(2)}%), gate ${SHOWN_MAX_SHARE * 100}%; kept out of Home rows: ${shown.flagged}`);
+console.log(`complete trails shown under 500 m: ${under500.length}` + (under500.length ? ` (e.g. ${under500.slice(0, 5).map((u) => `${u.name} ${u.L} m`).join('; ')})` : ''));
 console.log(`trail stats: ${list.length} trails stored (${skipped} partial or without elevation skipped), ${(bytes / 1e6).toFixed(2)} MB added to the cells, ${((Date.now() - t0) / 1000).toFixed(0)} s`);
 if (shown.share > SHOWN_MAX_SHARE) console.log(`::error::${shown.off} complete trails show a length or gain more than 10% from the stored full-line figure`);
 if (rfail.length || shown.share > SHOWN_MAX_SHARE) process.exit(1);

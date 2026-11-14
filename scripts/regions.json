@@ -1,5 +1,5 @@
 {
- "_note": "Covered regions. expected_trails is a collapse tripwire, self-baselined: the count this build measured on 13 Nov 2026; the build fails if a region comes in under 50% of it. It is not an independent OSM figure. classics: each name must be found in the region's names.json with a length in len_m (metres), be ranked first by the app's own name search, and have a stored gain within max_err_pct (default 15) of published_ft (one-way headline gain in feet, source given). stored_len_m: range for the stored (stitched) length when it differs from names.json. v1: also publish the frozen old-format copy at trails/ (Washington only). max_err_pct above 15 is a temporary allowance and only goes with a known_bug note; remove both when the stitcher is fixed.",
+ "_note": "Covered regions. expected_trails is a collapse tripwire, self-baselined: the count this build measured on 13 Nov 2026 (California: 14 Nov 2026); the build fails if a region comes in under 50% of it. It is not an independent OSM figure. classics: each name must be found in the region's names.json with a length in len_m (metres), be ranked first by the app's own name search, and have a stored gain within max_err_pct (default 15) of published_ft (one-way headline gain in feet, source given). stored_len_m: range for the stored (stitched) length when it differs from names.json. v1: also publish the frozen old-format copy at trails/ (Washington only). max_err_pct above 15 is a temporary allowance and only goes with a known_bug note; remove both when the stitcher is fixed. published_len_mi (with len_source): the classic's published length in miles, one way for an out-and-back (half the round trip) or the loop; the stored length must be within 15% of it (max_len_err_pct to change), else the build fails unless len_exception explains a known definitional gap.",
  "regions": [
   {
    "id": "washington",
@@ -15,7 +15,10 @@
       3700
      ],
      "published_ft": 1160,
-     "source": "https://www.wta.org/go-hiking/hikes/rattlesnake-ledge"
+     "source": "https://www.wta.org/go-hiking/hikes/rattlesnake-ledge",
+     "published_len_mi": 2.0,
+     "len_source": "https://www.wta.org/go-hiking/hikes/rattlesnake-ledge",
+     "len_note": "4.0 mi round trip, halved."
     },
     {
      "name": "Mount Si",
@@ -24,7 +27,10 @@
       7500
      ],
      "published_ft": 3150,
-     "source": "https://www.wta.org/go-hiking/hikes/mount-si"
+     "source": "https://www.wta.org/go-hiking/hikes/mount-si",
+     "published_len_mi": 4.0,
+     "len_source": "https://www.wta.org/go-hiking/hikes/mount-si",
+     "len_note": "8.0 mi round trip, halved (the text says a little under 4 mi one way)."
     },
     {
      "name": "Dog Mountain Trails",
@@ -40,7 +46,10 @@
      "max_err_pct": 35,
      "source": "https://www.oregonhikers.org/field_guide/dog_mountain_loop_hike",
      "known_bug": "known stitcher bug: chain starts away from the trailhead; remove when the stitcher is fixed",
-     "detail": "The stitched chain is 6.89 mi, the published loop length, but it dips to river level (the trailhead) mid-chain, adding a 1,128 ft up-and-down leg; trailhead to summit alone is 2,621 ft (-6.4%). Not DEM noise."
+     "detail": "The stitched chain is 6.89 mi, the published loop length, but it dips to river level (the trailhead) mid-chain, adding a 1,128 ft up-and-down leg; trailhead to summit alone is 2,621 ft (-6.4%). Not DEM noise.",
+     "published_len_mi": 7.4,
+     "len_source": "https://www.oregonhikers.org/field_guide/dog_mountain_loop_hike",
+     "len_note": "The loop, 7.4 mi per that page (labelled round trip)."
     },
     {
      "name": "Granite Mountain",
@@ -49,7 +58,10 @@
       7500
      ],
      "published_ft": 3800,
-     "source": "https://www.wta.org/go-hiking/hikes/granite-mountain"
+     "source": "https://www.wta.org/go-hiking/hikes/granite-mountain",
+     "published_len_mi": 4.3,
+     "len_source": "https://www.wta.org/go-hiking/hikes/granite-mountain",
+     "len_note": "8.6 mi round trip, halved."
     }
    ],
    "v1": true,
@@ -70,7 +82,10 @@
      ],
      "published_ft": 3750,
      "source": "https://www.eyehike.com/2016/?p=400",
-     "note": "Trailhead to Wahtum Lake: 1,500 ft over the first 7 miles plus 2,250 ft over the next 5, per that guide (sources vary)."
+     "note": "Trailhead to Wahtum Lake: 1,500 ft over the first 7 miles plus 2,250 ft over the next 5, per that guide (sources vary).",
+     "published_len_mi": 12.0,
+     "len_source": "https://www.eyehike.com/2016/?p=400",
+     "len_note": "7 mi plus 5 mi to Wahtum Lake; the page gives no total."
     },
     {
      "name": "Misery Ridge",
@@ -80,7 +95,10 @@
      ],
      "published_ft": 700,
      "source": "https://modernhiker.com/hike/misery-ridge-loop/",
-     "note": "Loop figure (5.09 mi, 700 ft); other guides give 910 to 1,100 ft for the ridge climb."
+     "note": "Loop figure (5.09 mi, 700 ft); other guides give 910 to 1,100 ft for the ridge climb.",
+     "published_len_mi": 1.0,
+     "len_source": "https://modernhiker.com/hike/misery-ridge-loop/",
+     "len_note": "The guide says the climb section is about the next mile; the 5.09 mi in the gain note is the whole loop."
     },
     {
      "name": "Tom McCall",
@@ -89,10 +107,86 @@
       3500
      ],
      "published_ft": 1070,
-     "source": "https://www.oregonhikers.org/field_guide/Mccall_point_hike"
+     "source": "https://www.oregonhikers.org/field_guide/Mccall_point_hike",
+     "published_len_mi": 1.7,
+     "len_source": "https://www.oregonhikers.org/field_guide/Mccall_point_hike",
+     "len_note": "3.4 mi round trip, halved."
     }
    ],
    "code": "OR"
+  },
+  {
+   "id": "california",
+   "name": "California",
+   "cc": "us",
+   "geofabrik": "us/california",
+   "classics": [
+    {
+     "name": "Mist Trail",
+     "len_m": [
+      3500,
+      5500
+     ],
+     "published_ft": 2000,
+     "source": "https://www.nps.gov/yose/planyourvisit/vernalnevadatrail.htm",
+     "note": "Happy Isles to the top of Nevada Fall (the OSM relation ends there). National Park Service, Vernal Fall and Nevada Fall Trails: 5.4 mi round trip via the Mist Trail (2.7 mi one way) and 2,000 ft of gain. The Wikipedia infobox disagrees with this page, so it is not used. Gain to the top of Vernal Fall alone is about 1,000 ft.",
+     "published_len_mi": 2.7,
+     "len_source": "https://www.nps.gov/yose/planyourvisit/vernalnevadatrail.htm",
+     "len_note": "2.7 mi one way (cites NPS)."
+    },
+    {
+     "name": "Steep Ravine Trail",
+     "len_m": [
+      1500,
+      6000
+     ],
+     "published_ft": 1079,
+     "source": "https://www.theoutbound.com/san-francisco/hiking/hike-the-steep-ravine-trail-via-pantoll-station",
+     "note": "Mount Tamalpais area, from Pantoll: 3.96 mi out and back with 1,079 ft of gain per a commercial guide (The Outbound), so about 1.98 mi and that much descent one way. No state-park or NPS page gives this trail's own length and gain (California State Parks describes 1.5 mi downhill on it as part of a route to Stinson Beach); the Matt Davis Trail did not match any published figure.",
+     "published_len_mi": 1.98,
+     "len_source": "https://www.theoutbound.com/san-francisco/hiking/hike-the-steep-ravine-trail-via-pantoll-station",
+     "len_note": "3.96 mi out and back, halved.",
+     "label": "Steep Ravine Trail (Mount Tamalpais area)"
+    },
+    {
+     "name": "Four Mile Trail",
+     "len_m": [
+      4000,
+      9500
+     ],
+     "published_ft": 3200,
+     "source": "https://www.nps.gov/yose/planyourvisit/fourmiletrail.htm",
+     "published_len_mi": 4.8,
+     "len_source": "https://www.nps.gov/yose/planyourvisit/fourmiletrail.htm",
+     "note": "Yosemite Valley to Glacier Point: 4.8 mi one way, 3,200 ft gain, per the National Park Service."
+    },
+    {
+     "name": "Mount Whitney Trail",
+     "len_m": [
+      14000,
+      22000
+     ],
+     "published_ft": 6145,
+     "source": "https://www.nps.gov/seki/planyourvisit/whitney.htm",
+     "published_len_mi": 10.7,
+     "len_source": "https://www.nps.gov/seki/planyourvisit/whitney.htm",
+     "note": "Whitney Portal to the summit: 10.7 mi per the National Park Service. Gain is derived from that page's trailhead (8,360 ft) and summit (14,505 ft) elevations, so it is a net figure."
+    },
+    {
+     "name": "Cowles Mountain Trail",
+     "len_m": [
+      1500,
+      4500
+     ],
+     "published_ft": 1000,
+     "source": "https://sandiegoreader.com/news/2012/feb/15/roam-cowles-mountain-east",
+     "published_len_mi": 1.5,
+     "len_source": "https://sandiegoreader.com/news/2012/feb/15/roam-cowles-mountain-east",
+     "note": "San Diego: 3.0 mi round trip, about 1,000 ft of gain, per that article, so 1.5 mi one way. Third-party figures vary (855 to 1,030 ft)."
+    }
+   ],
+   "code": "CA",
+   "expected_trails": 21604
   }
  ]
 }

@@ -4,7 +4,7 @@ import { cellsToTrails } from './cells';
 import { highlightsOf, hasHighlight } from '../components/Chips';
 import { statsLine } from '../components/TrailCard';
 import { buildCollections, regionNameAt } from './home';
-import { dogsStatus, inNationalPark } from './parks';
+import { dogsStatus, inNationalPark, NATIONAL_PARK_BOXES } from './parks';
 import type { Trail } from './trails';
 
 // Real trail shapes (Little Si has an OSM dogs tag), moved to a spot inside a park to test the park rule.
@@ -41,6 +41,29 @@ describe('dogs and national parks', () => {
   it('a maybe tag is Unknown, and no tag shows nothing', () => {
     expect(dogsStatus({ ...littleSi, highlights: ['dogs?'] })).toBe('unknown');
     expect(dogsStatus({ ...littleSi, highlights: undefined })).toBe('none');
+  });
+});
+
+// Real California trails (OSM ways, see the fixture's note): one inside each of the Yosemite, Muir Woods and Point Reyes boxes, one outside all.
+const caWays = JSON.parse(readFileSync(new URL('./fixtures/ca-park-ways.json', import.meta.url), 'utf8')).ways as { name: string; where: string; coords: [number, number][] }[];
+const caWay = (name: string) => caWays.find((w) => w.name === name)!;
+describe('California parks: real trails inside the boxes', () => {
+  it.each([['Mist Trail', 'Yosemite'], ['Hillside Trail', 'Muir Woods National Monument'], ['Bear Valley Trail', 'Point Reyes National Seashore']])('%s is inside the %s box: Dogs Unknown even with an OSM dog tag', (name, park) => {
+    const w = caWay(name);
+    const t = { coords: w.coords, highlights: ['dogs'] };
+    expect(inNationalPark(t)).toBe(true);
+    expect(dogsStatus(t)).toBe('unknown');
+    expect(dogsStatus({ coords: w.coords, highlights: undefined })).toBe('unknown');
+    expect(NATIONAL_PARK_BOXES.some((p) => p.name === park)).toBe(true);
+  });
+  it('lists the California national parks and the two park boxes', () => {
+    const names = NATIONAL_PARK_BOXES.map((p) => p.name);
+    for (const n of ['Yosemite', 'Redwood', 'Lassen Volcanic', 'Sequoia and Kings Canyon', 'Pinnacles', 'Channel Islands', 'Joshua Tree', 'Death Valley', 'Muir Woods National Monument', 'Point Reyes National Seashore']) expect(names).toContain(n);
+  });
+  it('a real trail outside every box keeps a firm tag as Yes (Devils Backbone, Mount Baldy)', () => {
+    const t = { coords: caWay('Devils Backbone Trail').coords, highlights: ['dogs'] };
+    expect(inNationalPark(t)).toBe(false);
+    expect(dogsStatus(t)).toBe('yes');
   });
 });
 

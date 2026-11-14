@@ -150,11 +150,17 @@ describe('named paths whose shown numbers differ from the stored ones', () => {
 });
 
 describe('500 m minimum for named paths', () => {
-  const g = [-121.9, 47.0, -121.8996, 47.0, -121.8992, 47.0, -121.8988, 47.0];   // ~ 100 m drawn
-  const mk = (s?: Record<string, number[]>): CellFile => ({ v: 1, r: [], s, w: [{ id: 8, t: { name: 'Fawn Loop' }, g, z: [100, 1, 1, 1] }] });
-  const key = 'wFawn Loop|-121.89880,47.00000|-121.90000,47.00000';
-  it('shows a path whose full-line length is 500 m or more even if the simplified line is shorter', () => {
-    expect(cellsToTrails([mk()]).some((t) => t.name === 'Fawn Loop')).toBe(false);                         // drawn alone: under 500 m
-    expect(cellsToTrails([mk({ [key]: [520, 3, 1] })]).some((t) => t.name === 'Fawn Loop')).toBe(true);
+  // A straight path of n vertices 0.0001 degrees apart (about 7.6 m each at this latitude): n = 14 draws ~100 m, 66 draws ~493 m, 90 draws ~675 m.
+  const path = (n: number): CellFile => ({ v: 1, r: [], w: [{ id: 8, t: { name: 'Fawn Loop' }, g: Array.from({ length: n }, (_, i) => [-121.9 + i * 0.0001, 47.0]).flat(), z: Array.from({ length: n }, (_, i) => (i ? 1 : 100)) }] });
+  const keyFor = (n: number) => `wFawn Loop|${(-121.9 + (n - 1) * 0.0001).toFixed(5)},47.00000|-121.90000,47.00000`;
+  const shown = (n: number, full?: number) => cellsToTrails([{ ...path(n), s: full ? { [keyFor(n)]: [full, 3, 1] } : undefined }]).some((t) => t.name === 'Fawn Loop');
+  it('hides a path whose drawn line is under 500 m and which has no stored figure', () => expect(shown(14)).toBe(false));
+  it('judges on the full-line length when it agrees with the drawn line within 8%', () => {
+    expect(shown(66, 510)).toBe(true);    // drawn ~493 m, full 510 m (3% apart): the full length counts
+    expect(shown(66, 480)).toBe(false);   // agrees, and under 500 m
+  });
+  it('ignores a stored length that disagrees with the drawn chain by more than 8% (a different stitching): the drawn length decides', () => {
+    expect(shown(14, 520)).toBe(false);   // drawn ~100 m against 520 m stored: not the same line, so it stays out (Tahomie Gnomie, Busline Trail)
+    expect(shown(90, 300)).toBe(true);    // drawn ~675 m against 300 m stored: the drawn line is long enough
   });
 });
