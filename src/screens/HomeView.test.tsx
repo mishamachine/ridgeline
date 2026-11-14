@@ -34,9 +34,9 @@ describe('Home: 1 first visit, location not asked', () => {
     expect(h.match(/Use my location/g)).toHaveLength(1);
     expect(h).toContain('Top picks in Washington');
   });
-  it('never says "near you" before location is known, and says it never collects it', () => {
+  it('never says "near you" before location is known, and says where it stays', () => {
     expect(h).not.toMatch(/near you/i);
-    expect(h).toContain('Ridgeline never collects your location.');
+    expect(h).toContain('Your exact location never leaves this device.');
     expect(h).not.toContain('stays on your phone');
   });
   it('shows the Nizam-approved row copy, the rank note button and the map entry', () => {
@@ -146,7 +146,7 @@ describe('Home: 6 offline', () => {
 describe('Home: filters, difficulty and how-we-rank copy', () => {
   it('shows length, difficulty (Easy / Moderate / Hard), dogs, drive time and sort, with the difficulty explainer', () => {
     const h = html({ filtersOpen: true });
-    for (const s of ['Under 3 mi', '3–6 mi', '6–10 mi', '10+ mi', 'Easy', 'Moderate', 'Hard', 'Dogs: Yes', 'Sort: Best', 'Sort: Nearest', 'Sort: Shortest']) expect(h).toContain(s);
+    for (const s of ['Under 3 mi', '3–6 mi', '6–10 mi', '10+ mi', 'Easy', 'Moderate', 'Hard', 'Dogs: tagged yes', 'Sort: Best', 'Sort: Nearest', 'Sort: Shortest']) expect(h).toContain(s);
     expect(h).toContain('Difficulty is based only on distance and climb. It doesn’t account for terrain, weather or conditions.');
     expect(h).toMatch(/<button[^>]*disabled[^>]*>Drive time: later/);
     expect(h).not.toContain('Mild');

@@ -68,7 +68,7 @@ function FilterPanel({ f, set }: { f: HomeFilters; set: (f: HomeFilters) => void
       </div>
       <p className="hm-note">{DIFFICULTY_NOTE}</p>
       <div role="group" aria-label="Dogs and drive time" className="hm-chips">
-        <Chip on={f.dogs} onClick={() => set({ ...f, dogs: !f.dogs })}>Dogs: Yes</Chip>
+        <Chip on={f.dogs} onClick={() => set({ ...f, dogs: !f.dogs })}>Dogs: tagged yes</Chip>
         <Chip disabled>Drive time: later</Chip>
       </div>
       <div role="group" aria-label="Sort" className="hm-chips">
@@ -162,7 +162,7 @@ export function HomeView(p: HomeViewProps) {
       {!outside && !offline && p.loc !== 'allowed' && p.area && (
         <section className="hm-loc" aria-label="Where trails are shown">
           <div className="hm-tx">
-            {p.loc === 'denied' ? <>Location is off.<small>Showing {p.area.name}</small></> : <>Starting in {p.area.name}<small>Ridgeline never collects your location.</small></>}
+            {p.loc === 'denied' ? <>Location is off.<small>Showing {p.area.name}</small></> : <>Starting in {p.area.name}<small>Your exact location never leaves this device.</small></>}
           </div>
           {p.loc !== 'denied' && <button className="hm-btn hm-pri" onClick={p.onUseLocation}>Use my location</button>}
           {(p.loc === 'denied' || p.regions.length > 1) && (

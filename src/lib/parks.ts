@@ -7,9 +7,10 @@ import type { Trail } from './trails';
  * US national parks in WA, OR and CA as rough bounding boxes [west, south, east, north]. The hosted trail files carry no park
  * outlines, so this is a stand-in until a build-time park polygon index exists (OSM boundary=national_park). The boxes are
  * hand-drawn from memory of each park's extent and have NOT been checked against NPS boundary data (unverified). They are
- * generous on purpose: an edge trail near a park may lose its "Dogs: Yes", which is the safe direction. National parks only:
- * monuments, recreation areas and seashores are not listed yet.
+ * generous on purpose: an edge trail near a park may lose its "Dogs: Yes", which is the safe direction. National parks, plus Muir Woods
+ * and Point Reyes; other monuments, recreation areas and seashores are not listed yet.
  */
+// Approximate bounding boxes, NOT NPS data; replaced by OSM park polygons in the data build (coverage batch 2).
 export const NATIONAL_PARK_BOXES: { name: string; box: [number, number, number, number] }[] = [
   { name: 'Mount Rainier', box: [-122.15, 46.68, -121.45, 47.10] },
   { name: 'Olympic', box: [-124.75, 47.30, -122.95, 48.35] },
@@ -23,6 +24,8 @@ export const NATIONAL_PARK_BOXES: { name: string; box: [number, number, number, 
   { name: 'Channel Islands', box: [-120.55, 33.85, -119.30, 34.10] },
   { name: 'Joshua Tree', box: [-116.45, 33.60, -115.25, 34.20] },
   { name: 'Death Valley', box: [-118.05, 35.45, -116.25, 37.35] },
+  { name: 'Muir Woods National Monument', box: [-122.62, 37.86, -122.54, 37.93] },
+  { name: 'Point Reyes National Seashore', box: [-123.15, 37.95, -122.75, 38.30] },
 ];
 
 const inBox = (p: LngLat, [w, s, e, n]: [number, number, number, number]) => p[0] >= w && p[0] <= e && p[1] >= s && p[1] <= n;

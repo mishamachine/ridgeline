@@ -4,7 +4,7 @@ import type { Trail } from '../lib/trails';
 
 const LABEL: Record<string, string> = {
   view: 'Views', lake: 'Lake', falls: 'Waterfall', beach: 'Beach', bikes: 'Bikes share', horses: 'Horses share',
-  dogs: DOGS_YES, dogsunknown: DOGS_UNKNOWN, nodogs: 'No dogs', climb: 'Big climb', long: 'Long',
+  dogs: DOGS_YES, dogsunknown: DOGS_UNKNOWN, nodogs: 'Dogs: No (OSM)', climb: 'Big climb', long: 'Long',
 };
 
 export interface Hl { kind: string; maybe: boolean }

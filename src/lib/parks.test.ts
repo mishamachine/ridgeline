@@ -15,6 +15,8 @@ const moveTo = (t: Trail, lon: number, lat: number): Trail => {
   return { ...t, coords: t.coords.map(([x, y]) => [x - x0 + lon, y - y0 + lat] as [number, number]), trailhead: t.trailhead && [t.trailhead[0] - x0 + lon, t.trailhead[1] - y0 + lat] };
 };
 const rainier = moveTo(littleSi, -121.73, 46.80);      // Skyline Trail area, Mount Rainier National Park
+const muirWoods = moveTo(littleSi, -122.58, 37.89);   // Muir Woods National Monument
+const pointReyes = moveTo(littleSi, -122.95, 38.05);   // Point Reyes National Seashore
 const yosemite = moveTo(littleSi, -119.55, 37.74);     // Yosemite Valley
 
 describe('dogs and national parks', () => {
@@ -24,7 +26,7 @@ describe('dogs and national parks', () => {
     expect(highlightsOf(littleSi).map((h) => h.kind)).toContain('dogs');
   });
   it('never says Yes inside a national park: Unknown instead, and out of the Dog-friendly row', () => {
-    for (const t of [rainier, yosemite]) {
+    for (const t of [rainier, yosemite, muirWoods, pointReyes]) {
       expect(inNationalPark(t)).toBe(true);
       expect(dogsStatus(t)).toBe('unknown');
       expect(hasHighlight(t, 'dogs')).toBe(false);

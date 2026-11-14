@@ -309,7 +309,7 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
           <button className="chip2" aria-pressed={chips.has('under3')} onClick={() => toggle('under3')}>Under 3 h</button>
           <button className="chip2" aria-pressed={chips.has('easy')} onClick={() => toggle('easy')}>Easy</button>
           {hasHighlights && <button className="chip2" aria-pressed={chips.has('views')} onClick={() => toggle('views')}>Views</button>}
-          {hasHighlights && <button className="chip2" aria-pressed={chips.has('dogs')} onClick={() => toggle('dogs')}>Dogs: Yes (OSM)</button>}
+          {hasHighlights && <button className="chip2" aria-pressed={chips.has('dogs')} onClick={() => toggle('dogs')}>Dogs: tagged yes</button>}
           <button className="chip2" aria-pressed={chips.has('short')} onClick={() => toggle('short')}>Under 3 mi</button>
           {hasHighlights && <button className="chip2" aria-pressed={chips.has('falls')} onClick={() => toggle('falls')}>Waterfalls</button>}
         </div>
