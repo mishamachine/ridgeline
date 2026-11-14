@@ -19,7 +19,8 @@ test('Home loads no map; "Explore the map" shows it after the lazy map chunk loa
   await page.route('**/trails/232_549.json', (route) => route.fulfill({ json: ledgeCell }));
   await page.route('**/trails/names.json', (route) => route.fulfill({ json: { v: 1, e: [] } }));
   const mapRequests: string[] = [];
-  page.on('request', (r) => { if (r.url().startsWith('https://tiles.openfreemap.org/')) mapRequests.push(r.url()); });
+  // App.tsx has always fetched the tile template (the small TileJSON at /planet) at launch, before any screen; that is not a map tile. Tiles, styles and fonts are what must wait.
+  page.on('request', (r) => { if (r.url().startsWith('https://tiles.openfreemap.org/') && !r.url().endsWith('/planet')) mapRequests.push(r.url()); });
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Home' })).toBeVisible();
   // These tests run with location already granted (playwright.config.ts), so Home shows "near you" rows.
