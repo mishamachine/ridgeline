@@ -1,10 +1,8 @@
-import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
+import { RICH_INDEX, richCell } from './fixtures';
 
-// The preview build serves no hosted trail data, so Home gets small fixtures: the index and the real Rattlesnake Ledge cell
-// (same shapes build_trails.py writes), and an empty-but-valid name index.
-const ledgeCell = JSON.parse(readFileSync(new URL('../src/lib/fixtures/wa-cells.json', import.meta.url), 'utf8')).ledge[0];
-const INDEX = { v: 1, built: '2026-11-06T00:00:00Z', source: 'e2e fixture', elevation: 'Copernicus DEM GLO-90', cell: 0.25, bbox: [-122, 47.25, -121.5, 47.5], cells: ['232_549'] };
+// The preview build serves no hosted trail data, so Home gets fixtures (e2e/fixtures.ts): an index and a cell file in the
+// shapes build_trails.py writes, built from real cell slices, with enough trails that Home's rows (three or more each) show.
 
 // The promise of the app: save a trail with a signal, lose the signal, and the trail page and Navigate still open.
 // Runs on the production build, so it also proves the code-split chunks are in the service worker's precache.
@@ -15,8 +13,8 @@ test('Home loads no map; "Explore the map" shows it after the lazy map chunk loa
   await page.addInitScript(() => { try { localStorage.setItem('ridgeline:settings', JSON.stringify({ onboardingSeen: true })); } catch { /* ignore */ } });
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.route('**/trails/index.json', (route) => route.fulfill({ json: INDEX }));
-  await page.route('**/trails/232_549.json', (route) => route.fulfill({ json: ledgeCell }));
+  await page.route('**/trails/index.json', (route) => route.fulfill({ json: RICH_INDEX }));
+  await page.route(/\/trails\/\d+_\d+\.json$/, (route) => route.fulfill({ json: richCell() }));
   await page.route('**/trails/names.json', (route) => route.fulfill({ json: { v: 1, e: [] } }));
   const mapRequests: string[] = [];
   // Nothing goes to OpenFreeMap (not even the tile template) until the map opens.

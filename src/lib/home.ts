@@ -125,11 +125,13 @@ export const DIFFICULTY_NOTE = 'Difficulty is based only on distance and climb. 
 
 export interface Collection extends CollectionDef { trails: Trail[] }
 const ROW_MAX = 8;
+/** A row with fewer trails than this is left out: two cards do not make a collection. */
+export const ROW_MIN = 3;
 
-/** Rows of up to eight trails, best first. A row with no trails is left out. */
+/** Rows of up to eight trails, best first. A row with fewer than ROW_MIN trails is left out. */
 export function buildCollections(trails: Trail[], origin?: LngLat): Collection[] {
   const ranked = rankTrails(filterTrails(trails), origin);
-  return COLLECTIONS.map((c) => ({ ...c, trails: ranked.filter(c.pick).slice(0, ROW_MAX) })).filter((c) => c.trails.length > 0);
+  return COLLECTIONS.map((c) => ({ ...c, trails: ranked.filter(c.pick).slice(0, ROW_MAX) })).filter((c) => c.trails.length >= ROW_MIN);
 }
 
 export type LengthBucket = 'under3' | '3to6' | '6to10' | '10plus';

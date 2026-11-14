@@ -10,7 +10,7 @@ import { LEDGE_CELL, LEDGE_INDEX, RICH_INDEX, richCell } from './fixtures';
 const OUT = 'test-results/home-visual';
 const WIDTHS = [320, 375, 414];
 
-async function open(page: Page, rich = false) {
+async function open(page: Page, rich = true) {
   await page.route('**/trails/index.json', (route) => route.fulfill({ json: rich ? RICH_INDEX : LEDGE_INDEX }));
   await page.route(/\/trails\/\d+_\d+\.json$/, (route) => route.fulfill({ json: rich ? richCell() : LEDGE_CELL }));
   await page.route('**/trails/names.json', (route) => route.fulfill({ json: { v: 1, e: [] } }));

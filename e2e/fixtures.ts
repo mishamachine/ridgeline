@@ -27,7 +27,8 @@ function shortPath(flat: number[], z: number[] | undefined, minM: number) {
 
 /**
  * A merged cell file with every Home row filled. The geometry and elevation are real. The real slices have no view or
- * waterfall tags and no trail under 3 miles round trip, so: (1) tags (`h`) are ADDED here to fill the rows, and (2) four short
+ * waterfall tags and no trail under 3 miles round trip, so: (1) tags (`h`) are ADDED here to fill the rows (at least three trails
+ * in each, the least a row needs), and (2) six short
  * named paths are cut from the first 1.1 km of real ways. Names and tags in the screenshots are therefore test data.
  */
 export function richCell(): Slice {
@@ -38,10 +39,11 @@ export function richCell(): Slice {
   tag(4794619, ['falls', 'lake']);   // Annette Lake
   tag(5519228, ['dogs']);            // Chirico
   const ways: Slice['w'] = [];
-  const sources: [string, number, string[]][] = [['Mount Si', 0, ['view', 'dogs']], ['Granite Mountain', 1, ['view']], ['Annette Lake', 2, ['view', 'falls']], ['Little Si', 3, ['dogs', 'view']]];
+  const sources: [string, number, string[]][] = [['Mount Si', 0, ['view', 'dogs']], ['Granite Mountain', 1, ['view']], ['Annette Lake', 2, ['view', 'falls']], ['Little Si', 3, ['dogs', 'view']], ['Chirico', 4, ['view', 'falls']], ['Rattlesnake', 5, ['dogs', 'falls']]];
   const members = r.flatMap((x) => x.m);
   sources.forEach(([name, k, h], n) => {
-    const m = members.filter((mm) => mm[1].length > 60)[k * 2] ?? members[k];
+    const long = members.filter((mm) => mm[1].length > 60);
+    const m = long[k % long.length];
     const { g, z } = shortPath(m[1], m[2], 1100);
     ways.push({ id: 9000000 + n, t: { name: `${name} Spur Path`, highway: 'path' }, g, ...(z ? { z } : {}), h });
   });

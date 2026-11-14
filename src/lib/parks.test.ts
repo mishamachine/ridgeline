@@ -34,7 +34,8 @@ describe('dogs and national parks', () => {
       expect(kinds).not.toContain('dogs');
       expect(kinds).toContain('dogsunknown');
     }
-    expect(buildCollections([littleSi, rainier]).find((c) => c.id === 'dogs')!.trails.map((t) => t.id)).toEqual([littleSi.id]);
+    const dogsFar = [1, 2].map((i) => moveTo({ ...littleSi, id: `${littleSi.id}-${i}` }, -121.7 + i * 0.3, 47.5));
+    expect(buildCollections([littleSi, ...dogsFar, rainier]).find((c) => c.id === 'dogs')!.trails.map((t) => t.id).sort()).toEqual([littleSi.id, ...dogsFar.map((t) => t.id)].sort());
     expect(buildCollections([rainier]).find((c) => c.id === 'dogs')).toBeUndefined();
   });
   it('a maybe tag is Unknown, and no tag shows nothing', () => {

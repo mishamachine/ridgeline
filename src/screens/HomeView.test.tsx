@@ -10,7 +10,8 @@ const cells = JSON.parse(readFileSync(new URL('../lib/fixtures/wa-cells.json', i
 const trails = Object.values(cells).flatMap((files) => files.flatMap((f) => cellsToTrails([f])));
 // Real trails, plus a short copy of one (first quarter of its line) so the under-3-mi rows have something to show.
 const spur = { ...trails[0], id: `${trails[0].id}-s`, name: 'Ledge Spur', coords: trails[0].coords.slice(0, Math.floor(trails[0].coords.length / 4)), lengthM: trails[0].lengthM / 4, loop: false, highlights: ['view', 'dogs'] };
-const tagged = [...trails.map((t, i) => ({ ...t, highlights: i === 0 ? ['view', 'falls'] : t.highlights })), spur];
+const spurs = [0, 1, 2].map((n) => ({ ...spur, id: `${spur.id}${n}`, name: `Ledge Spur ${n}`, coords: spur.coords.map(([x, y]) => [x + n * 0.3, y] as [number, number]), highlights: ['view', 'dogs', 'falls'] }));
+const tagged = [...trails, ...spurs];
 const idx = (keys: string[]) => ({ v: 1, built: '', source: '', cell: 0.25, bbox: null, cells: keys });
 const WA: Region[] = coverageRegions(idx(['232_549']));
 const ALL: Region[] = coverageRegions(idx(['232_549', `${Math.floor((-122.6 + 180) / 0.25)}_${Math.floor((45.5 + 90) / 0.25)}`, `${Math.floor((-118.2 + 180) / 0.25)}_${Math.floor((34 + 90) / 0.25)}`]));

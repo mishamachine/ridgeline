@@ -91,29 +91,34 @@ describe('greeting', () => {
 describe('collections', () => {
   const tagged = (t: Trail, highlights: string[]): Trail => ({ ...t, highlights });
   // A short (under 3 mi round trip) copy of a real trail: first half of the line only, so the numbers stay real.
-  const short = (t: Trail, highlights?: string[]): Trail => {
-    const coords = t.coords.slice(0, Math.floor(t.coords.length / 4));
-    return { ...t, id: `${t.id}-s`, name: `${t.name} Spur`, coords, lengthM: t.lengthM / 4, loop: false, highlights, ascentM: (t.ascentM ?? 0) / 4, descentM: (t.descentM ?? 0) / 4 };
+  const short = (t: Trail, highlights: string[] | undefined, n = 0): Trail => {
+    const coords = t.coords.slice(0, Math.floor(t.coords.length / 4)).map(([x, y]) => [x + n * 0.3, y] as [number, number]);
+    return { ...t, id: `${t.id}-s${n}`, name: `${t.name} Spur ${n}`, coords, lengthM: t.lengthM / 4, loop: false, highlights, ascentM: (t.ascentM ?? 0) / 4, descentM: (t.descentM ?? 0) / 4 };
   };
-  const pool = [tagged(ledge, ['view', 'falls']), tagged(chirico, ['dogs?']), si, annette, short(ledge, ['view']), short(chirico, ['view?', 'dogs'])];
+  // Three of each kind so every row reaches ROW_MIN; a maybe tag ('view?', 'dogs?') never counts.
+  const pool = [
+    tagged(ledge, ['view', 'falls']), tagged(chirico, ['dogs?']), tagged(si, ['falls']), tagged(annette, ['falls']),
+    short(ledge, ['view', 'dogs'], 1), short(ledge, ['view'], 2), short(chirico, ['view', 'dogs'], 3), short(chirico, ['view?', 'dogs?'], 4), short(si, ['dogs'], 5),
+  ];
 
   it('has the four rows and no "Great this weekend"', () => {
     expect(COLLECTIONS.map((c) => c.title)).toEqual(['Top picks', 'Short with a view', 'Dog-friendly', 'Waterfalls']);
   });
   it('puts only firm view tags in "Short with a view", and only trails under 3 mi', () => {
     const row = buildCollections(pool).find((c) => c.id === 'view')!;
-    expect(row.trails.map((t) => t.name)).toEqual(['Rattlesnake Ledge Trail Spur']);
+    expect(row.trails.map((t) => t.id).sort()).toEqual([`${ledge.id}-s1`, `${ledge.id}-s2`, `${chirico.id}-s3`].sort());
     expect(row.trails.every((t) => t.highlights?.includes('view'))).toBe(true);
   });
-  it('treats an untagged dog or view as Unknown, never as Yes', () => {
-    const rows = buildCollections(pool);
-    expect(rows.find((c) => c.id === 'dogs')!.trails.map((t) => t.name)).toEqual(['Chirico Trail Spur']); // 'dogs?' on Chirico is a maybe
+  it('treats an untagged or maybe dog as Unknown, never as Yes', () => {
+    const row = buildCollections(pool).find((c) => c.id === 'dogs')!;
+    expect(row.trails.map((t) => t.id).sort()).toEqual([`${ledge.id}-s1`, `${chirico.id}-s3`, `${si.id}-s5`].sort());
   });
   it('lists waterfalls from the tag', () => {
-    expect(buildCollections(pool).find((c) => c.id === 'falls')!.trails.map((t) => t.id)).toEqual([ledge.id]);
+    expect(buildCollections(pool).find((c) => c.id === 'falls')!.trails.map((t) => t.id).sort()).toEqual([ledge.id, si.id, annette.id].sort());
   });
-  it('leaves out an empty row and caps a row at eight', () => {
-    expect(buildCollections([si, annette]).map((c) => c.id)).toEqual(['top']);
+  it('leaves out rows with fewer than three trails and caps a row at eight', () => {
+    expect(buildCollections([si, annette])).toEqual([]);                          // two trails: no row at all
+    expect(buildCollections([si, annette, ledge]).map((c) => c.id)).toEqual(['top']); // three: shown
     const many = Array.from({ length: 12 }, (_, i) => ({ ...ledge, id: `osm-r${i}`, name: `Ledge ${i} Trail`, coords: ledge.coords.map(([x, y]) => [x + i * 0.2, y] as [number, number]) }));
     expect(buildCollections(many)[0].trails).toHaveLength(8);
   });
