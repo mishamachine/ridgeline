@@ -35,12 +35,18 @@ export const NATIONAL_PARK_BOXES: { name: string; box: [number, number, number, 
  */
 export const WEST_COAST_TRAIL = { name: /\bwest coast trail\b/i, box: [-125.30, 48.45, -124.30, 48.95] as [number, number, number, number] };
 
+/**
+ * Canada, south Vancouver Island and the strait (Sooke, Metchosin, Victoria): the Olympic box above runs a little north of the
+ * border, so points here are never counted as inside a US national park. Approximate, and Canadian park trails follow the OSM tag anyway.
+ */
+const CANADA_SOUTH_VI: [number, number, number, number] = [-124.0, 48.28, -123.0, 48.6];
+
 const inBox = (p: LngLat, [w, s, e, n]: [number, number, number, number]) => p[0] >= w && p[0] <= e && p[1] >= s && p[1] <= n;
 
 /** True when any part of the trail, or its trailhead, lies inside a listed national park. */
 export function inNationalPark(t: Pick<Trail, 'coords'> & Partial<Pick<Trail, 'trailhead'>>): boolean {
   const pts: LngLat[] = t.trailhead ? [t.trailhead, ...(t.coords ?? [])] : (t.coords ?? []);
-  return NATIONAL_PARK_BOXES.some((p) => pts.some((c) => inBox(c, p.box)));
+  return NATIONAL_PARK_BOXES.some((p) => pts.some((c) => inBox(c, p.box) && !inBox(c, CANADA_SOUTH_VI)));
 }
 
 /** True for the West Coast Trail (by name, with part of the trail inside its box). */

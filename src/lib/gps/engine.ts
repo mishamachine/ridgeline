@@ -1,6 +1,7 @@
 import { haversine, LngLat } from '../geo';
 import { PositionFilter, KalmanOptions } from './kalman';
 import { RouteMatcher, MatchResult, MatcherOptions } from './matcher';
+import { METRIC_COPY } from '../metricCopy';
 import { accuracyFt, isLocked, qualityOf, Quality } from './quality';
 import { CompassReading, pickHeading } from './compass';
 import type { Fix, GpsError, LocationSource } from './source';
@@ -43,6 +44,7 @@ export interface GpsState {
   filtered: LngLat | null;
   uncertaintyM: number | null;
   accuracyFt: number | null;
+  accuracyM: number | null;
   quality: Quality | null;
   warmingUp: boolean;
   recalibrating: boolean;
@@ -78,7 +80,7 @@ export interface GpsState {
 export type AnchorResult = { ok: true } | { ok: false; reason: string };
 
 const EMPTY: GpsState = {
-  hasFix: false, position: null, filtered: null, uncertaintyM: null, accuracyFt: null, quality: null, warmingUp: true,
+  hasFix: false, position: null, filtered: null, uncertaintyM: null, accuracyFt: null, accuracyM: null, quality: null, warmingUp: true,
   recalibrating: false, recalTimedOut: false, recalLastOffRoute: false, stalePosition: false, trailBearing: null, matched: false, along: null, offsetM: null, offRoute: false, progress: null, total: 0,
   deadReckoning: false, anchored: false, altitudeM: null, baroAltitudeM: null, heading: null, headingSource: null,
   needsCalibration: false, compassAccuracy: null, error: null,
@@ -150,15 +152,15 @@ export class GpsEngine {
   }
 
   /** "I'm here on the trail": only if the tap is inside the circle we are showing. */
-  manualAnchor(tap: LngLat): AnchorResult {
+  manualAnchor(tap: LngLat, units: 'imperial' | 'metric' = 'imperial'): AnchorResult {
     const here = this.filter.position();
     if (!here || !this.lastRaw) return { ok: false, reason: 'No GPS position yet.' };
     if (!this.matcher) return { ok: false, reason: 'There is no trail to snap to.' };
     const radius = this.filter.radius(this.clock); // the circle the hiker sees
-    if (haversine(tap, here) > radius) return { ok: false, reason: `Tap inside the circle around your dot (about ${accuracyFt(radius)} ft).` };
+    if (haversine(tap, here) > radius) return { ok: false, reason: units === 'metric' ? METRIC_COPY.tapInside(Math.round(radius)) : `Tap inside the circle around your dot (about ${accuracyFt(radius)} ft).` };
     const n = this.matcher.nearest(tap, this.lastMatch?.along ?? null);
     if (!n || n.offset > Math.max(radius, 25)) return { ok: false, reason: 'No trail near that spot.' };
-    if (haversine(n.point, here) > radius) return { ok: false, reason: `That trail point is outside the circle around your dot (about ${accuracyFt(radius)} ft).` };
+    if (haversine(n.point, here) > radius) return { ok: false, reason: units === 'metric' ? METRIC_COPY.pointOutside(Math.round(radius)) : `That trail point is outside the circle around your dot (about ${accuracyFt(radius)} ft).` };
     this.filter.setPosition(n.point, 8, this.clock);
     this.matcher.seed(n.along, this.clock);
     this.anchor = { point: n.point, t: this.clock };
@@ -225,6 +227,7 @@ export class GpsEngine {
       filtered,
       uncertaintyM: filtered ? this.filter.radius(now) : null,
       accuracyFt: raw ? accuracyFt(raw.accuracy) : null,
+      accuracyM: raw ? raw.accuracy : null,
       quality: raw ? qualityOf(raw.accuracy, now - raw.t) : null,
       warmingUp: !this.locked,
       recalibrating: recal,

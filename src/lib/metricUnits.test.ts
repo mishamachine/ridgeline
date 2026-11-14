@@ -48,3 +48,44 @@ describe('coverage line reads the data', () => {
     expect(coverageLine(coverageRegions(idx as never))).toBe('Trails in WA and BC. More regions coming.');
   });
 });
+
+describe('elevation chart text', () => {
+  it('metric shows km and metres, imperial is unchanged', async () => {
+    const { elevationText } = await import('../components/ElevationChart');
+    const prof = [100, 250, 400, 300];
+    const m = elevationText(prof, 6000, 'metric');
+    expect(m).toEqual({ aria: 'Elevation from 100 to 300 metres, peaking at 400 metres', start: '0 km', high: 'High point 400 m', end: '6.0 km' });
+    expect(`${m.aria}${m.start}${m.high}${m.end}`).not.toMatch(/\bmi\b|\bft\b|feet/);
+    expect(elevationText(prof, 6000)).toEqual({ aria: 'Elevation from 328 to 984 feet, peaking at 1,312 feet', start: '0 mi', high: 'High point 1,312 ft', end: '3.7 mi' });
+  });
+});
+
+describe('Navigate and Record in metric', () => {
+  it('accuracy line is in metres (and feet for imperial, unchanged)', async () => {
+    const { accuracyLine } = await import('./gps/quality');
+    expect(accuracyLine({ m: 8.4, warming: false, quality: 'good' }, 'metric')).toBe('GPS Good ±8 m');
+    expect(accuracyLine({ m: 40, warming: true, quality: 'weak' }, 'metric')).toBe('GPS warming up ±40 m');
+    expect(accuracyLine({ m: 10, warming: false, quality: 'good' })).toBe('GPS Good ±33 ft');
+    expect(accuracyLine({ m: 10, warming: true, quality: null })).toBe('GPS warming up ±33 ft');
+  });
+  it('Record shows km, imperial still miles', async () => {
+    const { recordDistance } = await import('./recordText');
+    expect(recordDistance(5230, 'metric')).toEqual({ value: '5.2', big: 'km', row: '5.2 km' });
+    expect(recordDistance(5230)).toEqual({ value: '3.2', big: 'miles', row: '3.2 mi' });
+  });
+  it('no mi, ft or miles in any Navigate or Record text for metric', async () => {
+    const { buildView } = await import('../components/nav/view');
+    const { shortDistance, climbText } = await import('./voice/units');
+    const { accuracyLine } = await import('./gps/quality');
+    const { recordDistance } = await import('./recordText');
+    const bits: string[] = [];
+    for (const m of [3, 40, 120, 800, 1500, 12000]) {
+      bits.push(shortDistance(m, 'metric'), climbText(m, 'metric'), recordDistance(m * 10, 'metric').row, recordDistance(m, 'metric').big);
+      const g = { hasFix: true, offRoute: true, recalLastOffRoute: false, stalePosition: false, along: null, offsetM: m, trailBearing: 90, warmingUp: false } as never;
+      const v = buildView({ g, step: { toM: m, target: 'turnaround' } as never, trailName: 'T', units: 'metric', offSide: { side: 'left', distM: m }, paused: false });
+      bits.push(v.big, v.line, v.sub ?? '');
+    }
+    for (const q of ['good', 'fair', 'weak'] as const) for (const w of [true, false]) bits.push(accuracyLine({ m: 12, warming: w, quality: q }, 'metric'));
+    expect(bits.join(' | ')).not.toMatch(/\bmi\b|\bft\b|\bmiles?\b|\bfeet\b/);
+  });
+});

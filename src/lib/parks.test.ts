@@ -79,3 +79,13 @@ describe('Canada dogs', () => {
     expect(isWestCoastTrail(moveTo({ ...littleSi, name: 'Pacific Crest Trail' }, -124.9, 48.7))).toBe(false);
   });
 });
+
+describe('US park boxes and Canada', () => {
+  it('Sooke (south Vancouver Island) is outside the Olympic box: the OSM tag decides', () => {
+    const sooke = moveTo(littleSi, -123.68, 48.33);
+    expect(inNationalPark(sooke)).toBe(false);
+    expect(dogsStatus({ ...sooke, highlights: ['dogs'] })).toBe('yes');
+    // the US side is unchanged: Hurricane Ridge is inside Olympic
+    expect(inNationalPark(moveTo(littleSi, -123.5, 47.97))).toBe(true);
+  });
+});
