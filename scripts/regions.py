@@ -27,6 +27,7 @@ INDEX_URL = 'https://download.geofabrik.de/index-v1-nogeom.json'
 USER_AGENT = 'ridgeline-trail-build (machinemisha@gmail.com; github.com/mishamachine/ridgeline)'
 MIN_SHARE = 0.5
 MAX_GAIN_ERR_PCT = 15       # a classic's stored gain must be within this share of its published figure
+MAX_LEN_ERR_PCT = 15        # and its stored length within this share of its published length (published_len_mi, one way or the loop; len_source)
 MAX_GAIN_LOSS_SHARE = 0.02   # share of trails (with 100 ft or more of gain) that may lose over 25% of it on the simplified drawn line
 
 
@@ -175,7 +176,7 @@ def check_region(r, report, entries, stats=None):
         if not hit:
             bad.append(f"{r['name']}: classic {c['name']!r} " + (f"found as {[(e[1], e[4]) for e in cands][:3]} but not within {c['len_m']} m" if cands else 'not found by name'))
             continue
-        line = f"{c['name']}: {hit[1]} ({hit[0]}), {hit[4]} m ({hit[4] / 1609.344:.1f} mi)"
+        line = f"{c.get('label', c['name'])}: {hit[1]} ({hit[0]}), {hit[4]} m ({hit[4] / 1609.344:.1f} mi)"
         if stats is not None:
             t = stats_for(c, stats)
             if not t:
@@ -191,6 +192,17 @@ def check_region(r, report, entries, stats=None):
                         line += f"; temporary {c.get('max_err_pct', MAX_GAIN_ERR_PCT)}% limit, {c['known_bug']}"
                     if abs(err) > c.get('max_err_pct', MAX_GAIN_ERR_PCT):
                         bad.append(f"{r['name']}: classic {c['name']!r}: gain {g} ft is {err:+.1f}% from the published {pub} ft (limit {c.get('max_err_pct', MAX_GAIN_ERR_PCT)}%)")
+            plen = c.get('published_len_mi')
+            if plen:
+                lerr = (t['L'] / (plen * 1609.344) - 1) * 100
+                line += f"; length {t['L'] / 1609.344:.2f} mi against published {plen} mi ({lerr:+.1f}%)"
+                if abs(lerr) > c.get('max_len_err_pct', MAX_LEN_ERR_PCT):
+                    if c.get('len_exception'):
+                        line += f"; EXCEPTION: {c['len_exception']}"
+                    else:
+                        bad.append(f"{r['name']}: classic {c['name']!r}: stored length {t['L'] / 1609.344:.2f} mi is {lerr:+.1f}% from the published {plen} mi (limit {c.get('max_len_err_pct', MAX_LEN_ERR_PCT)}%); fix the data or record a len_exception")
+            else:
+                bad.append(f"{r['name']}: classic {c['name']!r} has no published_len_mi")
             tp = top.get(c['name'])
             if tp is None or norm(c['name']) not in norm(tp[1]) or not c['len_m'][0] <= tp[4] <= c['len_m'][1]:
                 bad.append(f"{r['name']}: name search for {c['name']!r} ranks {tp and (tp[1], tp[4])} first, not the main trail")

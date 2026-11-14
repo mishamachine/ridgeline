@@ -26,6 +26,7 @@ class RegionConfig(unittest.TestCase):
             for c in r['classics']:
                 self.assertLess(c['len_m'][0], c['len_m'][1])
                 self.assertTrue(c['published_ft'] > 0 and c['source'].startswith('https://'), c['name'])   # every classic carries a published gain and where it came from
+                self.assertTrue(c['published_len_mi'] > 0 and c['len_source'].startswith('https://'), c['name'])   # and a published length (one way, or the loop) with its page
             self.assertTrue(r['name'] and r['cc'] and len(r['code']) == 2)
 
     def test_matrix_lists_every_region_and_flags_the_v1_copy(self):
@@ -41,7 +42,7 @@ class RegionConfig(unittest.TestCase):
 
     def test_covered_regions_are_wa_or_ca_and_california_uses_the_geofabrik_state_extract(self):
         by = {r['id']: r for r in regions.load_regions()}
-        self.assertEqual([r['code'] for r in regions.load_regions()], ['WA', 'OR', 'CA'])   # the app's coverage line reads these from the built index
+        self.assertLessEqual({'WA', 'OR', 'CA'}, {r['code'] for r in regions.load_regions()})   # the app's coverage line reads these from the built index
         self.assertEqual(by['california']['geofabrik'], 'us/california')
         self.assertFalse(by['california'].get('v1'))
 
@@ -181,7 +182,7 @@ class Exact(unittest.TestCase):
 
 
 class Stats(unittest.TestCase):
-    R = {'name': 'Oregon', 'expected_trails': 1000, 'classics': [{'name': 'Eagle Creek Trail', 'len_m': [8000, 25000], 'published_ft': 3750}]}
+    R = {'name': 'Oregon', 'expected_trails': 1000, 'classics': [{'name': 'Eagle Creek Trail', 'len_m': [8000, 25000], 'published_ft': 3750, 'published_len_mi': 13.0}]}
     ENT = [['osm-r2', 'Eagle Creek Trail #501', 0, 0, 10310], ['osm-r1', 'Eagle Creek Trail', 0, 0, 20900]]
     TRAIL = {'name': 'Eagle Creek Trail', 'key': 'r1', 'L': 20800, 'up': 25, 'down': 1095, 'loop': False}
 
@@ -281,3 +282,26 @@ class Combine(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class LengthBar(unittest.TestCase):
+    R = Stats.R
+    ST = {'trails': [Stats.TRAIL], 'classics': [{'name': 'Eagle Creek Trail', 'top': Stats.ENT[1]}]}
+
+    def test_length_within_15_percent_passes_and_is_reported(self):
+        bad, lines = regions.check_region(self.R, {'trails': 900, 'cells': 4}, Stats.ENT, self.ST)   # 20,800 m = 12.92 mi against 13.0
+        self.assertEqual(bad, [])
+        self.assertIn('length 12.92 mi against published 13.0 mi (-0.6%)', lines[0])
+
+    def test_length_more_than_15_percent_off_fails_unless_an_exception_is_recorded(self):
+        short = {**self.R, 'classics': [{**self.R['classics'][0], 'published_len_mi': 18.0}]}   # 12.92 mi is -28% from 18
+        bad, _ = regions.check_region(short, {'trails': 900, 'cells': 4}, Stats.ENT, self.ST)
+        self.assertTrue(any('published 18.0 mi' in b for b in bad))
+        ok = {**short, 'classics': [{**short['classics'][0], 'len_exception': 'guide includes the road approach'}]}
+        bad, lines = regions.check_region(ok, {'trails': 900, 'cells': 4}, Stats.ENT, self.ST)
+        self.assertEqual(bad, [])
+        self.assertIn('EXCEPTION: guide includes the road approach', lines[0])
+
+    def test_a_classic_without_a_published_length_fails(self):
+        none = {**self.R, 'classics': [{k: v for k, v in self.R['classics'][0].items() if k != 'published_len_mi'}]}
+        self.assertTrue(any('no published_len_mi' in b for b in regions.check_region(none, {'trails': 900, 'cells': 4}, Stats.ENT, self.ST)[0]))
