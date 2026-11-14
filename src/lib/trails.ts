@@ -143,6 +143,12 @@ function makeTrail(id: string, name: string, coords: LngLat[], partial: boolean,
   };
 }
 
+/** Key of a named path's stored stats: "w<name>|<lon,lat>|<lon,lat>", the two ends sorted as text. One definition for the build (trail-stats.mjs), cells.ts and parseOverpass. */
+export function pathStatKey(name: string, a: LngLat, b: LngLat): string {
+  const ends = [a, b].map((c) => `${c[0].toFixed(5)},${c[1].toFixed(5)}`).sort();
+  return `w${name}|${ends.join('|')}`;
+}
+
 /** `stored` (hosted v2 data): each route's length measured on the full line, key "r<id>"; the minimum length is judged on it for a complete route; named paths use key "w<name>|<lon,lat>|<lon,lat>" (the two ends sorted as text). */
 export function parseOverpass(elements: OsmElement[], stored?: ReadonlyMap<string, number[]>): Trail[] {
   const trails: Trail[] = [];
@@ -188,10 +194,12 @@ export function parseOverpass(elements: OsmElement[], stored?: ReadonlyMap<strin
   for (const [name, g] of byName) {
     if (relNames.has(name.toLowerCase())) continue;
     chainSegments(g.segs).forEach((chain, i) => {
-      // Same rule as for routes: a complete path is judged on its full-line length (key: name, then its two ends, sorted as text).
-      const ends = [chain[0], chain.at(-1)!].map((c) => `${c[0].toFixed(5)},${c[1].toFixed(5)}`).sort();
-      const full = !g.clipped ? stored?.get(`w${name}|${ends.join('|')}`)?.[0] : undefined;
-      if ((full ?? lineLength(chain)) < MIN_TRAIL_M) return;
+      // Same rule as for routes: a complete path is judged on its full-line length (key: name, then its two ends, sorted as text),
+      // but only when that agrees with the drawn chain (within 8%, as in cells.ts): a stored figure from a different stitching is ignored.
+      const full = !g.clipped ? stored?.get(pathStatKey(name, chain[0], chain.at(-1)!))?.[0] : undefined;
+      const drawn = lineLength(chain);
+      const ok = full != null && Math.abs(drawn / full - 1) <= 0.08;
+      if ((ok ? full : drawn) < MIN_TRAIL_M) return;
       const id = `osm-w${Math.min(...g.ids)}-${i}`;
       trails.push(makeTrail(id, name, chain, g.clipped, `https://www.openstreetmap.org/way/${Math.min(...g.ids)}`, g.tags));
     });

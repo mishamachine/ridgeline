@@ -3,7 +3,8 @@ import type { BBox } from './geo';
 import { trailBase } from './native/trailBase';
 import type { CoverageRegion } from './coverage';
 import { cumulative, M_TO_FT, M_TO_MI, haversine, type LngLat } from './geo';
-import { HIGHLIGHT_CLIMB_FT, HIGHLIGHT_LONG_MI, parseOverpass, profileFromVertices, withElevation, type Junction, type Trail } from './trails';
+import { HIGHLIGHT_CLIMB_FT, HIGHLIGHT_LONG_MI, parseOverpass, pathStatKey, profileFromVertices, withElevation, type Junction, type Trail } from './trails';
+export { pathStatKey };   // the one key definition, also used by scripts/trail-stats.mjs
 
 export interface CellIndex { v: number; built: string; source: string; elevation?: string; cell: number; bbox: [number, number, number, number] | null; cells: string[]; /** Covered regions, from builds that list them. */ regions?: CoverageRegion[]; /** Where this index was read from (set by the app): trails/v2/ or, for older deploys, trails/. */ base?: string }
 /** z: elevation (m) per vertex, delta-encoded: [z0, z1 - z0, z2 - z1, ...]. */
@@ -221,8 +222,7 @@ export function cellsToTrails(raw: CellFile[]): Trail[] {
   function withStored(t: Trail): Trail {
     if (t.partial || (!stored.size && !unverified.size) || t.ascentM == null) return t;
     const r = /^osm-r(\d+)$/.exec(t.id);
-    const ends = [t.coords[0], t.coords.at(-1)!].map((c) => `${c[0].toFixed(5)},${c[1].toFixed(5)}`).sort();
-    const wkey = `w${t.name}|${ends.join('|')}`;   // name and both ends: two different paths can share the same two ends
+    const wkey = pathStatKey(t.name, t.coords[0], t.coords.at(-1)!);   // name and both ends: two different paths can share the same two ends
     const s = stored.get(r ? `r${r[1]}` : wkey);
     // A route (relation) is identified by its id, so complete means its numbers are the right ones whatever line was drawn (a branching
     // relation can stitch to a different chain on the simplified geometry). A named path is matched by its two ends, so keep the length guard there.
