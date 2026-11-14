@@ -19,13 +19,13 @@ test('Home loads no map; "Explore the map" shows it after the lazy map chunk loa
   await page.route('**/trails/232_549.json', (route) => route.fulfill({ json: ledgeCell }));
   await page.route('**/trails/names.json', (route) => route.fulfill({ json: { v: 1, e: [] } }));
   const mapRequests: string[] = [];
-  // App.tsx has always fetched the tile template (the small TileJSON at /planet) at launch, before any screen; that is not a map tile. Tiles, styles and fonts are what must wait.
-  page.on('request', (r) => { if (r.url().startsWith('https://tiles.openfreemap.org/') && !r.url().endsWith('/planet')) mapRequests.push(r.url()); });
+  // Nothing goes to OpenFreeMap (not even the tile template) until the map opens.
+  page.on('request', (r) => { if (/openfreemap\.org/.test(r.url())) mapRequests.push(r.url()); });
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Home' })).toBeVisible();
   // These tests run with location already granted (playwright.config.ts), so Home shows "near you" rows.
   await expect(page.getByRole('heading', { name: 'Top picks near you' })).toBeVisible({ timeout: 20_000 });
-  expect(mapRequests).toEqual([]); // no map tiles until someone asks for the map
+  expect(mapRequests).toEqual([]); // no request to the map provider until someone asks for the map
   await page.getByRole('button', { name: /Explore the map/ }).click();
   await expect(page.locator('.map canvas').first()).toBeVisible({ timeout: 20_000 });
   expect(errors).toEqual([]);

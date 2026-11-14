@@ -4,6 +4,7 @@ import { haversine, M_TO_MI, type BBox, type LngLat } from './geo';
 import { level, roundTripM } from './plan';
 import { filterTrails, rankTrails } from './quality';
 import { trailheadOf } from './maps';
+import { dogsStatus } from './parks';
 import type { Difficulty, Trail } from './trails';
 
 /** A region we can name. `center` is a covered spot inside it, taken from the data. */
@@ -62,6 +63,10 @@ export function defaultRegion(regions: Region[], timeZone: string | undefined): 
   return [...(inZone.length ? inZone : regions)].sort(byPop)[0];
 }
 
+/** Name of the reference region a point lies in (names only: says nothing about coverage). */
+export const regionNameAt = (lon: number, lat: number): string | null =>
+  REGION_REFERENCE.find(({ bbox: [w, s, e, n] }) => lon >= w && lon < e && lat >= s && lat < n)?.name ?? null;
+
 export const deviceTimeZone = (): string | undefined => {
   try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return undefined; }
 };
@@ -112,7 +117,7 @@ export interface CollectionDef { id: 'top' | 'view' | 'dogs' | 'falls'; title: s
 export const COLLECTIONS: CollectionDef[] = [
   { id: 'top', title: 'Top picks', sub: 'Ranked by Ridgeline’s trail score', pick: () => true },
   { id: 'view', title: 'Short with a view', sub: 'Under 3 mi, views tagged in OpenStreetMap', pick: (t) => roundTripMi(t) < 3 && has(t, 'view') },
-  { id: 'dogs', title: 'Dog-friendly', sub: 'Dogs tagged Yes in OpenStreetMap', pick: (t) => has(t, 'dogs') },
+  { id: 'dogs', title: 'Dog-friendly', sub: 'Dogs tagged Yes in OpenStreetMap', pick: (t) => dogsStatus(t) === 'yes' },
   { id: 'falls', title: 'Waterfalls', sub: 'Waterfall tagged in OpenStreetMap', pick: (t) => has(t, 'falls') },
 ];
 export const HOW_WE_RANK = 'Based on length, climb and what OpenStreetMap records about the trail. Not a review or a safety rating.';
@@ -146,7 +151,7 @@ export function inBucket(t: Trail, b: LengthBucket): boolean {
 
 export function applyFilters(trails: Trail[], f: HomeFilters, origin?: LngLat): Trail[] {
   const out = rankTrails(filterTrails(trails), origin).filter((t) =>
-    (!f.length || inBucket(t, f.length)) && (!f.difficulty || level(t) === f.difficulty) && (!f.dogs || has(t, 'dogs')));
+    (!f.length || inBucket(t, f.length)) && (!f.difficulty || level(t) === f.difficulty) && (!f.dogs || dogsStatus(t) === 'yes'));
   const away = (t: Trail) => { const th = trailheadOf(t); return origin ? haversine(origin, [th.lon, th.lat]) : 0; };
   if (f.sort === 'nearest' && origin) out.sort((a, b) => away(a) - away(b));
   if (f.sort === 'shortest') out.sort((a, b) => roundTripM(a) - roundTripM(b));

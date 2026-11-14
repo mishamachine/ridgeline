@@ -202,3 +202,19 @@ describe('Home: no dead ends and structure', () => {
     expect(html({ mode: 'outside', collections: [], area: null }).match(/<h1/g)).toHaveLength(1);
   });
 });
+
+describe('Home: dogs on cards', () => {
+  it('says Dogs: Yes (OSM) on a tagged trail and keeps the row subtitle', () => {
+    const t = { ...trails[3], highlights: ['dogs'] };
+    const h = html({ collections: [{ id: 'dogs', title: 'Dog-friendly', sub: 'Dogs tagged Yes in OpenStreetMap', pick: () => true, trails: [t] }] });
+    expect(h).toContain('Dogs: Yes (OSM)');
+    expect(h).toContain('Dogs tagged Yes in OpenStreetMap');
+  });
+  it('says Dogs: Unknown inside a national park', () => {
+    const [x0, y0] = trails[3].coords[0]; // moved to Mount Rainier National Park
+    const t = { ...trails[3], highlights: ['dogs'], trailhead: undefined, coords: trails[3].coords.map(([x, y]) => [x - x0 - 121.73, y - y0 + 46.8] as [number, number]) };
+    const h = html({ collections: [{ id: 'top', title: 'Top picks', sub: '', pick: () => true, trails: [t] }] });
+    expect(h).toContain('Dogs: Unknown');
+    expect(h).not.toContain('Dogs: Yes');
+  });
+});

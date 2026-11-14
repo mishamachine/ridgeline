@@ -119,6 +119,12 @@ describe('Home network use', () => {
     await onEnter(' squamish ', [], undefined, true); // would need ~1.1 s on the throttle if it queued
     expect(calls).toBe(1);
   });
+  it('the app fetches the tile template only when a map screen is about to show', () => {
+    const app = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
+    expect(app.match(/getTileTemplate\(\)/g)).toHaveLength(1);
+    expect(app).toMatch(/needsMap && !tpl\) getTileTemplate\(\)/);
+    expect(app).toMatch(/const needsMap = !!browse \|\| route\.kind === 'trail' \|\| !!hike/);
+  });
   it('offline Enter makes no call', async () => {
     const { onEnter } = await import('./homeSearch');
     expect(await onEnter('Seattle', [], undefined, false)).toEqual({ kind: 'offline' });

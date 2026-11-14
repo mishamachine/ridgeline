@@ -3,7 +3,7 @@ import { FindIcon, CloseIcon } from '../components/NavIcons';
 import { getIndex } from '../lib/cells';
 import type { LngLat } from '../lib/geo';
 import {
-  NO_FILTERS, applyFilters, buildCollections, coverageRegions, defaultRegion, deviceTimeZone, greeting, isCovered, isFiltering,
+  NO_FILTERS, applyFilters, regionNameAt, buildCollections, coverageRegions, defaultRegion, deviceTimeZone, greeting, isCovered, isFiltering,
   loadAround, nearestRegion, type Collection, type HomeFilters, type Region,
 } from '../lib/home';
 import { remember } from '../lib/lookup';
@@ -12,7 +12,6 @@ import type { Place } from '../lib/geocode';
 import { loadNameIndex, searchNames, type NameEntry } from '../lib/nameIndex';
 import { listAllSaved, type SavedItem } from '../lib/saved';
 import { getSetting, putSetting } from '../lib/store';
-import { mi } from '../lib/format';
 import type { Trail } from '../lib/trails';
 import { HomeView, type Area, type HomeMode, type LocState } from './HomeView';
 
@@ -193,7 +192,7 @@ export function Home({ visible, version, hike, savedIds, offlineIds, onOpen, onO
               {matches.map((m) => (
                 <button key={m[0]} role="option" aria-selected="false" className="hm-sg" onKeyDown={optionKey} onClick={() => { closeSearch(); onOpenId(m[0], [m[2], m[3]]); }}>
                   <span className="hm-sg-name">{m[1]}</span>
-                  <span className="hm-sg-sub">Trail · {mi(m[4])} mi one way</span>
+                  <span className="hm-sg-sub">{regionNameAt(m[2], m[3]) ? `Trail · ${regionNameAt(m[2], m[3])}` : 'Trail'}</span>
                 </button>
               ))}
               {places?.map((p, i) => (

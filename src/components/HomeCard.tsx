@@ -2,6 +2,7 @@ import { memo } from 'react';
 import { M_TO_FT } from '../lib/geo';
 import { ft, mi } from '../lib/format';
 import { gainM, level, roundTripM } from '../lib/plan';
+import { DOGS_UNKNOWN, DOGS_YES, dogsStatus } from '../lib/parks';
 import type { Trail } from '../lib/trails';
 import { DriveIcon, SavedIcon, CheckIcon } from './NavIcons';
 import { RouteSketch } from './RouteSketch';
@@ -24,6 +25,7 @@ export const gainLabel = (t: Trail) => { const g = gainM(t); return g == null ? 
 export const HomeCard = memo(function HomeCard({ trail, saved, offline, driveLater = true, onOpen, onToggleSave }: Props) {
   const gain = gainLabel(trail);
   const lv = level(trail);
+  const dogs = dogsStatus(trail);
   return (
     <article className="hm-card">
       <button className="hm-card-main" onClick={() => onOpen(trail)}>
@@ -31,6 +33,7 @@ export const HomeCard = memo(function HomeCard({ trail, saved, offline, driveLat
         <span className="hm-name">{trail.name}</span>
         <span className="hm-m1">{distanceLabel(trail)}</span>
         <span className="hm-m2">{gain}{gain && lv ? ' · ' : ''}{lv}</span>
+        {dogs !== 'none' && <span className={`hm-tg${dogs === 'yes' ? '' : ' hm-dim'}`}>{dogs === 'yes' ? DOGS_YES : DOGS_UNKNOWN}</span>}
       </button>
       <div className="hm-ft">
         {offline

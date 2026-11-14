@@ -20,7 +20,7 @@ import { searchPlaces, type Place } from '../lib/geocode';
 import { remember } from '../lib/lookup';
 import { shareApp } from '../lib/share';
 import { mi } from '../lib/format';
-import { roundTripMi } from '../lib/home';
+import { regionNameAt, roundTripMi } from '../lib/home';
 import type { BrowsePreset } from './Home';
 
 interface Props {
@@ -284,7 +284,7 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
               {matches.map((m) => (
                 <button key={m[0]} role="option" aria-selected="false" className="sg" onClick={() => { closeSearch(); onOpenId(m[0], [m[2], m[3]]); }}>
                   <span className="sg-name">{m[1]}</span>
-                  <span className="sg-sub">Trail · {mi(m[4])} mi long</span>
+                  <span className="sg-sub">{regionNameAt(m[2], m[3]) ? `Trail · ${regionNameAt(m[2], m[3])}` : 'Trail'}</span>
                 </button>
               ))}
               {places?.map((p, i) => (
@@ -309,7 +309,7 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
           <button className="chip2" aria-pressed={chips.has('under3')} onClick={() => toggle('under3')}>Under 3 h</button>
           <button className="chip2" aria-pressed={chips.has('easy')} onClick={() => toggle('easy')}>Easy</button>
           {hasHighlights && <button className="chip2" aria-pressed={chips.has('views')} onClick={() => toggle('views')}>Views</button>}
-          {hasHighlights && <button className="chip2" aria-pressed={chips.has('dogs')} onClick={() => toggle('dogs')}>Dogs OK</button>}
+          {hasHighlights && <button className="chip2" aria-pressed={chips.has('dogs')} onClick={() => toggle('dogs')}>Dogs: Yes (OSM)</button>}
           <button className="chip2" aria-pressed={chips.has('short')} onClick={() => toggle('short')}>Under 3 mi</button>
           {hasHighlights && <button className="chip2" aria-pressed={chips.has('falls')} onClick={() => toggle('falls')}>Waterfalls</button>}
         </div>
