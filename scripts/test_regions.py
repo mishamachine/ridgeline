@@ -26,7 +26,7 @@ class RegionConfig(unittest.TestCase):
             for c in r['classics']:
                 self.assertLess(c['len_m'][0], c['len_m'][1])
                 self.assertTrue(c['published_ft'] > 0 and c['source'].startswith('https://'), c['name'])   # every classic carries a published gain and where it came from
-            self.assertTrue(r['name'] and r['cc'])
+            self.assertTrue(r['name'] and r['cc'] and len(r['code']) == 2)
 
     def test_matrix_lists_every_region_and_flags_the_v1_copy(self):
         import io
@@ -149,7 +149,7 @@ class Merge(unittest.TestCase):
 
 class Combine(unittest.TestCase):
     def test_v2_tree_and_frozen_v1_copy(self):
-        regs = [{'id': 'a', 'name': 'A', 'cc': 'us', 'v1': True}, {'id': 'b', 'name': 'B', 'cc': 'us'}]
+        regs = [{'id': 'a', 'code': 'AA', 'name': 'A', 'cc': 'us', 'v1': True}, {'id': 'b', 'code': 'BB', 'name': 'B', 'cc': 'us'}]
         g = [-122.0, 47.0, -121.9999, 47.0001]
         with tempfile.TemporaryDirectory() as t:
             def make(rid, cells, bbox, names, v1=False):
@@ -173,6 +173,8 @@ class Combine(unittest.TestCase):
             self.assertEqual(idx['cells'], ['1_1', '1_2', '3_3'])
             self.assertEqual(idx['bbox'], [0, 0, 2, 2])
             self.assertEqual([r['id'] for r in idx['regions']], ['a', 'b'])
+            self.assertEqual(idx['regions'][0]['code'], 'AA')
+            self.assertEqual(idx['regions'][1]['center'], [1.5, 1.5])   # the Home screen reads code, name and center from here
             self.assertEqual(idx['regions'][1]['names'], 'names/b.json')
             self.assertEqual(idx['regions'][0]['places'], 'places/a.json')
             m = json.load(open(os.path.join(v2, '1_1.json')))

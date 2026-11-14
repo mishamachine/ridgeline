@@ -2,7 +2,7 @@
 import type { LngLat } from './geo';
 import type { CellIndex } from './cells';
 
-export interface CoverageRegion { id: string; name: string; cc?: string; bbox: [number, number, number, number]; cells?: number; names?: string; places?: string }
+export interface CoverageRegion { id: string; /** Two-letter code, as Home shows it. */ code: string; name: string; center?: LngLat; cc?: string; bbox: [number, number, number, number]; cells?: number; names?: string; places?: string }
 
 export const regionsOf = (index: CellIndex | null): CoverageRegion[] => index?.regions ?? [];
 
@@ -33,13 +33,4 @@ export function centreOf(r: CoverageRegion): LngLat { return [(r.bbox[0] + r.bbo
 export function listNames(regions: CoverageRegion[]): string {
   const n = regions.map((r) => r.name);
   return n.length < 2 ? n.join('') : `${n.slice(0, -1).join(', ')} and ${n[n.length - 1]}`;
-}
-
-/** Nominatim viewbox (west,north,east,south) around every covered region, and the country codes they sit in. */
-export function placeBias(regions: CoverageRegion[]): { viewbox?: string; countrycodes?: string } {
-  if (!regions.length) return {};
-  const w = Math.min(...regions.map((r) => r.bbox[0])), s = Math.min(...regions.map((r) => r.bbox[1]));
-  const e = Math.max(...regions.map((r) => r.bbox[2])), n = Math.max(...regions.map((r) => r.bbox[3]));
-  const cc = [...new Set(regions.map((r) => r.cc).filter(Boolean))].join(',');
-  return { viewbox: `${w},${n},${e},${s}`, ...(cc ? { countrycodes: cc } : {}) };
 }

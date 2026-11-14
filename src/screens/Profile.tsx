@@ -225,7 +225,7 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, version, p
           <details className="pf-row" style={{ display: 'block', padding: 0 }}>
             <summary className="pf-row" style={{ borderBottom: 0, cursor: 'pointer', listStyle: 'none' }}><span>Location &amp; privacy</span><span className="val">Stays on your phone</span></summary>
             <div className="pf-credits">
-              <p>Ridgeline uses your location to centre the map when you open it or tap Locate, and your precise location while you navigate or record a hike. It stops when you finish. In the web version, location stops when your screen locks, so Ridgeline keeps the screen on. Your location is never sent to our servers.</p>
+              <p>Ridgeline uses your location to centre the map when you open it or tap Locate, and your precise location while you navigate or record a hike. It stops when you finish. In the web version, location stops when your screen locks, so Ridgeline keeps the screen on. Your exact location is never sent to our servers. To show trails near you, Ridgeline downloads trail data for the area around you, so our host can tell roughly which area (about 25 km across) you're in.</p>
               <a className="pf-link" href={`${base}privacy/`}>Read the privacy policy</a>
             </div>
           </details>

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { byDistance, inCoverage, listNames, placeBias, regionAt, type CoverageRegion } from './coverage';
+import { byDistance, inCoverage, listNames, regionAt, type CoverageRegion } from './coverage';
 
-const WA: CoverageRegion = { id: 'washington', name: 'Washington', cc: 'us', bbox: [-124.75, 45.5, -116.75, 49.0] };
-const OR: CoverageRegion = { id: 'oregon', name: 'Oregon', cc: 'us', bbox: [-124.75, 41.75, -116.25, 46.5] };
+const WA: CoverageRegion = { id: 'washington', code: 'WA', name: 'Washington', cc: 'us', bbox: [-124.75, 45.5, -116.75, 49.0] };
+const OR: CoverageRegion = { id: 'oregon', code: 'OR', name: 'Oregon', cc: 'us', bbox: [-124.75, 41.75, -116.25, 46.5] };
 
 describe('coverage', () => {
   it('finds the region a point is in, and says so when none', () => {
@@ -18,10 +18,6 @@ describe('coverage', () => {
     expect(listNames([WA, OR, { ...OR, name: 'Idaho' }])).toBe('Washington, Oregon and Idaho');
   });
   it('orders regions nearest first', () => { expect(byDistance([WA, OR], [-120, 42.5])[0].id).toBe('oregon'); });
-  it('builds the place-search bias from the regions, none without them', () => {
-    expect(placeBias([WA, OR])).toEqual({ viewbox: '-124.75,49,-116.25,41.75', countrycodes: 'us' });
-    expect(placeBias([])).toEqual({});
-  });
 });
 
 describe('support page attribution', () => {

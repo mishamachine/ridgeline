@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import './styles.css';
 import './redesign.css';
+import './home.css';
 import { addProtocol } from 'maplibre-gl';
 import { isNative } from './lib/native/platform';
 import { nativeSpeaker } from './lib/native/speech';

@@ -43,9 +43,23 @@ describe('routes', () => {
   it('the privacy page describes sharing a hike and carries today\'s date', () => {
     const html = readFileSync('public/privacy/index.html', 'utf8');
     expect(html).toContain('<h2>Sharing a hike</h2>');
-    expect(html).toContain('Last updated 13 November 2026');
+    expect(html).toContain('Last updated 14 November 2026');
     expect(html).toContain('first and last 200 m');
     expect(html).toContain('whether you finished');
+  });
+  it('the location wording says exact location, and what our host can tell', () => {
+    const html = readFileSync('public/privacy/index.html', 'utf8');
+    expect(html.match(/Your exact location, recorded hikes and saved trails stay on your device\./g)).toHaveLength(2);
+    expect(html).toContain("Your exact location is never sent to our servers. To show trails near you, Ridgeline downloads trail data for the area around you, so our host can tell roughly which area (about 25 km across) you're in.");
+    expect(html).toContain("browser type and pages loaded, and, from the trail files your device downloads, roughly which area (about 25 km across) you're looking at.");
+    expect(html).not.toContain('Your location is never sent to our servers');
+    const profile = readFileSync('src/screens/Profile.tsx', 'utf8');
+    expect(profile).toContain("Your exact location is never sent to our servers. To show trails near you, Ridgeline downloads trail data for the area around you, so our host can tell roughly which area (about 25 km across) you're in.");
+    expect(profile).toContain('Stays on your phone');
+    const support = readFileSync('public/support/index.html', 'utf8');
+    expect(support).toContain("Your exact location is never sent to our servers. To show trails near you, Ridgeline downloads trail data for the area around you, so our host can tell roughly which area (about 25 km across) you're in.");
+    expect(support).not.toContain('Your location is never sent to us.');
+    expect(readFileSync('src/screens/Onboarding.tsx', 'utf8')).toContain("Your exact location stays on your phone. It\\'s never sent to our servers.");
   });
   it('refuses a bad hike id', () => {
     expect(parseRoute('/h/%E0%A4%A', '', '/', true)).toEqual({ kind: 'tab', tab: 'find' });

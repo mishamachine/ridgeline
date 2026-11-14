@@ -239,7 +239,7 @@ def combine(root, dirs, regs=None):
         places['region'] = rid
         with open(os.path.join(out, 'places', rid + '.json'), 'w', encoding='utf-8') as f:
             json.dump(places, f, separators=(',', ':'), ensure_ascii=False)
-        listing.append({'id': rid, 'name': r['name'], 'cc': r['cc'], 'bbox': idx['bbox'], 'cells': len(idx['cells']), 'names': f'names/{rid}.json', 'places': f'places/{rid}.json'})
+        listing.append({'id': rid, 'code': r['code'], 'name': r['name'], 'cc': r['cc'], 'center': [round((idx['bbox'][0] + idx['bbox'][2]) / 2, 4), round((idx['bbox'][1] + idx['bbox'][3]) / 2, 4)] if idx['bbox'] else None, 'bbox': idx['bbox'], 'cells': len(idx['cells']), 'names': f'names/{rid}.json', 'places': f'places/{rid}.json'})
         if idx['bbox']:
             boxes.append(idx['bbox'])
         sources.append(r['name'])

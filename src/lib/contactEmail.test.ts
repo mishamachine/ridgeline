@@ -14,7 +14,7 @@ describe('public contact email', () => {
     expect(read('public/privacy/index.html')).toContain(`Contact: ${MAILTO} or <a href="../support/">our support page</a>.`)
   })
   it('privacy page date reflects the changed contact line', () => {
-    expect(read('public/privacy/index.html')).toContain('Last updated 13 November 2026')
+    expect(read('public/privacy/index.html')).toContain('Last updated 14 November 2026')
   })
   it('release doc names the review and Play listing contact', () => {
     const doc = read('docs/NATIVE_RELEASE.md')

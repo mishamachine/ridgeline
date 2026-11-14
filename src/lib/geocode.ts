@@ -1,14 +1,11 @@
-// Place search (Nominatim), leaning on the covered regions so "Rainier" means the mountain, not a town elsewhere.
-// The public Nominatim fallback is removed in a separate change; this only stops it being tied to one state.
+// Place search (Nominatim): one request per Enter, US and Canada (BC), no regional bias.
 export interface Place { name: string; detail: string; lon: number; lat: number; bbox: [number, number, number, number] }
 
 const URL_BASE = 'https://nominatim.openstreetmap.org/search';
 
-/** One request. `bias` (from the covered regions) adds a preferred viewbox (not bounded) and country codes; without it the search is worldwide. */
-export function placeQueryUrl(q: string, bias: { viewbox?: string; countrycodes?: string } = {}): string {
-  const p = new URLSearchParams({ format: 'jsonv2', limit: '5', q });
-  if (bias.countrycodes) p.set('countrycodes', bias.countrycodes);
-  if (bias.viewbox) { p.set('viewbox', bias.viewbox); p.set('bounded', '0'); }
+/** One request: US and Canada. */
+export function placeQueryUrl(q: string): string {
+  const p = new URLSearchParams({ format: 'jsonv2', limit: '5', countrycodes: 'us,ca', q });
   return `${URL_BASE}?${p}`;
 }
 
@@ -24,12 +21,15 @@ export function toPlaces(hits: Hit[]): Place[] {
 
 const cache = new Map<string, Place[]>();
 
+/** Answer already in memory for this query, if any. */
+export const cachedPlaces = (q: string) => cache.get(q.trim().toLowerCase());
+
 /** One request per search, only when the user submits (never while typing); repeats come from memory. */
-export async function searchPlaces(q: string, signal?: AbortSignal, bias: { viewbox?: string; countrycodes?: string } = {}): Promise<Place[]> {
-  const key = `${q.trim().toLowerCase()}|${bias.viewbox ?? ''}|${bias.countrycodes ?? ''}`;
+export async function searchPlaces(q: string, signal?: AbortSignal): Promise<Place[]> {
+  const key = q.trim().toLowerCase();
   const hit = cache.get(key);
   if (hit) return hit;
-  const res = await fetch(placeQueryUrl(q, bias), { signal, headers: { Accept: 'application/json' } });
+  const res = await fetch(placeQueryUrl(q), { signal, headers: { Accept: 'application/json' } });
   if (!res.ok) throw new Error(`Place search failed (${res.status}).`);
   const places = toPlaces(await res.json());
   cache.set(key, places);

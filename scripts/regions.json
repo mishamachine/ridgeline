@@ -51,7 +51,8 @@
      "source": "https://www.wta.org/go-hiking/hikes/granite-mountain"
     }
    ],
-   "v1": true
+   "v1": true,
+   "code": "WA"
   },
   {
    "id": "oregon",
@@ -89,7 +90,8 @@
      "published_ft": 1070,
      "source": "https://www.oregonhikers.org/field_guide/Mccall_point_hike"
     }
-   ]
+   ],
+   "code": "OR"
   }
  ]
 }

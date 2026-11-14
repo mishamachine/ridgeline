@@ -27,7 +27,7 @@ export function onboardingCards(f: { voice: boolean; screenOff: boolean; badges:
   return cards;
 }
 
-const PERKS = ['Centre the map on you when you open it or tap Locate', 'Your precise location while you navigate or record a hike', 'Stays on your phone. Never sent to our servers.'];
+const PERKS = ['Centre the map on you when you open it or tap Locate', 'Your precise location while you navigate or record a hike', 'Your exact location stays on your phone. It\'s never sent to our servers.'];
 
 /**
  * First-run tour. `replay` hides the location card (replayed from Profile).

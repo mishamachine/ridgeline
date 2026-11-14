@@ -156,16 +156,11 @@ describe('name search', () => {
 });
 
 describe('place search', () => {
-  it('biases the request to the covered regions (viewbox, not bounded) when it has them', () => {
-    const u = new URL(placeQueryUrl('Mount Rainier', { viewbox: '-124.75,49,-116.25,41.75', countrycodes: 'us' }));
-    expect(u.searchParams.get('countrycodes')).toBe('us');
-    expect(u.searchParams.get('viewbox')).toBe('-124.75,49,-116.25,41.75');
-    expect(u.searchParams.get('bounded')).toBe('0');
-  });
-  it('is worldwide with no bias, so nothing is tied to one state', () => {
+  it('makes one US and Canada request with no regional bias', () => {
     const u = new URL(placeQueryUrl('Mount Rainier'));
-    expect(u.searchParams.has('countrycodes')).toBe(false);
+    expect(u.searchParams.get('countrycodes')).toBe('us,ca');
     expect(u.searchParams.has('viewbox')).toBe(false);
+    expect(u.searchParams.has('bounded')).toBe(false);
   });
   it('asks once per query and answers repeats from memory', async () => {
     let calls = 0;
