@@ -20,7 +20,6 @@ import { loadNameIndex, searchNames, type NameEntry } from '../lib/nameIndex';
 import { searchPlaces, type Place } from '../lib/geocode';
 import { remember } from '../lib/lookup';
 import { shareApp } from '../lib/share';
-import { mi } from '../lib/format';
 import { isShort, regionNameAt, shortLabel } from '../lib/home';
 import { useSettings } from '../lib/settings';
 import type { BrowsePreset } from './Home';
