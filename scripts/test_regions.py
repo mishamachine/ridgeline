@@ -49,6 +49,29 @@ class RegionConfig(unittest.TestCase):
             regions.pbf_url('us/atlantis', idx)
 
 
+class Download(unittest.TestCase):
+    def test_user_agent_is_the_agreed_string(self):
+        self.assertEqual(regions.USER_AGENT, 'ridgeline-trail-build (machinemisha@gmail.com; github.com/mishamachine/ridgeline)')
+
+    def test_note_reports_state_and_pbf_date(self):
+        import io
+        import contextlib
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as t:
+            os.chdir(t)
+            try:
+                os.makedirs('extract')
+                json.dump({'url': 'u', 'last_modified': 'Thu, 13 Nov 2026 21:23:01 GMT', 'downloaded': '2026-11-14T05:00Z'}, open('extract/oregon.osm.pbf.json', 'w'))
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    regions.cmd_note('oregon', 'cache hit', 'pbf-oregon-2026-W46')
+                self.assertIn('cache hit', buf.getvalue())
+                self.assertIn('Thu, 13 Nov 2026 21:23:01 GMT', buf.getvalue())
+                self.assertIn('pbf-oregon-2026-W46', buf.getvalue())
+            finally:
+                os.chdir(cwd)
+
+
 class Checks(unittest.TestCase):
     R = {'name': 'Oregon', 'expected_trails': 1000, 'classics': [
         {'name': 'Multnomah Falls', 'len_m': [1000, 4000]}, {'name': 'Misery Ridge', 'len_m': [1000, 2000]}, {'name': 'Tom McCall', 'len_m': [2000, 3500]}]}

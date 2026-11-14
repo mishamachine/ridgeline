@@ -4,6 +4,7 @@ Region tooling for the multi-region trail build (scripts/regions.json).
 
   regions.py matrix                       JSON for the GitHub Actions matrix
   regions.py fetch <id> <dest.pbf>        download the region's Geofabrik extract (URL from Geofabrik's JSON index)
+  regions.py note <id> <state> [key]      job-summary line: cache hit or miss, the PBF date
   regions.py check <id> <dir>             report + fail if under 50% of the expected trail count or a classic is missing
   regions.py combine <out> <dir>...       merge per-region build dirs (each named by region id) into <out>/v2, plus the frozen v1 copy in <out>
 
@@ -22,7 +23,7 @@ import name_index
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 INDEX_URL = 'https://download.geofabrik.de/index-v1-nogeom.json'
-USER_AGENT = 'ridgeline-trail-build (github.com/mishamachine/ridgeline; machinemisha@gmail.com)'
+USER_AGENT = 'ridgeline-trail-build (machinemisha@gmail.com; github.com/mishamachine/ridgeline)'
 MIN_SHARE = 0.5
 MAX_GAIN_ERR_PCT = 15       # a classic's stored gain must be within this share of its published figure
 MAX_GAIN_LOSS_SHARE = 0.02   # share of trails (with 100 ft or more of gain) that may lose over 25% of it on the simplified drawn line
@@ -51,7 +52,7 @@ def http_get(url, dest=None):
                 with open(dest + '.part', 'wb') as f:
                     shutil.copyfileobj(res, f)
                 os.replace(dest + '.part', dest)
-                return None
+                return res.headers.get('Last-Modified')
         except Exception as e:  # noqa: BLE001 - retry any network failure
             last = e
             time.sleep(5 * (attempt + 1))
@@ -74,8 +75,23 @@ def cmd_matrix():
 def cmd_fetch(rid, dest):
     url = pbf_url(region(rid)['geofabrik'], json.loads(http_get(INDEX_URL)))
     print(f'downloading {url}')
-    http_get(url, dest)
-    print(f'{dest}: {os.path.getsize(dest) / 1e6:.0f} MB')
+    modified = http_get(url, dest)
+    with open(dest + '.json', 'w') as f:   # kept with the cached extract: where and which version it is
+        json.dump({'url': url, 'last_modified': modified, 'downloaded': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%MZ')}, f)
+    print(f'{dest}: {os.path.getsize(dest) / 1e6:.0f} MB, last modified {modified}')
+
+
+def cmd_note(rid, state, matched=''):
+    """Job summary line for the extract: cache hit, miss (downloaded) or the download failed and an older cached extract was used."""
+    side = os.path.join('extract', rid + '.osm.pbf.json')
+    meta = json.load(open(side)) if os.path.exists(side) else {}
+    line = (f"| {region(rid)['name']} extract | {state} | PBF last modified {meta.get('last_modified', 'unknown')} | "
+            f"downloaded {meta.get('downloaded', 'unknown')} | cache key {matched or 'none'} |")
+    print(line)
+    summary = os.environ.get('GITHUB_STEP_SUMMARY')
+    if summary:
+        with open(summary, 'a') as f:
+            f.write('| Region | Geofabrik extract | PBF date | When downloaded | Cache |\n|---|---|---|---|---|\n' + line + '\n\n')
 
 
 def norm(s):
@@ -276,6 +292,8 @@ if __name__ == '__main__':
         cmd_matrix()
     elif a[:1] == ['fetch'] and len(a) == 3:
         cmd_fetch(a[1], a[2])
+    elif a[:1] == ['note'] and len(a) >= 3:
+        cmd_note(a[1], a[2], a[3] if len(a) > 3 else '')
     elif a[:1] == ['check'] and len(a) == 3:
         cmd_check(a[1], a[2])
     elif a[:1] == ['combine'] and len(a) >= 3:
