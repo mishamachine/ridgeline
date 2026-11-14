@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { FindIcon, CloseIcon } from '../components/NavIcons';
 import { getIndex } from '../lib/cells';
 import type { LngLat } from '../lib/geo';
@@ -57,6 +57,7 @@ export function Home({ visible, version, hike, savedIds, offlineIds, onOpen, onO
   const [searchMsg, setSearchMsg] = useState<string | null>(null);
   const [places, setPlaces] = useState<Place[] | null>(null);
   const [busy, setBusy] = useState(false);
+  const latestQ = useRef(''); // the text in the box now, so a slow answer for older text is dropped
 
   const regions = useMemo(() => coverageRegions(index), [index]);
   const region = useMemo(() => defaultRegion(regions, deviceTimeZone()), [regions]);
@@ -121,11 +122,12 @@ export function Home({ visible, version, hike, savedIds, offlineIds, onOpen, onO
   let mode: HomeMode = 'loading';
   if (!online) mode = 'offline';
   else if (outside) mode = 'outside';
-  else if (failed || (indexTried && !index)) mode = 'error';
+  else if (failed || (indexTried && (!index || index.cells.length === 0 || !origin))) mode = 'error';
   else if (trails) mode = 'ready';
 
   const matches = useMemo(() => searchNames(names, deferred, 6, origin ?? undefined), [names, deferred, originKey]);
   const q = query.trim();
+  latestQ.current = q;
   const showSuggest = focused && q.length >= 2;
 
   async function focusSearch() {
@@ -138,15 +140,17 @@ export function Home({ visible, version, hike, savedIds, offlineIds, onOpen, onO
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (q.length < 2 || busy) return;
+    const asked = q;
     setBusy(true); setSearchMsg(null);
     try {
       const list = names.length ? names : await loadNameIndex();
       if (!names.length) setNames(list);
-      const r = await onEnter(q, list, origin ?? undefined, navigator.onLine);
+      const r = await onEnter(asked, list, origin ?? undefined, navigator.onLine);
+      if (latestQ.current !== asked) return; // the text changed while we waited
       if (r.kind === 'trail') { closeSearch(); onOpenId(r.entry[0], [r.entry[2], r.entry[3]]); }
       else if (r.kind === 'places') setPlaces(r.places);
       else setSearchMsg(r.kind === 'offline' ? 'Place search needs a connection.' : 'No match in our trails or places, try another name');
-    } catch { setSearchMsg('Place search failed. Try again.'); }
+    } catch { if (latestQ.current === asked) setSearchMsg('Place search failed. Try again.'); }
     finally { setBusy(false); }
   }
 
@@ -157,31 +161,49 @@ export function Home({ visible, version, hike, savedIds, offlineIds, onOpen, onO
     setFilters(NO_FILTERS);
   }, []);
 
+  const options = matches.length + (places?.length ?? 0);
+  const optionEls = () => Array.from(document.querySelectorAll<HTMLElement>('#home-suggest [role="option"]'));
+  const leave = (e: React.FocusEvent) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocused(false); };
+  const inputKey = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowDown' && options) { e.preventDefault(); optionEls()[0]?.focus(); }
+    else if (e.key === 'Escape') { e.preventDefault(); closeSearch(); }
+  };
+  const optionKey = (e: React.KeyboardEvent) => {
+    const els = optionEls(), at = els.indexOf(e.currentTarget as HTMLElement);
+    if (e.key === 'ArrowDown') { e.preventDefault(); els[Math.min(els.length - 1, at + 1)]?.focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); if (at <= 0) document.getElementById('home-q')?.focus(); else els[at - 1]?.focus(); }
+    else if (e.key === 'Escape') { e.preventDefault(); document.getElementById('home-q')?.focus(); closeSearch(); }
+  };
+
   const search = (
-    <div className="hm-searchbox">
+    <div className="hm-searchbox" onBlur={leave}>
       <form className="hm-search" onSubmit={onSubmit} role="search">
         <FindIcon />
         <label htmlFor="home-q" className="sr">Search a place or trail</label>
-        <input id="home-q" type="search" role="combobox" aria-expanded={showSuggest} aria-controls="home-suggest" aria-autocomplete="list" enterKeyHint="search"
+        <input id="home-q" type="search" role="combobox" aria-expanded={showSuggest && options > 0} aria-controls={options ? 'home-suggest' : undefined} aria-autocomplete="list" enterKeyHint="search"
           placeholder={online ? 'Search a place or trail' : 'Search trails by name (offline)'} value={query}
           onChange={(e) => { setQuery(e.target.value); setFocused(true); setSearchMsg(null); setPlaces(null); }}
-          onFocus={focusSearch} onBlur={() => setFocused(false)} autoComplete="off" autoCorrect="off" spellCheck={false} />
+          onKeyDown={inputKey} onFocus={focusSearch} autoComplete="off" autoCorrect="off" spellCheck={false} />
         {query && <button type="button" className="hm-clear" aria-label="Clear search" onMouseDown={(e) => e.preventDefault()} onClick={closeSearch}><CloseIcon size={18} /></button>}
       </form>
       {showSuggest && (
-        <div className="hm-suggest" id="home-suggest" role="listbox" onPointerDown={(e) => e.preventDefault()}>
-          {matches.map((m) => (
-            <button key={m[0]} role="option" aria-selected="false" className="hm-sg" onClick={() => { closeSearch(); onOpenId(m[0], [m[2], m[3]]); }}>
-              <span className="hm-sg-name">{m[1]}</span>
-              <span className="hm-sg-sub">Trail · {mi(m[4])} mi long</span>
-            </button>
-          ))}
-          {places?.map((p, i) => (
-            <button key={`${p.lon},${p.lat},${i}`} role="option" aria-selected="false" className="hm-sg" onClick={() => { closeSearch(); choose({ name: p.name, center: [p.lon, p.lat] }); }}>
-              <span className="hm-sg-name">{p.name}</span>
-              <span className="hm-sg-sub">Place · {p.detail}</span>
-            </button>
-          ))}
+        <div className="hm-suggest" onPointerDown={(e) => e.preventDefault()}>
+          {options > 0 && (
+            <div id="home-suggest" role="listbox" aria-label="Suggestions">
+              {matches.map((m) => (
+                <button key={m[0]} role="option" aria-selected="false" className="hm-sg" onKeyDown={optionKey} onClick={() => { closeSearch(); onOpenId(m[0], [m[2], m[3]]); }}>
+                  <span className="hm-sg-name">{m[1]}</span>
+                  <span className="hm-sg-sub">Trail · {mi(m[4])} mi one way</span>
+                </button>
+              ))}
+              {places?.map((p, i) => (
+                <button key={`${p.lon},${p.lat},${i}`} role="option" aria-selected="false" className="hm-sg" onKeyDown={optionKey} onClick={() => { closeSearch(); choose({ name: p.name, center: [p.lon, p.lat] }); }}>
+                  <span className="hm-sg-name">{p.name}</span>
+                  <span className="hm-sg-sub">Place · {p.detail}</span>
+                </button>
+              ))}
+            </div>
+          )}
           {busy && <div className="hm-sg-msg" role="status">Searching…</div>}
           {!busy && !places && !matches.length && !searchMsg && <div className="hm-sg-msg">Press Enter to search trails and places.</div>}
           {searchMsg && <div className="hm-sg-msg" role="status">{searchMsg}</div>}
@@ -200,7 +222,6 @@ export function Home({ visible, version, hike, savedIds, offlineIds, onOpen, onO
       onOpen={onOpen} onToggleSave={onToggleSave}
       onUseLocation={() => locate(() => setPicked(null))}
       onPickRegion={(r: Region) => choose({ name: r.name, center: r.center, region: true })}
-      onPickPlace={() => document.getElementById('home-q')?.focus()}
       onSeeAll={(id) => onBrowse({ collection: id, center: origin ?? undefined })}
       onMap={() => onBrowse({ map: true, center: origin ?? undefined })}
       onResume={onResume}

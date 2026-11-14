@@ -110,6 +110,15 @@ describe('Home network use', () => {
       expect(starts[2] - starts[1]).toBeGreaterThanOrEqual(1000);
     } finally { vi.useRealTimers(); }
   });
+  it('a repeated place answers from memory: no second request and no wait', async () => {
+    const { onEnter, resetThrottleForTests } = await import('./homeSearch');
+    resetThrottleForTests();
+    let calls = 0;
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(async () => { calls++; return { ok: true, status: 200, json: async () => [{ display_name: 'Squamish, BC', name: 'Squamish', lon: '-123.15', lat: '49.7', boundingbox: ['49.6', '49.8', '-123.3', '-123.0'] }] }; });
+    await onEnter('Squamish', [], undefined, true);
+    await onEnter(' squamish ', [], undefined, true); // would need ~1.1 s on the throttle if it queued
+    expect(calls).toBe(1);
+  });
   it('offline Enter makes no call', async () => {
     const { onEnter } = await import('./homeSearch');
     expect(await onEnter('Seattle', [], undefined, false)).toEqual({ kind: 'offline' });

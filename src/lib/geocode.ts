@@ -21,6 +21,9 @@ export function toPlaces(hits: Hit[]): Place[] {
 
 const cache = new Map<string, Place[]>();
 
+/** Answer already in memory for this query, if any. */
+export const cachedPlaces = (q: string) => cache.get(q.trim().toLowerCase());
+
 /** One request per search, only when the user submits (never while typing); repeats come from memory. */
 export async function searchPlaces(q: string, signal?: AbortSignal): Promise<Place[]> {
   const key = q.trim().toLowerCase();

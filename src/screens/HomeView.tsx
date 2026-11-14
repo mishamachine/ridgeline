@@ -40,7 +40,6 @@ export interface HomeViewProps {
   onToggleSave: (t: Trail) => void;
   onUseLocation: () => void;
   onPickRegion: (r: Region) => void;
-  onPickPlace: () => void;
   onSeeAll: (id: Collection['id']) => void;
   onMap: () => void;
   onResume: () => void;
@@ -123,7 +122,7 @@ export function HomeView(p: HomeViewProps) {
   return (
     <div className="hm">
       <header className="hm-top">
-        <span className="hm-wm">{!outside && <Bobo size={24} />}Ridgeline</span>
+        {outside ? <span className="hm-wm">Ridgeline</span> : <h1 className="hm-wm"><Bobo size={24} />Ridgeline</h1>}
         {hello && <span className="hm-hi">{hello}</span>}
       </header>
 
@@ -156,6 +155,7 @@ export function HomeView(p: HomeViewProps) {
           {p.nearestCovered && (
             <div className="hm-pad hm-gap"><button className="hm-btn hm-pri" onClick={() => p.onPickRegion(p.nearestCovered!)}>Show trails in {p.nearestCovered.name}</button></div>
           )}
+          <div className="hm-pad hm-gap"><button className="hm-btn hm-ghost" onClick={p.onMap}>Browse all trails</button></div>
         </>
       )}
 
@@ -174,7 +174,12 @@ export function HomeView(p: HomeViewProps) {
       )}
 
       {p.mode === 'loading' && <p className="hm-note hm-pad" role="status">Loading trails…</p>}
-      {p.mode === 'error' && <p className="hm-note hm-pad hm-alert" role="alert">Couldn’t load trails. <button className="hm-link" onClick={p.onRetry}>Try again</button></p>}
+      {p.mode === 'error' && (
+        <div className="hm-pad">
+          <p className="hm-note hm-alert" role="alert">Couldn’t load trails. <button className="hm-link" onClick={p.onRetry}>Try again</button></p>
+          <div className="hm-gap"><button className="hm-btn hm-ghost" onClick={p.onMap}>Browse all trails</button></div>
+        </div>
+      )}
 
       {p.mode === 'ready' && p.results && (
         <section className="hm-pad" aria-label="Results">

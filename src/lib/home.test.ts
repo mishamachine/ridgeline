@@ -38,6 +38,9 @@ describe('coverage regions come from the data', () => {
     const r = coverageRegions({ ...WA, regions: [{ code: 'ID', name: 'Idaho', center: [-116.2, 43.6] }] } as CellIndex);
     expect(r).toMatchObject([{ code: 'ID', name: 'Idaho', center: [-116.2, 43.6] }]);
   });
+  it('skips an index region that has no centre and no cells to take one from', () => {
+    expect(coverageRegions({ ...index([]), regions: [{ code: 'ID', name: 'Idaho' }] } as CellIndex)).toEqual([]);
+  });
   it('is empty without an index', () => { expect(coverageRegions(null)).toEqual([]); });
   it('writes the coverage line from the list', () => {
     const r = (codes: string[]) => codes.map((code) => ({ code, name: code, center: [0, 0], cells: 1 }) as Region);

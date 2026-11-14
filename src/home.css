@@ -5,7 +5,7 @@
 .hm-pad { padding: 0 20px; }
 .hm-gap { margin-top: 22px; }
 .hm-top { display: flex; align-items: center; gap: 8px; padding: calc(var(--safe-top) + 16px) 20px 0; min-height: 44px; }
-.hm-wm { flex: 1; display: flex; align-items: center; gap: 8px; font: 800 22px/1 var(--display); letter-spacing: -0.03em; }
+.hm-wm { margin: 0; flex: 1; display: flex; align-items: center; gap: 8px; font: 800 22px/1 var(--display); letter-spacing: -0.03em; }
 .hm-hi { font: 500 14px var(--text); color: var(--grey); }
 .hm-bar { display: flex; gap: 8px; padding: 12px 20px 0; }
 .hm-searchbox { position: relative; flex: 1; min-width: 0; }

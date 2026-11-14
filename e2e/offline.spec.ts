@@ -1,4 +1,10 @@
+import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
+
+// The preview build serves no hosted trail data, so Home gets small fixtures: the index and the real Rattlesnake Ledge cell
+// (same shapes build_trails.py writes), and an empty-but-valid name index.
+const ledgeCell = JSON.parse(readFileSync(new URL('../src/lib/fixtures/wa-cells.json', import.meta.url), 'utf8')).ledge[0];
+const INDEX = { v: 1, built: '2026-11-06T00:00:00Z', source: 'e2e fixture', elevation: 'Copernicus DEM GLO-90', cell: 0.25, bbox: [-122, 47.25, -121.5, 47.5], cells: ['232_549'] };
 
 // The promise of the app: save a trail with a signal, lose the signal, and the trail page and Navigate still open.
 // Runs on the production build, so it also proves the code-split chunks are in the service worker's precache.
@@ -9,11 +15,15 @@ test('Home loads no map; "Explore the map" shows it after the lazy map chunk loa
   await page.addInitScript(() => { try { localStorage.setItem('ridgeline:settings', JSON.stringify({ onboardingSeen: true })); } catch { /* ignore */ } });
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
+  await page.route('**/trails/index.json', (route) => route.fulfill({ json: INDEX }));
+  await page.route('**/trails/232_549.json', (route) => route.fulfill({ json: ledgeCell }));
+  await page.route('**/trails/names.json', (route) => route.fulfill({ json: { v: 1, e: [] } }));
   const mapRequests: string[] = [];
   page.on('request', (r) => { if (r.url().startsWith('https://tiles.openfreemap.org/')) mapRequests.push(r.url()); });
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Home' })).toBeVisible();
   await expect(page.getByText('Ridgeline never collects your location.')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('heading', { name: /Top picks in Washington/ })).toBeVisible({ timeout: 20_000 });
   expect(mapRequests).toEqual([]); // no map tiles until someone asks for the map
   await page.getByRole('button', { name: /Explore the map/ }).click();
   await expect(page.locator('.map canvas').first()).toBeVisible({ timeout: 20_000 });

@@ -20,7 +20,7 @@ const base: HomeViewProps = {
   mode: 'ready', hello: 'Good morning', loc: 'unasked', area: { kind: 'region', name: 'Washington' }, regions: WA,
   collections: buildCollections(tagged), results: null, filters: NO_FILTERS, filtersOpen: false, hike: null, saved: [],
   savedIds: new Set(), offlineIds: new Set(), outsideName: null, nearestCovered: null, search: <input aria-label="Search" />,
-  onOpen: noop, onToggleSave: noop, onUseLocation: noop, onPickRegion: noop, onPickPlace: noop, onSeeAll: noop, onMap: noop, onResume: noop,
+  onOpen: noop, onToggleSave: noop, onUseLocation: noop, onPickRegion: noop, onSeeAll: noop, onMap: noop, onResume: noop,
   onFilters: noop, onToggleFilters: noop, onRetry: noop,
 };
 const html = (over: Partial<HomeViewProps> = {}) => renderToStaticMarkup(<HomeView {...base} {...over} />);
@@ -188,5 +188,17 @@ describe('Home: copy for the device', () => {
   });
   it('rounds gain to 50 ft, with no decimals', () => {
     for (const m of html().matchAll(/About ([\d,]+) ft gain/g)) expect(Number(m[1].replace(',', '')) % 50).toBe(0);
+  });
+});
+
+describe('Home: no dead ends and structure', () => {
+  it('offers "Browse all trails" when trails fail to load and when outside coverage', () => {
+    expect(html({ mode: 'error', collections: [] })).toContain('Browse all trails');
+    expect(html({ mode: 'outside', collections: [], area: null, nearestCovered: null })).toContain('Browse all trails');
+    expect(html()).not.toContain('Browse all trails');
+  });
+  it('has one h1: the wordmark when ready, the empty-state title when outside coverage', () => {
+    expect(html().match(/<h1/g)).toHaveLength(1);
+    expect(html({ mode: 'outside', collections: [], area: null }).match(/<h1/g)).toHaveLength(1);
   });
 });

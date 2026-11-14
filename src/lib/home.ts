@@ -39,7 +39,7 @@ export function coverageRegions(index: IndexWithRegions | null): Region[] {
   if (!index) return [];
   const centers = index.cells.map((k) => cellCenter(k, index.cell)).filter((c): c is LngLat => !!c);
   if (index.regions?.length) {
-    return index.regions.map((r) => ({ code: r.code, name: r.name, center: r.center ?? centers[0] ?? [0, 0], cells: centers.length }));
+    return index.regions.flatMap((r) => { const center = r.center ?? centers[0]; return center ? [{ code: r.code, name: r.name, center, cells: centers.length }] : []; }); // no centre, no region
   }
   const out: Region[] = [];
   for (const ref of REGION_REFERENCE) {

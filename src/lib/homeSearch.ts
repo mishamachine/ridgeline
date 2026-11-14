@@ -1,5 +1,5 @@
 // What Enter does in Home's search box. Typing never reaches this file: type-ahead is searchNames over our own index.
-import { searchPlaces, type Place } from './geocode';
+import { cachedPlaces, searchPlaces, type Place } from './geocode';
 import type { LngLat } from './geo';
 import { norm, searchNames, type NameEntry } from './nameIndex';
 
@@ -18,6 +18,8 @@ let chain: Promise<unknown> = Promise.resolve();
  * at most one request per second across the whole app session. Remove with the place index.
  */
 export function throttledPlaceSearch(q: string, now: () => number = Date.now): Promise<Place[]> {
+  const hit = cachedPlaces(q);
+  if (hit) return Promise.resolve(hit); // already known: no request, so no wait
   const run = chain.then(async () => {
     const wait = lastStart + MIN_GAP_MS - now();
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
