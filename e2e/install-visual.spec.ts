@@ -44,6 +44,13 @@ for (const kind of ['ios', 'android'] as const) {
         await page.getByRole('button', { name: 'Next' }).click();
         await expect(page.getByRole('heading', { name: 'Add Ridgeline to your home screen' })).toBeVisible();
         await expect(page.getByText('Open it like an app, without the browser bars, with your saved maps one tap away.')).toBeVisible();
+        if (kind === 'ios') {
+          const li = page.locator('.ob-steps li').first();
+          expect(await li.evaluate((el) => getComputedStyle(el, '::before').content), 'no dot bullets').toBe('none');
+          expect(await li.evaluate((el) => getComputedStyle(el).display)).toBe('list-item');
+          const list = (await page.locator('.ob-steps ol').boundingBox())!;
+          expect(Math.abs(list.x + list.width / 2 - width / 2), 'steps centred').toBeLessThan(width * 0.2);
+        }
         if (kind === 'ios') { await expect(page.getByText('Tap Add to Home Screen')).toBeVisible(); await expect(page.getByRole('button', { name: 'Got it' })).toBeVisible(); }
         else { await expect(page.getByRole('button', { name: 'Add to home screen' })).toBeVisible(); await expect(page.getByRole('button', { name: 'Not now' })).toBeVisible(); }
         await noSideways(page);

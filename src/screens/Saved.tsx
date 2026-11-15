@@ -8,7 +8,7 @@ import { listAllSaved, unsave, type SavedItem } from '../lib/saved';
 import { storageEstimate } from '../lib/offline';
 import { useDownload } from '../lib/useDownload';
 import { shareShortlist } from '../lib/share';
-import { A2HS_TIP, isIOS, isStandalone } from '../lib/pwa';
+import { isIOS, isStandalone, savedInstallNote } from '../lib/pwa';
 import { mb } from '../lib/format';
 import type { Trail } from '../lib/trails';
 
@@ -83,7 +83,7 @@ export function Saved({ visible, version, onOpen, onChange, onFind }: Props) {
           </p>
         )}
         {items && items.length > 0 && !isStandalone() && (
-          <p className="note">{isIOS() ? A2HS_TIP : 'Install Ridgeline from your browser menu.'}</p>
+          <p className="note">{savedInstallNote(isIOS())}</p>
         )}
       </div>
 

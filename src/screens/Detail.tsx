@@ -20,7 +20,6 @@ import { detectPlatform, driveLabel, mapsOptions, trailheadOf } from '../lib/map
 import { shareTrail } from '../lib/share';
 import { bookmark, unsave } from '../lib/saved';
 import { useDownload } from '../lib/useDownload';
-import { A2HS_TIP, isIOS, isStandalone } from '../lib/pwa';
 import { requestCompassPermission } from '../lib/gps/compass';
 import { primeSpeech } from '../lib/voice/speak';
 import { ELEVATION_NOTICE, ELEVATION_LIABILITY, SAFETY_LINE } from '../lib/credits';
@@ -47,8 +46,7 @@ export function Detail({ tpl, trail, bookmarked, onBack, onStart, onSavedChange 
   const [saved, setSaved] = useState<SavedTrail | undefined>();
   const [chooser, setChooser] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
-  const [justSaved, setJustSaved] = useState(false);
-  const dl = useDownload(trail, () => { setJustSaved(true); refresh(); onSavedChange(); });
+  const dl = useDownload(trail, () => { refresh(); onSavedChange(); });
 
   const refresh = () => getSaved(trail.id).then(setSaved);
   useEffect(() => { refresh(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [trail.id]);
@@ -90,14 +88,12 @@ export function Detail({ tpl, trail, bookmarked, onBack, onStart, onSavedChange 
     setConfirmRemove(false);
     await unsave(trail.id);
     setSaved(undefined);
-    setJustSaved(false);
     onSavedChange();
   }
 
   async function removeOffline() {
     await removeTrailOffline(trail.id);
     setSaved(undefined);
-    setJustSaved(false);
     onSavedChange();
   }
 
@@ -166,7 +162,6 @@ export function Detail({ tpl, trail, bookmarked, onBack, onStart, onSavedChange 
           {saved && (
             <p className="fine">Ready offline · {mb(saved.bytes)} · <button className="link-btn" onClick={removeOffline}>Remove download</button></p>
           )}
-          {(justSaved || saved) && !isStandalone() && isIOS() && <p className="note">{A2HS_TIP}</p>}
           {dl.error && <p className="note note-alert" role="alert">{dl.error}</p>}
 
           <div className="fine credits">

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 vi.mock('./native/platform', () => ({ isNative: () => false }));
-import { A2HS_TIP, IOS_NO_CARRY_LINE, POPUP_GAP_MS, dayKey, showNoCarryLine, installPlatform, isInAppBrowser, recordVisit, shouldShowInstallPopup, type PopupContext, type PopupState } from './pwa';
+import { readFileSync } from 'node:fs';
+import { A2HS_TIP, savedInstallNote, IOS_NO_CARRY_LINE, POPUP_GAP_MS, dayKey, showNoCarryLine, installPlatform, isInAppBrowser, recordVisit, shouldShowInstallPopup, type PopupContext, type PopupState } from './pwa';
 
 const DAY = 24 * 3600 * 1000;
 const T0 = Date.UTC(2026, 10, 20, 12);
@@ -103,4 +104,16 @@ describe('pop-up rules', () => {
     ['desktop', { platform: 'desktop' as const }],
   ])('never in %s', (_n, c) => expect(show({}, c)).toBe(false));
   it('shows on iPhone too', () => expect(show({}, { platform: 'ios' })).toBe(true));
+});
+
+describe('where the tip shows', () => {
+  it('Saved on iPhone/iPad: the tip, then the no-carry line', () => {
+    expect(savedInstallNote(true)).toBe(`${A2HS_TIP} ${IOS_NO_CARRY_LINE}`);
+    expect(savedInstallNote(true)).toBe('On iPhone or iPad, tap Share, then Add to Home Screen. Trails saved here won\u2019t move to the home-screen app. Save them again there.');
+  });
+  it('Saved elsewhere: the browser-menu line, no storage claim', () => expect(savedInstallNote(false)).toBe('Install Ridgeline from your browser menu.'));
+  it('Detail shows no home-screen tip (it would re-create the after-save trigger)', () => {
+    const src = readFileSync(new URL('../screens/Detail.tsx', import.meta.url), 'utf8');
+    expect(src).not.toMatch(/A2HS_TIP|isIOS|justSaved/);
+  });
 });
