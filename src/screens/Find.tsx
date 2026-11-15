@@ -20,8 +20,8 @@ import { loadNameIndex, searchNames, type NameEntry } from '../lib/nameIndex';
 import { searchPlaces, type Place } from '../lib/geocode';
 import { remember } from '../lib/lookup';
 import { shareApp } from '../lib/share';
-import { mi } from '../lib/format';
-import { regionNameAt, roundTripMi } from '../lib/home';
+import { isShort, regionNameAt, shortLabel } from '../lib/home';
+import { useSettings } from '../lib/settings';
 import type { BrowsePreset } from './Home';
 
 interface Props {
@@ -68,6 +68,7 @@ const List = memo(function List({ trails, savedIds, offlineIds, me, onOpen, onTo
 });
 
 export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onToggleSave, preset, onHome }: Props) {
+  const [{ units }] = useSettings();
   const mapRef = useRef<MLMap | null>(null);
   const viewRef = useRef<{ center: LngLat; zoom: number }>(DEFAULT_VIEW);
   const abortRef = useRef<AbortController | null>(null);
@@ -107,11 +108,11 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
       (!chips.has('easy') || level(t) === 'Easy') &&
       (!chips.has('views') || hasHighlight(t, 'view')) &&
       (!chips.has('dogs') || hasHighlight(t, 'dogs')) &&
-      (!chips.has('short') || roundTripMi(t) < 3) &&
+      (!chips.has('short') || isShort(t, units)) &&
       (!chips.has('falls') || hasHighlight(t, 'falls')));
     if (chips.has('near') && me) out = [...out].sort((a, b) => dist(me, a) - dist(me, b));
     return { shown: out, hasHighlights: clean.some((t) => t.highlights?.length) };
-  }, [trails, chips, me]);
+  }, [trails, chips, me, units]);
 
   // Draw the shown trails on the map.
   useEffect(() => {
@@ -315,7 +316,7 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
           <button className="chip2" aria-pressed={chips.has('easy')} onClick={() => toggle('easy')}>Easy</button>
           {hasHighlights && <button className="chip2" aria-pressed={chips.has('views')} onClick={() => toggle('views')}>Views</button>}
           {hasHighlights && <button className="chip2" aria-pressed={chips.has('dogs')} onClick={() => toggle('dogs')}>Dogs: tagged yes</button>}
-          <button className="chip2" aria-pressed={chips.has('short')} onClick={() => toggle('short')}>Under 3 mi</button>
+          <button className="chip2" aria-pressed={chips.has('short')} onClick={() => toggle('short')}>{shortLabel(units)}</button>
           {hasHighlights && <button className="chip2" aria-pressed={chips.has('falls')} onClick={() => toggle('falls')}>Waterfalls</button>}
         </div>
         <div className="row-between">

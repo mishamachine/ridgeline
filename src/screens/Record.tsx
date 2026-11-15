@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { listActivities, deleteActivity, putActivity, Activity } from '../lib/store';
 import { addFix, newActivity, trackDistance, downloadGPX, keepAwake } from '../lib/tracker';
-import { duration, mi } from '../lib/format';
+import { duration } from '../lib/format';
+import { recordDistance } from '../lib/recordText';
+import { useSettings } from '../lib/settings';
 import { ConfirmSheet } from '../components/ConfirmSheet';
 
 export function Record() {
+  const [{ units }] = useSettings();
   const [past, setPast] = useState<Activity[]>([]);
   const [current, setCurrent] = useState<Activity | null>(null);
   const [, force] = useState(0);
@@ -59,8 +62,8 @@ export function Record() {
       <div className="top" style={{ borderBottom: '1px solid var(--ink)', paddingBottom: 16 }}>
         {current ? (
           <div style={{ marginTop: 16 }}>
-            <div style={{ font: '800 96px/0.9 var(--display)', letterSpacing: '-0.05em' }}>{mi(trackDistance(current.points))}</div>
-            <div className="label">miles · {duration(elapsed(current))} · {current.points.length} GPS points</div>
+            <div style={{ font: '800 96px/0.9 var(--display)', letterSpacing: '-0.05em' }}>{recordDistance(trackDistance(current.points), units).value}</div>
+            <div className="label">{recordDistance(trackDistance(current.points), units).big} · {duration(elapsed(current))} · {current.points.length} GPS points</div>
           </div>
         ) : (
           <p className="meta" style={{ marginTop: 12 }}>Track any hike, on or off a mapped trail. Works without signal.</p>
@@ -74,7 +77,7 @@ export function Record() {
           <div key={a.id} className="row" style={{ gridTemplateColumns: 'minmax(0, 1fr) auto auto' }}>
             <span>
               <span className="name" style={{ display: 'block' }}>{a.name}</span>
-              <span className="meta">{mi(trackDistance(a.points))} mi · {duration(elapsed(a))} · {new Date(a.startedAt).toLocaleDateString('en-US')}</span>
+              <span className="meta">{recordDistance(trackDistance(a.points), units).row} · {duration(elapsed(a))} · {new Date(a.startedAt).toLocaleDateString('en-US')}</span>
             </span>
             <button className="text-btn" onClick={() => downloadGPX(a)}>GPX</button>
             <button className="text-btn danger" onClick={() => setDeleting(a)} aria-label={`Delete ${a.name}`}>Delete</button>
