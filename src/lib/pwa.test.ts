@@ -10,7 +10,7 @@ const show = (s: Partial<PopupState> = {}, c: Partial<PopupContext> = {}, now = 
 
 describe('A2HS tip and the no-carry line', () => {
   it('makes no storage claim', () => {
-    expect(A2HS_TIP).toBe('On iPhone, tap Share, then Add to Home Screen.');
+    expect(A2HS_TIP).toBe('On iPhone or iPad, tap Share, then Add to Home Screen.');
     expect(A2HS_TIP).not.toContain('Safari keeps');
     expect(A2HS_TIP).not.toMatch(/keeps|clear/);
   });

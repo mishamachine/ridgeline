@@ -5,7 +5,7 @@ export const isStandalone = () =>
 export const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints ?? 0) > 1); // iPadOS reports as a Mac
 
 /** Detail and Saved show this on iPhone. // pending legal re-check */
-export const A2HS_TIP = 'On iPhone, tap Share, then Add to Home Screen.';
+export const A2HS_TIP = 'On iPhone or iPad, tap Share, then Add to Home Screen.';
 /** iPhone and iPad only, and only when this browser holds saved trails: home-screen apps keep their own storage. */
 export const IOS_NO_CARRY_LINE = 'Trails saved here won\u2019t move to the home-screen app. Save them again there.';
 

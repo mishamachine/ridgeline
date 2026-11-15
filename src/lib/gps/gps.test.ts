@@ -218,6 +218,17 @@ describe('engine', () => {
     expect(e.state.needsCalibration).toBe(true);
   });
 
+  it('metric: accuracy and the tap messages are in metres, state has accuracyM', () => {
+    const { e } = mk();
+    for (let t = 0; t < 5; t++) e.ingest(at(200, 12, t, 20));
+    expect(e.state.accuracyM).toBe(20);
+    expect(e.state.accuracyFt).toBe(66);
+    const far = e.manualAnchor(fr.toLngLat(300, 0), 'metric') as { ok: false; reason: string };
+    expect(far.reason).toMatch(/\(about \d+ m\)\.$/);
+    expect(far.reason).not.toMatch(/\bft\b|feet/);
+    expect((e.manualAnchor(fr.toLngLat(300, 0)) as { reason: string }).reason).toMatch(/ ft\)\.$/);   // imperial unchanged
+  });
+
   it('manual anchor: refuses taps outside the circle, snaps inside, then releases on a good agreeing fix', () => {
     const { e } = mk();
     expect(e.manualAnchor(fr.toLngLat(0, 0)).ok).toBe(false); // no fix yet

@@ -17,6 +17,8 @@ export interface Trail {
   elevation?: number[];
   ascentM?: number;
   descentM?: number;
+  /** Hosted v2 data: the shown numbers differ by over 10% from the full-line figure stored at build time, or could not be matched to one. Kept out of Home's collection rows. */
+  statsMismatch?: boolean;
   /**
    * Highlight kinds from the hosted data: view, lake, falls, beach, bikes, horses, dogs, nodogs, climb, long.
    * A trailing '?' means partial or mixed evidence. Absent for Overpass trails and old files.
@@ -141,7 +143,14 @@ function makeTrail(id: string, name: string, coords: LngLat[], partial: boolean,
   };
 }
 
-export function parseOverpass(elements: OsmElement[]): Trail[] {
+/** Key of a named path's stored stats: "w<name>|<lon,lat>|<lon,lat>", the two ends sorted as text. One definition for the build (trail-stats.mjs), cells.ts and parseOverpass. */
+export function pathStatKey(name: string, a: LngLat, b: LngLat): string {
+  const ends = [a, b].map((c) => `${c[0].toFixed(5)},${c[1].toFixed(5)}`).sort();
+  return `w${name}|${ends.join('|')}`;
+}
+
+/** `stored` (hosted v2 data): each route's length measured on the full line, key "r<id>"; the minimum length is judged on it for a complete route; named paths use key "w<name>|<lon,lat>|<lon,lat>" (the two ends sorted as text). */
+export function parseOverpass(elements: OsmElement[], stored?: ReadonlyMap<string, number[]>): Trail[] {
   const trails: Trail[] = [];
   const memberWayIds = new Set<number>();
   const keepTags = (t: Record<string, string> = {}) => {
@@ -164,7 +173,8 @@ export function parseOverpass(elements: OsmElement[]): Trail[] {
       segs.push(...r.segs);
     }
     const chain = chainSegments(segs)[0];
-    if (!chain || lineLength(chain) < MIN_TRAIL_M) continue;
+    // A complete route is judged on its full-line length; one clipped by the view on the line that is here, so a sliver stays out.
+    if (!chain || ((!clipped ? stored?.get(`r${el.id}`)?.[0] : undefined) ?? lineLength(chain)) < MIN_TRAIL_M) continue;
     trails.push(makeTrail(`osm-r${el.id}`, name, chain, clipped, `https://www.openstreetmap.org/relation/${el.id}`, keepTags(el.tags)));
   }
 
@@ -184,7 +194,12 @@ export function parseOverpass(elements: OsmElement[]): Trail[] {
   for (const [name, g] of byName) {
     if (relNames.has(name.toLowerCase())) continue;
     chainSegments(g.segs).forEach((chain, i) => {
-      if (lineLength(chain) < MIN_TRAIL_M) return;
+      // Same rule as for routes: a complete path is judged on its full-line length (key: name, then its two ends, sorted as text),
+      // but only when that agrees with the drawn chain (within 8%, as in cells.ts): a stored figure from a different stitching is ignored.
+      const full = !g.clipped ? stored?.get(pathStatKey(name, chain[0], chain.at(-1)!))?.[0] : undefined;
+      const drawn = lineLength(chain);
+      const ok = full != null && Math.abs(drawn / full - 1) <= 0.08;
+      if ((ok ? full : drawn) < MIN_TRAIL_M) return;
       const id = `osm-w${Math.min(...g.ids)}-${i}`;
       trails.push(makeTrail(id, name, chain, g.clipped, `https://www.openstreetmap.org/way/${Math.min(...g.ids)}`, g.tags));
     });

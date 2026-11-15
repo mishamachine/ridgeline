@@ -83,7 +83,7 @@ export function Saved({ visible, version, onOpen, onChange, onFind }: Props) {
           </p>
         )}
         {items && items.length > 0 && !isStandalone() && (
-          <p className="note">{isIOS() ? A2HS_TIP : 'Install Ridgeline from your browser menu so saved maps stay on this device.'}</p>
+          <p className="note">{isIOS() ? A2HS_TIP : 'Install Ridgeline from your browser menu.'}</p>
         )}
       </div>
 

@@ -2,9 +2,10 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { cellsToTrails } from '../lib/cells';
-import { NO_FILTERS, buildCollections, coverageRegions, type Region } from '../lib/home';
+import { NO_FILTERS, buildCollections, coverageRegions, isShort, shortLabel, subFor, type Region } from '../lib/home';
 import type { SavedItem } from '../lib/saved';
 import { HomeView, type HomeViewProps } from './HomeView';
+import { updateSettings } from '../lib/settings';
 
 const cells = JSON.parse(readFileSync(new URL('../lib/fixtures/wa-cells.json', import.meta.url), 'utf8')) as Record<string, Parameters<typeof cellsToTrails>[0]>;
 const trails = Object.values(cells).flatMap((files) => files.flatMap((f) => cellsToTrails([f])));
@@ -226,5 +227,30 @@ describe('Home: dogs on cards', () => {
     const h = html({ collections: [{ id: 'top', title: 'Top picks', sub: '', pick: () => true, trails: [t] }] });
     expect(h).toContain('Dogs: Unknown');
     expect(h).not.toContain('Dogs: Yes');
+  });
+});
+
+describe('Home in metric (en-CA)', () => {
+  it('shows no miles or feet anywhere a person can read, and the metric short-row copy', () => {
+    updateSettings({ units: 'metric' });
+    try {
+      const h = html({ filtersOpen: true, collections: buildCollections(tagged, undefined, 'metric') });
+      const t = text(h);
+      expect(t).not.toMatch(/\bmi\b|\bft\b|\bmiles?\b|\bfeet\b/);
+      expect(t).toContain('Under 5 km, views tagged in OpenStreetMap');
+      for (const s of ['Under 5 km', '5–10 km', '10–15 km', '15+ km', 'km round trip', 'About ']) expect(t).toContain(s);
+      expect(t).toMatch(/About [\d,]+ m gain/);
+    } finally { updateSettings({ units: 'imperial' }); }
+  });
+  it('the Short-with-a-view row uses 5 km, and imperial still uses 3 mi', () => {
+    const short = (m: number) => ({ ...spurs[0], loop: true, lengthM: m });
+    expect(isShort(short(4900), 'metric')).toBe(true);
+    expect(isShort(short(5100), 'metric')).toBe(false);
+    expect(isShort(short(4800))).toBe(true);    // 2.98 mi
+    expect(isShort(short(4900))).toBe(false);   // 3.04 mi
+    expect(shortLabel('metric')).toBe('Under 5 km');
+    expect(shortLabel()).toBe('Under 3 mi');
+    expect(subFor({ id: 'view', sub: 'Under 3 mi, views tagged in OpenStreetMap' })).toBe('Under 3 mi, views tagged in OpenStreetMap');
+    expect(subFor({ id: 'falls', sub: 'Waterfall tagged in OpenStreetMap' }, 'metric')).toBe('Waterfall tagged in OpenStreetMap');
   });
 });

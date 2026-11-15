@@ -37,7 +37,7 @@ One-time setup: in the repo, go to **Settings → Pages → Source** and choose 
 | What | Source | Terms that matter |
 |---|---|---|
 | Map tiles | [OpenFreeMap](https://openfreemap.org) (OpenStreetMap data) | Free, commercial use OK, attribution required. Offline downloads are allowed up to **3,000 tiles / 50 MB per area**, 4 parallel requests. The app enforces this. |
-| Trails (Washington) | Hosted files built from the [Geofabrik](https://download.geofabrik.de) Washington extract by `scripts/build_trails.py` | Rebuilt on every deploy and every Monday. Served with the app, cached on the phone. |
+| Trails (covered regions: see `scripts/regions.json`) | Hosted files built from one [Geofabrik](https://download.geofabrik.de) extract per region by `scripts/build_trails.py` (one CI job per region, `scripts/regions.py` combines them) | Rebuilt on every deploy and every Monday; each extract is downloaded at most once a week per region (cached on the ISO week), with an identifying User-Agent, using Geofabrik's JSON index. Cell files are format v2 (`scripts/cell_format.py`) at `trails/v2/`; Washington also keeps a frozen old-format copy at `trails/` for app versions that predate v2 (the app reads `trails/v2/index.json` first and falls back to `trails/`). Each trail's length and gain are measured on the full-resolution line at build time (`scripts/trail-stats.mjs`) and stored in the v2 cells; the 5 m simplification only affects what is drawn. Served with the app, cached on the phone. To add a region: one entry in `scripts/regions.json` (Geofabrik path, three classic trails, expected trail count). |
 | Trails (elsewhere) | Public [Overpass API](https://overpass-api.de) servers, with fallbacks | Shared and often busy. Extend the hosted data to more regions instead. |
 | Elevation | [Copernicus DEM GLO-90](https://registry.opendata.aws/copernicus-dem/) (90 m), sampled at **build time** by `scripts/elevation.py` from the public AWS bucket `copernicus-dem-90m` | Free of charge, **commercial use OK**, attribution required (see below). Nothing is fetched at run time. Trails found through Overpass outside the hosted area have no elevation. |
 | Place search | OpenStreetMap Nominatim | At most 1 request per second, with no autocomplete. This is a separate open item from elevation: swap it out before scaling. |
@@ -46,11 +46,11 @@ One-time setup: in the repo, go to **Settings → Pages → Source** and choose 
 
 Elevation is derived from the Copernicus WorldDEM-90 under its general-public licence (free of charge; reproduction, distribution and adaptation allowed). Because the app shows values computed from the DEM, the licence's notice for adapted data applies. It is shown under the elevation profile on every trail page, with these exact words:
 
-> produced using Copernicus WorldDEM™-90 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved
+> produced using Copernicus WorldDEM-90 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved
 
 and the licence's liability sentence:
 
-> The organisations in charge of the Copernicus programme by law or by delegation do not incur any liability for any use of the Copernicus WorldDEM™-90
+> The organisations in charge of the Copernicus programme by law or by delegation do not incur any liability for any use of the Copernicus WorldDEM-90
 
 The text lives in `src/lib/credits.ts`. Do not paraphrase it. The app must not suggest that it is endorsed by Copernicus, ESA, DLR or Airbus. Licence: [ESA/Copernicus data access licences (PDF), "Copernicus WorldDEM-90" section](https://dataspace.copernicus.eu/sites/default/files/media/files/2025-06/copernicus_contributing_mission_data_access_v2_cop_dem_licenses.pdf). Dataset page: <https://registry.opendata.aws/copernicus-dem/>.
 

@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mem = new Map<string, string>();
 vi.stubGlobal('localStorage', { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => { mem.set(k, v); }, removeItem: (k: string) => { mem.delete(k); } });
 
-import { DEFAULT_SETTINGS, LEGACY_UNITS_KEY, LEGACY_VOICE_KEY, SETTINGS_KEY, getSettings, loadSettings, sanitize, shouldShowOnboarding, updateSettings } from './settings';
+import { defaultUnitsFor, DEFAULT_SETTINGS, LEGACY_UNITS_KEY, LEGACY_VOICE_KEY, SETTINGS_KEY, getSettings, loadSettings, sanitize, shouldShowOnboarding, updateSettings } from './settings';
 import { getUnits, getVoiceOn, setVoiceOn } from './voice/prefs';
 
 beforeEach(() => { mem.clear(); updateSettings(DEFAULT_SETTINGS); });
@@ -66,5 +66,20 @@ describe('one source for voice and units', () => {
     expect(getVoiceOn()).toBe(false);
     setVoiceOn(true);
     expect(getSettings().voice).toBe(true);
+  });
+});
+
+describe('units by locale', () => {
+  const mk = (init?: object) => ({ getItem: (k: string) => (k === SETTINGS_KEY && init ? JSON.stringify(init) : null), setItem: () => {}, removeItem: () => {} });
+  it('en-CA starts metric; US and everything else stays imperial', () => {
+    expect(defaultUnitsFor('en-CA')).toBe('metric');
+    for (const l of ['en-US', 'en-GB', 'fr-CA', 'es-US', '', null, undefined]) expect(defaultUnitsFor(l)).toBe('imperial');
+    expect(loadSettings(mk(), 'en-CA').units).toBe('metric');
+    expect(loadSettings(mk(), 'en-US').units).toBe('imperial');
+    expect(loadSettings(mk({ voice: false }), 'en-CA').units).toBe('metric'); // saved settings without a units choice
+  });
+  it('a saved choice always wins over the locale', () => {
+    expect(loadSettings(mk({ ...DEFAULT_SETTINGS, units: 'imperial' }), 'en-CA').units).toBe('imperial');
+    expect(loadSettings(mk({ ...DEFAULT_SETTINGS, units: 'metric' }), 'en-US').units).toBe('metric');
   });
 });

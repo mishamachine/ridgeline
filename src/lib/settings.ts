@@ -23,6 +23,8 @@ export const DEFAULT_SETTINGS: Settings = { voice: true, units: 'imperial', with
 export const SETTINGS_KEY = 'ridgeline:settings';
 
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0);
+/** First-run default for units: metric for en-CA, imperial everywhere else (US behaviour is unchanged). A saved choice always wins. */
+export const defaultUnitsFor = (lang?: string | null): Units => (/^en-CA$/i.test(lang ?? '') ? 'metric' : 'imperial');
 
 /** Keeps only known keys of the right type, so a bad or old value cannot break the app. */
 export function sanitize(raw: unknown): Settings {
@@ -48,11 +50,13 @@ export const LEGACY_UNITS_KEY = 'ridgeline.units';
 type Store = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
 /** Reads the settings and folds in the two legacy keys (they win once, because they were the only place the choice was ever made). */
-export function loadSettings(store: Store): Settings {
-  let s = { ...DEFAULT_SETTINGS };
+export function loadSettings(store: Store, lang: string | null = typeof navigator === 'undefined' ? null : navigator.language): Settings {
+  let s = { ...DEFAULT_SETTINGS, units: defaultUnitsFor(lang) };
   try {
     const t = store.getItem(SETTINGS_KEY);
-    s = sanitize(t ? JSON.parse(t) : null);
+    const saved = t ? JSON.parse(t) : null;
+    s = sanitize(saved);
+    if (!(saved && (saved.units === 'metric' || saved.units === 'imperial'))) s = { ...s, units: defaultUnitsFor(lang) };
   } catch { /* unreadable: defaults */ }
   try {
     const v = store.getItem(LEGACY_VOICE_KEY), u = store.getItem(LEGACY_UNITS_KEY);
@@ -67,7 +71,7 @@ export function loadSettings(store: Store): Settings {
 }
 
 function load(): Settings {
-  try { return loadSettings(localStorage); } catch { return { ...DEFAULT_SETTINGS }; }
+  try { return loadSettings(localStorage); } catch { return { ...DEFAULT_SETTINGS, units: defaultUnitsFor(typeof navigator === 'undefined' ? null : navigator.language) }; }
 }
 
 let current: Settings = load();
