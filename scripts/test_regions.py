@@ -119,14 +119,14 @@ class Center(unittest.TestCase):
         self.assertIn(tuple(c), [(round(x, 4), round(y, 4)) for x, y in pts])
         self.assertIsNone(regions.cell_center([]))
 
-    def test_centre_skips_cells_with_no_routes(self):
-        # the mean falls on 1_1, which is covered but empty (the California / British Columbia bug): the centre moves to the nearest cell with a route
-        keys = ['0_0', '1_1', '2_2']
-        self.assertEqual(regions.cell_center(keys), [-179.625, -89.625])
-        self.assertEqual(regions.cell_center(keys, routes={'0_0': 3, '1_1': 0, '2_2': 1}), [-179.875, -89.875])   # tie on distance: most routes
-        self.assertEqual(regions.cell_center(keys, routes={'0_0': 1, '1_1': 0, '2_2': 5}), [-179.375, -89.375])
-        self.assertEqual(regions.cell_center(keys, routes={'0_0': 0, '1_1': 0, '2_2': 2}), [-179.375, -89.375])   # only one cell has routes
-        self.assertEqual(regions.cell_center(keys, routes={}), [-179.625, -89.625])                              # none has: nearest cell, verify_centers then fails the build
+    def test_centre_is_the_cell_with_the_most_routes(self):
+        keys = ['0_0', '1_1', '2_2']   # the mean falls on 1_1 (the California / British Columbia bug: a covered cell with no routes)
+        self.assertEqual(regions.cell_center(keys), [-179.625, -89.625])                                         # no counts: nearest the mean
+        self.assertEqual(regions.cell_center(keys, routes={'0_0': 3, '1_1': 0, '2_2': 1}), [-179.875, -89.875])
+        self.assertEqual(regions.cell_center(keys, routes={'0_0': 1, '1_1': 4, '2_2': 5}), [-179.375, -89.375])
+        self.assertEqual(regions.cell_center(keys, routes={'0_0': 7, '1_1': 2, '2_2': 7}), [-179.875, -89.875])   # tie on routes: nearest the mean (equidistant, first wins)
+        keys = ['0_0', '3_3', '4_4', '5_5']                                                                       # three-way tie on routes: 3_3 is nearest the mean (index 3)
+        self.assertEqual(regions.cell_center(keys, routes={'0_0': 1, '3_3': 9, '4_4': 9, '5_5': 9}), [-179.125, -89.125])
 
     def test_combine_needs_exactly_one_v1_region(self):
         with tempfile.TemporaryDirectory() as t:
@@ -278,13 +278,14 @@ class Merge(unittest.TestCase):
             regions.merge_cell({'v': 2, 'r': [], 'w': []}, {'v': 1, 'r': [], 'w': []})
 
 
-def routed(i=1):
+def routed(i=1, n=10):
+    """A cell with n routes (relations) and one lone way; relation ids i*100 and up, way id i. 10 is the build floor for a region's centre."""
     g = [-122.0, 47.0, -121.9999, 47.0001]
-    return cell(rels=[rel(i, 1, [[i, g, [10, 1]]])], ways=[way(i, g)])
+    return cell(rels=[rel(i * 100 + j, 1, [[i * 100 + j, g, [10, 1]]]) for j in range(n)], ways=[way(i, g)])
 
 
 class CentersInBuiltIndex(unittest.TestCase):
-    """Runs on a real combine() output: every region's centre cell must hold at least one route, so CI fails if a centre lands on an empty cell."""
+    """Runs on a real combine() output: every region's centre cell must hold at least 10 routes, so CI fails if a centre lands on a thin or empty cell."""
 
     def build(self, t, cells_b):
         regs = [{'id': 'a', 'code': 'AA', 'name': 'A', 'cc': 'us', 'v1': True}, {'id': 'b', 'code': 'BB', 'name': 'B', 'cc': 'us'}]
@@ -306,17 +307,18 @@ class CentersInBuiltIndex(unittest.TestCase):
 
     def test_every_centre_has_a_route(self):
         with tempfile.TemporaryDirectory() as t:
-            # b: the mean (cell 4_4) holds a named path but no route, like California's 240_509 (8 named paths, 0 routes); the centre must move to a cell with a route
-            idx, v2 = self.build(t, {'0_0': routed(6), '4_4': cell(ways=[way(9, [-122.0, 47.0, -121.9999, 47.0001])]), '8_8': routed(7)})
+            # b: the mean (cell 4_4) holds a named path but no route, like California's old 240_509; the centre is the cell with the most routes, 8_8
+            idx, v2 = self.build(t, {'0_0': routed(6, 10), '4_4': cell(ways=[way(9, [-122.0, 47.0, -121.9999, 47.0001])]), '8_8': routed(7, 12)})
             for r in idx['regions']:
                 self.assertTrue(regions.route_count(os.path.join(v2, '%d_%d.json' % (int((r['center'][0] + 180) // 0.25), int((r['center'][1] + 90) // 0.25)))) >= 1, r['id'])
+            self.assertEqual(idx['regions'][1]['center'], [-177.875, -87.875])   # 8_8, 12 routes
             self.assertEqual(regions.verify_centers(v2), [])
 
-    def test_combine_fails_when_a_region_has_no_routes_at_all(self):
+    def test_combine_fails_when_a_centre_has_fewer_than_10_routes(self):
         with tempfile.TemporaryDirectory() as t:
             with self.assertRaises(SystemExit) as e:
-                self.build(t, {'4_4': cell(ways=[way(9, [-122.0, 47.0, -121.9999, 47.0001])])})
-            self.assertIn('b: centre cell 4_4 has 0 routes', str(e.exception))
+                self.build(t, {'4_4': routed(9, 9)})
+            self.assertIn('b: centre cell 4_4 has 9 routes (minimum 10)', str(e.exception))
 
 
 class Combine(unittest.TestCase):
@@ -336,8 +338,8 @@ class Combine(unittest.TestCase):
                 for f, body in (('1_1.json', {'v': 1, 'r': [], 'w': []}), ('index.json', {'v': 1, 'cells': ['1_1']}), ('names.json', {'v': 1, 'e': names})):
                     json.dump(body, open(os.path.join(d, 'full', f), 'w'))
                 return d
-            da = make('a', {'1_1': cell(rels=[rel(5, 1, [[5, g, [10, 1]]])], ways=[way(5, g)]), '1_2': cell()}, [0, 0, 1, 1], [NAMES[0]])
-            db = make('b', {'1_1': cell(rels=[rel(6, 1, [[6, g, [10, 1]]])], ways=[way(6, g)]), '3_3': cell()}, [1, 1, 2, 2], [NAMES[0], NAMES[1]])
+            da = make('a', {'1_1': routed(5), '1_2': cell()}, [0, 0, 1, 1], [NAMES[0]])
+            db = make('b', {'1_1': routed(6), '3_3': cell()}, [1, 1, 2, 2], [NAMES[0], NAMES[1]])
             out = os.path.join(t, 'out')
             idx = regions.combine(out, [da, db], regs)
             v2 = os.path.join(out, 'v2')

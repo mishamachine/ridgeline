@@ -8,7 +8,7 @@ Region tooling for the multi-region trail build (scripts/regions.json).
   regions.py note <id> <state> [key]      job-summary line: cache hit or miss, the PBF date
   regions.py check <id> <dir>             report + fail if under 50% of the expected trail count or a classic is missing
   regions.py size <dir>                   fail if the published trail data is over 950 MB (each host must stay under 1 GB)
-  regions.py centers <out>/v2             fail unless every region's centre cell has at least one route (combine runs this too)
+  regions.py centers <out>/v2             fail unless every region's centre cell has at least 10 routes (combine runs this too)
   regions.py combine <out> <dir>...       merge per-region build dirs (each named by region id) into <out>/v2, plus the frozen v1 copy in <out>
 
 Geofabrik etiquette: one download per region per week (the workflow caches on the ISO week), an identifying
@@ -290,18 +290,19 @@ def cmd_check(rid, d):
     sys.exit(1 if bad else 0)
 
 
+MIN_CENTER_ROUTES = 10      # the build fails if a region's centre cell holds fewer routes than this
+
+
 def cell_center(keys, size=0.25, routes=None):
-    """[lon, lat] of the cell nearest the mean of all the cells' centres that has at least one route (ties: the cell with
-    the most routes): a point that has trails, unlike a bbox midpoint (which can fall in the sea or another state) or a
-    covered cell with nothing in it (Home opens on this point with location off). routes maps cell key -> route count;
-    without it every cell counts as having routes. If no cell has any, falls back to the nearest cell (verify_centers then fails the build).
-    None when there are no cells."""
+    """[lon, lat] of the cell with the most routes (relations) in the region; ties go to the one nearest the mean of all the
+    cells' centres. Home opens on this point with location off, so it must be a place with trails (a bbox midpoint can be in the sea,
+    and a covered cell can hold nothing). routes maps cell key -> route count; without it every cell counts the same, so the
+    cell nearest the mean wins. None when there are no cells."""
     pts = [(((int(k.split('_')[0]) + 0.5) * size - 180, (int(k.split('_')[1]) + 0.5) * size - 90), (routes.get(k, 0) if routes is not None else 1)) for k in keys]
     if not pts:
         return None
     mx, my = sum(p[0][0] for p in pts) / len(pts), sum(p[0][1] for p in pts) / len(pts)
-    pool = [p for p in pts if p[1] > 0] or pts
-    best = min(pool, key=lambda p: ((p[0][0] - mx) ** 2 + (p[0][1] - my) ** 2, -p[1]))[0]
+    best = min(pts, key=lambda p: (-p[1], (p[0][0] - mx) ** 2 + (p[0][1] - my) ** 2))[0]
     return [round(best[0], 4), round(best[1], 4)]
 
 
@@ -312,7 +313,7 @@ def route_count(path):
 
 
 def verify_centers(v2_dir):
-    """Fails (returns the problems) unless every region's centre cell, in the built <v2_dir>/index.json, has at least one route."""
+    """Returns the problems unless every region's centre cell, in the built <v2_dir>/index.json, holds at least MIN_CENTER_ROUTES routes."""
     with open(os.path.join(v2_dir, 'index.json')) as f:
         idx = json.load(f)
     size, bad = idx['cell'], []
@@ -324,8 +325,8 @@ def verify_centers(v2_dir):
         key = f"{int((c[0] + 180) // size)}_{int((c[1] + 90) // size)}"
         path = os.path.join(v2_dir, key + '.json')
         n = route_count(path) if os.path.exists(path) else 0
-        if n < 1:
-            bad.append(f"{r['id']}: centre cell {key} has {n} routes")
+        if n < MIN_CENTER_ROUTES:
+            bad.append(f"{r['id']}: centre cell {key} has {n} routes (minimum {MIN_CENTER_ROUTES})")
     return bad
 
 
@@ -409,7 +410,7 @@ def combine(root, dirs, regs=None):
             shutil.copyfile(os.path.join(d, 'full', f), os.path.join(root, f))
     bad = verify_centers(out)
     if bad:
-        sys.exit('region centre without routes (Home opens there): ' + '; '.join(bad))
+        sys.exit('region centre with too few routes (Home opens there): ' + '; '.join(bad))
     return index
 
 
