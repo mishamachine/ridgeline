@@ -39,9 +39,9 @@ footer a{display:inline-block;min-height:44px;line-height:44px;margin-right:16px
 
 <p><strong>Who we are.</strong> Ridgeline is made by B&amp;B Project Factory, run by Babar Ali in Washington State, USA. (Bobo is our mascot.) Contact: <a href="mailto:machinemisha@gmail.com">machinemisha@gmail.com</a> or <a href="../support/">our support page</a>.</p>
 
-<h2>What stays on your device</h2>
+<h2>Your location, and what stays on your device</h2>
 <ul>
-<li><strong>Your location.</strong> Ridgeline uses your location to centre the map when you tap Near me or Locate, and your precise location while you navigate or record. In the web version, location stops when your screen locks, so Ridgeline keeps the screen on while you navigate or record. It stops when you finish. In the Ridgeline apps, directions keep working with the screen off during a hike you start; Android shows a notification and iPhone shows the blue location indicator while this runs. Your exact location is never sent to our servers. To show trails near you, Ridgeline downloads trail data for the area around you, so our host can tell roughly which area (about 25 km across) you're in.</li>
+<li><strong>Your location.</strong> Ridgeline uses your location to centre the map when you tap Near me or Locate, and your precise location while you navigate or record. In the web version, location stops when your screen locks, so Ridgeline keeps the screen on while you navigate or record. It stops when you finish. In the Ridgeline apps, directions keep working with the screen off during a hike you start; Android shows a notification and iPhone shows the blue location indicator while this runs. Your exact location is never sent to our servers. To show trails near you, Ridgeline downloads trail data for the area around you, so our host can tell roughly which area (about 25 km across) you're in. Outside the areas we host, public OpenStreetMap servers (Overpass) see that area instead, and our map provider (OpenFreeMap) can tell which part of the map you're viewing.</li>
 <li><strong>Recorded hikes and GPX files.</strong> These are saved on your device. They leave it only if you choose to export them.</li>
 <li><strong>Saved trails and offline maps.</strong> These are stored on your device.</li>
 </ul>
@@ -51,7 +51,7 @@ footer a{display:inline-block;min-height:44px;line-height:44px;margin-right:16px
 <p>To work, Ridgeline fetches data from these services. Each sees your IP address and the request, under its own privacy policy:</p>
 <ul>
 <li><strong>OpenFreeMap</strong>, for map tiles (it can tell which area you are viewing).</li>
-<li><strong>Public Overpass API servers (OpenStreetMap data)</strong>, for trail data in areas we don't host ourselves. Each one we ask sees the map area you're looking at. We try overpass-api.de first. If it is busy or doesn't answer we try overpass.private.coffee, then maps.mail.ru (run by VK, formerly Mail.ru Group, a Russian company).</li>
+<li><strong>Public Overpass API servers (OpenStreetMap data)</strong>, for trail data in areas we don't host ourselves. Each one we ask sees the map area you're looking at. We try overpass-api.de first. If it is busy or doesn't answer we try overpass.private.coffee.</li>
 <li><strong>Nominatim (OpenStreetMap)</strong>, for place search (it sees the text you search for).</li>
 <li><strong>Apple Maps or Google Maps</strong>, only when you tap Drive to parking or Drive to trail start. We pass them the trailhead's location (the parking lot or trail start, not where you are). From there they work under their own privacy policy.</li>
 <li><strong>Our web hosts (Hostinger and GitHub Pages)</strong>, which keep standard server logs: IP address, browser type and pages loaded, and, from the trail files your device downloads, roughly which area (about 25 km across) you're looking at.</li>

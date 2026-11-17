@@ -41,7 +41,6 @@ export const HIGHLIGHT_LONG_MI = 8;
 export const OVERPASS_SERVERS = [
   'https://overpass-api.de/api/interpreter',
   'https://overpass.private.coffee/api/interpreter',
-  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
 ];
 const SERVER_TIMEOUT_MS = 30000;
 const JOIN_TOLERANCE_M = 25;

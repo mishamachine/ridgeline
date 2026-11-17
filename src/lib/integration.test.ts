@@ -51,6 +51,8 @@ describe('routes', () => {
   it('the privacy page names every Overpass server the app can ask', () => {
     const html = readFileSync('public/privacy/index.html', 'utf8');
     for (const server of OVERPASS_SERVERS) expect(html).toContain(new URL(server).hostname);
+    expect(OVERPASS_SERVERS.map((s) => new URL(s).hostname)).toEqual(['overpass-api.de', 'overpass.private.coffee']);
+    expect(html).not.toContain('mail.ru');
   });
   it('the location wording says exact location, and what our host can tell', () => {
     const html = readFileSync('public/privacy/index.html', 'utf8');
@@ -58,11 +60,16 @@ describe('routes', () => {
     expect(html).toContain("Your exact location is never sent to our servers. To show trails near you, Ridgeline downloads trail data for the area around you, so our host can tell roughly which area (about 25 km across) you're in.");
     expect(html).toContain("browser type and pages loaded, and, from the trail files your device downloads, roughly which area (about 25 km across) you're looking at.");
     expect(html).not.toContain('Your location is never sent to our servers');
+    const outside = "Outside the areas we host, public OpenStreetMap servers (Overpass) see that area instead, and our map provider (OpenFreeMap) can tell which part of the map you're viewing.";
+    expect(html).toContain("you're in. " + outside);
+    expect(html).toContain('<h2>Your location, and what stays on your device</h2>');
     const profile = readFileSync('src/screens/Profile.tsx', 'utf8');
     expect(profile).toContain("Your exact location is never sent to our servers. To show trails near you, Ridgeline downloads trail data for the area around you, so our host can tell roughly which area (about 25 km across) you're in.");
-    expect(profile).toContain('Stays on your phone');
+    expect(profile).toContain("you're in. " + outside);
+    expect(profile).toContain('<span className="val">Exact location stays on your phone</span>');
     const support = readFileSync('public/support/index.html', 'utf8');
     expect(support).toContain("Your exact location is never sent to our servers. To show trails near you, Ridgeline downloads trail data for the area around you, so our host can tell roughly which area (about 25 km across) you're in.");
+    expect(support).toContain("you're in. " + outside);
     expect(support).not.toContain('Your location is never sent to us.');
     expect(readFileSync('src/screens/Onboarding.tsx', 'utf8')).toContain("Your exact location stays on your phone. It\\'s never sent to our servers.");
   });
