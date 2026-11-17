@@ -416,7 +416,7 @@ export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) 
         <div className={`nv-chip${caution ? ' caution' : ''}`} style={{ top: 8 }} role="status">{paused ? 'Paused · ' : ''}{status}{net}</div>
         {headingBack && <div className="nv-tag">Heading back</div>}
         <div className="nv-map-btns">
-          {!more && !confirming && <ZoomButtons map={mapInst} />}
+          {!more && !confirming && <ZoomButtons map={mapInst} minZoom={zoomLimits({ online }).minZoom} maxZoom={zoomLimits({ online }).maxZoom} />}
           {!following && <button className="nv-pill" aria-label="Center on me" onClick={recenter}><LocateIcon size={18} />Center</button>}
           <button className="nv-pill" onClick={() => setMore(true)}>More</button>
         </div>

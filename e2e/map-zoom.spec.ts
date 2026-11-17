@@ -179,3 +179,88 @@ test('offline: a saved trail map zooms in past the saved tiles and stops zooming
   await expect(page.getByRole('button', { name: 'Zoom out' })).toBeDisabled();
   expect(errors).toEqual([]);
 });
+
+// Layout matrix: small and tall phones, with and without a notch. On every map, in its most crowded state (Find with a
+// trail card open, the trail page after a drag so Fit trail shows, Navigate after a drag so Center shows), every control is
+// inside the map, none overlaps another, none covers the credit, and none covers Navigate's turn banner.
+const SIZES = [{ w: 320, h: 568 }, { w: 360, h: 640 }, { w: 390, h: 844 }];
+const CASES = [...SIZES.map((s) => ({ ...s, safeTop: 0 })), { w: 390, h: 844, safeTop: 47 }, { w: 320, h: 568, safeTop: 47 }];
+type R = { x: number; y: number; w: number; h: number };
+const hit = (a: R, b: R) => a.x < b.x + b.w - 0.5 && a.x + a.w > b.x + 0.5 && a.y < b.y + b.h - 0.5 && a.y + a.h > b.y + 0.5;
+
+const inside = (a: R, b: R) => a.x >= b.x - 1 && a.y >= b.y - 1 && a.x + a.w <= b.x + b.w + 1 && a.y + a.h <= b.y + b.h + 1; // a button nested in a card
+async function layout(page: Page, scope: string, expandedAtLoad = false) {
+  const attr = page.locator(`${scope} .maplibregl-ctrl-attrib`).first();
+  if (expandedAtLoad) await expect(attr).toHaveClass(/maplibregl-compact-show/); // the credit starts expanded
+  return page.evaluate((sc) => {
+    const box = (el: Element): R => { const r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; };
+    const root = document.querySelector(sc)!;
+    const controls = Array.from(root.querySelectorAll('button')).filter((b) => b.offsetParent !== null && !b.closest('.maplibregl-ctrl-attrib'))
+      .map((b) => ({ name: (b.getAttribute('aria-label') || b.textContent || '').trim().slice(0, 30), r: box(b) }));
+    const banner = document.querySelector('.nv-banner');
+    return { map: box(root), attr: box(root.querySelector('.maplibregl-ctrl-attrib')!), banner: banner ? box(banner) : null, controls };
+  }, scope) as Promise<{ map: R; attr: R; banner: R | null; controls: { name: string; r: R }[] }>;
+}
+
+function assertLayout(l: Awaited<ReturnType<typeof layout>>) {
+  for (const c of l.controls) {
+    expect(c.r.x >= l.map.x - 1 && c.r.y >= l.map.y - 1 && c.r.x + c.r.w <= l.map.x + l.map.w + 1 && c.r.y + c.r.h <= l.map.y + l.map.h + 1, `${c.name} is inside the map`).toBe(true);
+    expect(hit(c.r, l.attr), `${c.name} covers the credit`).toBe(false);
+    if (l.banner) expect(hit(c.r, l.banner), `${c.name} covers the turn banner`).toBe(false);
+  }
+  for (let i = 0; i < l.controls.length; i++) for (let j = i + 1; j < l.controls.length; j++) if (!inside(l.controls[i].r, l.controls[j].r) && !inside(l.controls[j].r, l.controls[i].r)) expect(hit(l.controls[i].r, l.controls[j].r), `${l.controls[i].name} overlaps ${l.controls[j].name}`).toBe(false);
+}
+
+for (const c of CASES) {
+  const tag = `${c.w}x${c.h}${c.safeTop ? ` safe-top ${c.safeTop}` : ''}`;
+  test.describe(`layout ${tag}`, () => {
+    test.use({ viewport: { width: c.w, height: c.h } });
+    const notch = (page: Page) => c.safeTop ? page.addInitScript((v) => { document.addEventListener('DOMContentLoaded', () => { const s = document.createElement('style'); s.textContent = `:root{--safe-top:${v}px !important}`; document.head.appendChild(s); }); }, c.safeTop) : Promise.resolve();
+
+    test('trail page', async ({ page, context }) => {
+      const errors = await setup(page, context); await notch(page);
+      await page.goto(TRAIL);
+      await expect(page.getByRole('button', { name: 'Zoom in' })).toBeVisible({ timeout: 30_000 });
+      assertLayout(await layout(page, '.trail-map', true)); // at load
+      const box = (await page.locator('.trail-map .map').boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down(); await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 20, { steps: 6 }); await page.mouse.up();
+      await expect(page.getByRole('button', { name: 'Fit trail' })).toBeVisible();
+      assertLayout(await layout(page, '.trail-map')); // Fit trail showing
+      expect(errors).toEqual([]);
+    });
+
+    test('Navigate', async ({ page, context }) => {
+      const errors = await setup(page, context); await notch(page);
+      await page.goto(TRAIL);
+      await page.getByRole('button', { name: 'Start hike' }).click();
+      await expect(page.getByRole('button', { name: 'Zoom in' })).toBeVisible({ timeout: 40_000 });
+      assertLayout(await layout(page, '.nv-map', true)); // following
+      const box = (await page.locator('.nv-map .map').boundingBox())!;
+      await page.mouse.move(box.x + box.width / 3, box.y + box.height / 2); await page.mouse.down(); await page.mouse.move(box.x + box.width / 3 + 70, box.y + box.height / 2 + 40, { steps: 14 }); await page.mouse.up();
+      await expect(page.getByRole('button', { name: 'Center on me' })).toBeVisible();
+      assertLayout(await layout(page, '.nv-map')); // Center showing: the longest button stack
+      expect(errors).toEqual([]);
+    });
+
+    test('Find, with a trail card open', async ({ page, context }) => {
+      test.setTimeout(180_000);
+      const errors = await setup(page, context); await notch(page);
+      await page.goto('/');
+      await page.getByRole('button', { name: /Explore the map/ }).click();
+      await expect(page.getByRole('button', { name: 'Zoom in' })).toBeVisible({ timeout: 30_000 });
+      assertLayout(await layout(page, '.find-body', true));
+      type M = { jumpTo(o: unknown): void; querySourceFeatures(s: string): { geometry: { coordinates: number[][] } }[]; project(c: number[]): { x: number; y: number }; getContainer(): HTMLElement };
+      await page.evaluate(() => (window as unknown as { __ridgelineMap: M }).__ridgelineMap.jumpTo({ center: [-121.7717, 47.4356], zoom: 13 }));
+      await page.getByRole('button', { name: 'Zoom in' }).click();
+      await page.getByRole('button', { name: 'Search this area' }).click();
+      await expect.poll(() => page.evaluate(() => (window as unknown as { __ridgelineMap: M }).__ridgelineMap.querySourceFeatures('trails').length), { timeout: 20_000 }).toBeGreaterThan(0);
+      await settle(page);
+      const at = await page.evaluate(() => { const m = (window as unknown as { __ridgelineMap: M }).__ridgelineMap; const g = m.querySourceFeatures('trails')[0].geometry.coordinates; const p = m.project(g[Math.floor(g.length / 2)]); const r = m.getContainer().getBoundingClientRect(); return { x: r.left + p.x, y: r.top + p.y }; });
+      await page.mouse.click(at.x, at.y);
+      await expect(page.locator('.map-pick')).toBeVisible();
+      await settle(page);
+      assertLayout(await layout(page, '.find-body'));
+      expect(errors).toEqual([]);
+    });
+  });
+}
