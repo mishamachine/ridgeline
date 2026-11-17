@@ -8,6 +8,7 @@ Region tooling for the multi-region trail build (scripts/regions.json).
   regions.py note <id> <state> [key]      job-summary line: cache hit or miss, the PBF date
   regions.py check <id> <dir>             report + fail if under 50% of the expected trail count or a classic is missing
   regions.py size <dir>                   fail if the published trail data is over 950 MB (each host must stay under 1 GB)
+  regions.py centers <out>/v2             fail unless every region's centre cell has at least 10 trails (combine runs this too)
   regions.py combine <out> <dir>...       merge per-region build dirs (each named by region id) into <out>/v2, plus the frozen v1 copy in <out>
 
 Geofabrik etiquette: one download per region per week (the workflow caches on the ISO week), an identifying
@@ -289,15 +290,79 @@ def cmd_check(rid, d):
     sys.exit(1 if bad else 0)
 
 
-def cell_center(keys, size=0.25):
-    """[lon, lat] of the covered cell whose centre is nearest the mean of all the cells' centres: a point that has trails, unlike a bbox midpoint
-    (which can fall in the sea or another state). None when there are no cells."""
-    pts = [((int(k.split('_')[0]) + 0.5) * size - 180, (int(k.split('_')[1]) + 0.5) * size - 90) for k in keys]
+MIN_CENTER_TRAILS = 10      # the build fails if a region's centre cell holds fewer trails than this
+MIN_WAY_M = 805             # Home's floor for a named path (src/lib/quality.ts MIN_WAY_M); relations are exempt
+
+
+def cell_center(keys, size=0.25, trails=None):
+    """[lon, lat] of the cell with the most trails in the region; ties go to the one nearest the mean of all the cells' centres.
+    Home opens on this point with location off, so it must be a place with trails (a bbox midpoint can be in the sea, and a
+    covered cell can hold nothing). trails maps cell key -> trail count (see cell_trails); without it every cell counts the
+    same, so the cell nearest the mean wins. None when there are no cells."""
+    pts = [(((int(k.split('_')[0]) + 0.5) * size - 180, (int(k.split('_')[1]) + 0.5) * size - 90), (trails.get(k, 0) if trails is not None else 1)) for k in keys]
     if not pts:
         return None
-    mx, my = sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)
-    best = min(pts, key=lambda p: (p[0] - mx) ** 2 + (p[1] - my) ** 2)
+    mx, my = sum(p[0][0] for p in pts) / len(pts), sum(p[0][1] for p in pts) / len(pts)
+    best = min(pts, key=lambda p: (-p[1], (p[0][0] - mx) ** 2 + (p[0][1] - my) ** 2))[0]
     return [round(best[0], 4), round(best[1], 4)]
+
+
+def _line(g, v2):
+    """[(lon, lat)] of a cell line: v2 is integer 1e-5 degrees, first point absolute, then deltas; v1 is plain degrees."""
+    if not v2:
+        return list(zip(g[0::2], g[1::2]))
+    x, y, out = g[0], g[1], [(g[0] / 1e5, g[1] / 1e5)]
+    for i in range(2, len(g), 2):
+        x, y = x + g[i], y + g[i + 1]
+        out.append((x / 1e5, y / 1e5))
+    return out
+
+
+def cell_trails(path):
+    """(trails, relations) in one cell file, v1 or v2: a close proxy for what Home lists from this cell (src/lib/quality.ts filterTrails).
+    Relations with a real name count one each (routes are exempt from the length floor). Named paths that are not a member of any relation
+    in the cell are stitched by name, as the app does, and count one per name when their summed length reaches MIN_WAY_M and the name is
+    not junk. Not modelled: a trail that crosses cells (counted once per cell), the 5 km same-name merge and the stats-mismatch exclusion."""
+    with open(path) as f:
+        body = json.load(f)
+    v2 = body.get('v') == 2
+    rels = [r for r in body.get('r', []) if not name_index.is_junk_name(r.get('t', {}).get('name', ''))]
+    members = {m[0] for r in body.get('r', []) for m in r['m']}
+    length = {}
+    for w in body.get('w', []):
+        name = w.get('t', {}).get('name', '')
+        if w['id'] in members or not name or name_index.is_junk_name(name):
+            continue
+        length[name] = length.get(name, 0) + name_index.length(_line(w['g'], v2))
+    return len(rels) + sum(1 for m in length.values() if m >= MIN_WAY_M), len(rels)
+
+
+def count_cells(dirpath, keys, cache=None):
+    """{cell key: trails}, parsing each cell file once (cache is shared between callers)."""
+    cache = {} if cache is None else cache
+    for k in keys:
+        path = os.path.join(dirpath, k + '.json')
+        if path not in cache:
+            cache[path] = cell_trails(path) if os.path.exists(path) else (0, 0)
+    return {k: cache[os.path.join(dirpath, k + '.json')][0] for k in keys}
+
+
+def verify_centers(v2_dir, cache=None):
+    """Returns the problems unless every region's centre cell, in the built <v2_dir>/index.json, holds at least MIN_CENTER_TRAILS trails.
+    Per-cell counts are cached in `cache` (path -> (trails, relations)), so a cell file is parsed once."""
+    with open(os.path.join(v2_dir, 'index.json')) as f:
+        idx = json.load(f)
+    size, bad = idx['cell'], []
+    for r in idx['regions']:
+        c = r.get('center')
+        if not c:
+            bad.append(f"{r['id']}: no centre")
+            continue
+        key = f"{int((c[0] + 180) // size)}_{int((c[1] + 90) // size)}"
+        n = count_cells(v2_dir, [key], cache)[key]
+        if n < MIN_CENTER_TRAILS:
+            bad.append(f"{r['id']}: centre cell {key} has {n} trails (minimum {MIN_CENTER_TRAILS})")
+    return bad
 
 
 def merge_cell(a, b):
@@ -332,6 +397,7 @@ def combine(root, dirs, regs=None):
     os.makedirs(os.path.join(out, 'names'), exist_ok=True)
     os.makedirs(os.path.join(out, 'places'), exist_ok=True)
     cells, listing, boxes, sources = {}, [], [], []
+    counts = {}   # per-cell trail counts, parsed once
     for d in dirs:
         rid = os.path.basename(os.path.normpath(d)).removeprefix('trails-')  # CI artifacts are named trails-<id>
         r = by_id[rid]
@@ -355,7 +421,7 @@ def combine(root, dirs, regs=None):
         places['region'] = rid
         with open(os.path.join(out, 'places', rid + '.json'), 'w', encoding='utf-8') as f:
             json.dump(places, f, separators=(',', ':'), ensure_ascii=False)
-        listing.append({'id': rid, 'code': r['code'], 'name': r['name'], 'cc': r['cc'], 'center': cell_center(idx['cells']), 'bbox': idx['bbox'], 'cells': len(idx['cells']), 'names': f'names/{rid}.json', 'places': f'places/{rid}.json'})
+        listing.append({'id': rid, 'code': r['code'], 'name': r['name'], 'cc': r['cc'], 'center': cell_center(idx['cells'], trails=count_cells(d, idx['cells'], counts)), 'bbox': idx['bbox'], 'cells': len(idx['cells']), 'names': f'names/{rid}.json', 'places': f'places/{rid}.json'})
         if idx['bbox']:
             boxes.append(idx['bbox'])
         sources.append(r['name'])
@@ -378,6 +444,9 @@ def combine(root, dirs, regs=None):
     for d in v1:  # the old path: this region's full-resolution old-format cells, index.json and names.json, as the old reader expects
         for f in os.listdir(os.path.join(d, 'full')):
             shutil.copyfile(os.path.join(d, 'full', f), os.path.join(root, f))
+    bad = verify_centers(out)   # counts the built (merged) cells; a border cell holds at least what its region's own file did
+    if bad:
+        sys.exit('region centre with too few trails (Home opens there): ' + '; '.join(bad))
     return index
 
 
@@ -401,6 +470,10 @@ if __name__ == '__main__':
         cmd_check(a[1], a[2])
     elif a[:1] == ['size'] and len(a) == 2:
         cmd_size(a[1])
+    elif a[:1] == ['centers'] and len(a) == 2:
+        bad = verify_centers(a[1])
+        print('\n'.join(bad) or 'every region centre has enough trails')
+        sys.exit(1 if bad else 0)
     elif a[:1] == ['combine'] and len(a) >= 3:
         cmd_combine(a[1], a[2:])
     else:

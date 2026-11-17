@@ -119,6 +119,32 @@ class Center(unittest.TestCase):
         self.assertIn(tuple(c), [(round(x, 4), round(y, 4)) for x, y in pts])
         self.assertIsNone(regions.cell_center([]))
 
+    def test_centre_is_the_cell_with_the_most_trails(self):
+        keys = ['0_0', '1_1', '2_2']   # the mean falls on 1_1 (the California / British Columbia bug: a covered cell with next to nothing)
+        self.assertEqual(regions.cell_center(keys), [-179.625, -89.625])                                         # no counts: nearest the mean
+        self.assertEqual(regions.cell_center(keys, trails={'0_0': 3, '1_1': 0, '2_2': 1}), [-179.875, -89.875])
+        self.assertEqual(regions.cell_center(keys, trails={'0_0': 1, '1_1': 4, '2_2': 5}), [-179.375, -89.375])
+        self.assertEqual(regions.cell_center(keys, trails={'0_0': 7, '1_1': 2, '2_2': 7}), [-179.875, -89.875])   # tie on trails: nearest the mean (equidistant, first wins)
+        keys = ['0_0', '3_3', '4_4', '5_5']                                                                       # three-way tie: 3_3 is nearest the mean (index 3)
+        self.assertEqual(regions.cell_center(keys, trails={'0_0': 1, '3_3': 9, '4_4': 9, '5_5': 9}), [-179.125, -89.125])
+
+    def test_cell_trails_counts_what_home_lists(self):
+        # one named route plus two long named paths = 3 trails (Home needs 3 for a row); a short path, a junk name, a route member and a repeat of a name do not add
+        with tempfile.TemporaryDirectory() as t:
+            def line(i, name, lat0, deg):
+                n = 4
+                g = []
+                for k in range(n):
+                    g += [-122.0, lat0 + deg * k / (n - 1)]
+                return {'id': i, 't': {'name': name}, 'g': g, 'z': [10] * n}
+            member = line(1, 'Alpha Ridge Trail', 47.0, 0.02)
+            body = cell(rels=[rel(777, 1, [[1, member['g'], member['z']]])],
+                        ways=[member, line(2, 'Beta Loop', 47.1, 0.01), line(3, 'Gamma Path', 47.2, 0.01), line(4, 'Delta Spur', 47.3, 0.005),
+                              line(5, 'Trail', 47.4, 0.02), line(6, 'Beta Loop', 47.5, 0.001)])
+            p = os.path.join(t, '1_1.json')
+            json.dump(cf.encode_cell(body), open(p, 'w'))
+            self.assertEqual(regions.cell_trails(p), (3, 1))   # Alpha (route), Beta Loop (1.1 km + a 100 m piece, stitched by name), Gamma Path (1.1 km)
+
     def test_combine_needs_exactly_one_v1_region(self):
         with tempfile.TemporaryDirectory() as t:
             d = os.path.join(t, 'trails-a')
@@ -269,6 +295,50 @@ class Merge(unittest.TestCase):
             regions.merge_cell({'v': 2, 'r': [], 'w': []}, {'v': 1, 'r': [], 'w': []})
 
 
+def routed(i=1, n=10):
+    """A cell with n routes (relations) and one lone way; relation ids i*100 and up, way id i. 10 is the build floor for a region's centre."""
+    g = [-122.0, 47.0, -121.9999, 47.0001]
+    return cell(rels=[rel(i * 100 + j, 1, [[i * 100 + j, g, [10, 1]]]) for j in range(n)], ways=[way(i, g)])
+
+
+class CentersInBuiltIndex(unittest.TestCase):
+    """Runs on a real combine() output: every region's centre cell must hold at least 10 trails, so CI fails if a centre lands on a thin or empty cell."""
+
+    def build(self, t, cells_b):
+        regs = [{'id': 'a', 'code': 'AA', 'name': 'A', 'cc': 'us', 'v1': True}, {'id': 'b', 'code': 'BB', 'name': 'B', 'cc': 'us'}]
+        g = [-122.0, 47.0, -121.9999, 47.0001]
+        dirs = []
+        for rid, cells in (('a', {'1_1': routed(5)}), ('b', cells_b)):
+            d = os.path.join(t, 'trails-' + rid)
+            os.makedirs(os.path.join(d, 'full'))
+            for k, body in cells.items():
+                json.dump(cf.encode_cell(body), open(os.path.join(d, k + '.json'), 'w'))
+            json.dump({'bbox': [0, 0, 1, 1], 'cells': list(cells)}, open(os.path.join(d, 'index.json'), 'w'))
+            json.dump({'v': 1, 'e': []}, open(os.path.join(d, 'names.json'), 'w'))
+            json.dump({'v': 1, 'region': '', 'e': []}, open(os.path.join(d, 'places.json'), 'w'))
+            for f in ('1_1.json', 'index.json', 'names.json'):
+                json.dump({'v': 1, 'r': [], 'w': [], 'cells': []}, open(os.path.join(d, 'full', f), 'w'))
+            dirs.append(d)
+        out = os.path.join(t, 'out')
+        return regions.combine(out, dirs, regs), os.path.join(out, 'v2')
+
+    def test_every_centre_has_a_route(self):
+        with tempfile.TemporaryDirectory() as t:
+            # b: the mean (cell 4_4) is nearly empty, like California's old 240_509; the centre is the cell with the most trails, 8_8
+            idx, v2 = self.build(t, {'0_0': routed(6, 10), '4_4': cell(ways=[way(9, [-122.0, 47.0, -121.9999, 47.0001])]), '8_8': routed(7, 12)})
+            for r in idx['regions']:
+                key = '%d_%d' % (int((r['center'][0] + 180) // 0.25), int((r['center'][1] + 90) // 0.25))
+                self.assertTrue(regions.cell_trails(os.path.join(v2, key + '.json'))[0] >= regions.MIN_CENTER_TRAILS, r['id'])
+            self.assertEqual(idx['regions'][1]['center'], [-177.875, -87.875])   # 8_8, 12 trails
+            self.assertEqual(regions.verify_centers(v2), [])
+
+    def test_combine_fails_when_a_centre_has_fewer_than_10_trails(self):
+        with tempfile.TemporaryDirectory() as t:
+            with self.assertRaises(SystemExit) as e:
+                self.build(t, {'4_4': routed(9, 9)})
+            self.assertIn('b: centre cell 4_4 has 9 trails (minimum 10)', str(e.exception))
+
+
 class Combine(unittest.TestCase):
     def test_v2_tree_and_frozen_v1_copy(self):
         regs = [{'id': 'a', 'code': 'AA', 'name': 'A', 'cc': 'us', 'v1': True}, {'id': 'b', 'code': 'BB', 'name': 'B', 'cc': 'us'}]
@@ -286,8 +356,8 @@ class Combine(unittest.TestCase):
                 for f, body in (('1_1.json', {'v': 1, 'r': [], 'w': []}), ('index.json', {'v': 1, 'cells': ['1_1']}), ('names.json', {'v': 1, 'e': names})):
                     json.dump(body, open(os.path.join(d, 'full', f), 'w'))
                 return d
-            da = make('a', {'1_1': cell(ways=[way(5, g)]), '1_2': cell()}, [0, 0, 1, 1], [NAMES[0]])
-            db = make('b', {'1_1': cell(ways=[way(6, g)]), '3_3': cell()}, [1, 1, 2, 2], [NAMES[0], NAMES[1]])
+            da = make('a', {'1_1': routed(5), '1_2': cell()}, [0, 0, 1, 1], [NAMES[0]])
+            db = make('b', {'1_1': routed(6), '3_3': cell()}, [1, 1, 2, 2], [NAMES[0], NAMES[1]])
             out = os.path.join(t, 'out')
             idx = regions.combine(out, [da, db], regs)
             v2 = os.path.join(out, 'v2')
