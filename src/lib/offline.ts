@@ -1,5 +1,6 @@
 // Saving trails for offline use: route data in IndexedDB, map tiles in Cache Storage.
 import { bboxOf, tilesForBBox } from './geo';
+import { SAVED_ZOOMS } from './mapZoom';
 import type { Trail } from './trails';
 import { listSaved, putSaved, deleteSaved, getSaved, getSetting, putSetting, SavedTrail } from './store';
 import { TILEJSON_URL, OFFLINE_CACHE, FONTSTACKS, GLYPH_RANGES, glyphUrl, tileCacheKey, TILE_HOST } from './tiles';
@@ -8,7 +9,7 @@ import { TILEJSON_URL, OFFLINE_CACHE, FONTSTACKS, GLYPH_RANGES, glyphUrl, tileCa
 export const MAX_TILES = 3000;
 export const MAX_BYTES = 50 * 1024 * 1024;
 const PARALLEL = 4;
-const ZOOMS: [number, number] = [10, 14]; // vector data stops at z14; the map scales it up beyond that
+const ZOOMS = SAVED_ZOOMS; // vector data stops at z14; the map scales it up beyond that (see mapZoom.ts)
 const PAD_M = 1500;
 
 /** Current versioned tile URL template, remembered for offline starts. */

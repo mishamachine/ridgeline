@@ -63,3 +63,9 @@
 
 .nv-tag { position: absolute; z-index: 2; right: 12px; top: 8px; font: 700 12px var(--text); background: #111111; color: #FFFFFF; border-radius: 8px; padding: 6px 10px; }
 .nv-switch { margin: 8px 12px 0; min-height: 48px; width: calc(100% - 24px); border: 2px solid #111111; border-radius: 14px; background: #FFFFFF; color: #111111; font: 700 15px var(--text); }
+.nv-map-btns .zoom-pair .round { box-shadow: 0 1px 3px rgba(0,0,0,.25); border: 0; background: #FFFFFF; color: #111111; }
+/* Short screens: the zoom pair lies beside Center and More, so the button stack never climbs over the turn banner. */
+@media (max-height: 699px) {
+  .nv-map-btns { flex-direction: row; align-items: flex-end; }
+  .nv-map-btns .zoom-pair { flex-direction: row; }
+}

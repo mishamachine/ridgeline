@@ -6,6 +6,7 @@ import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 setWorkerUrl(workerUrl);
 import { swissStyle, INK, RED } from '../lib/mapStyle';
 import type { LngLat } from '../lib/geo';
+import { MAP_MAX_ZOOM, MAP_MIN_ZOOM } from '../lib/mapZoom';
 import { transformRequest } from '../lib/native/offlineMaps';
 
 interface Props {
@@ -14,6 +15,10 @@ interface Props {
   zoom?: number;
   bounds?: LngLatBoundsLike;
   interactive?: boolean;
+  minZoom?: number;
+  maxZoom?: number;
+  /** One-finger drags scroll the page, two fingers move the map, the wheel zooms with Ctrl/Cmd (a map inside a scrolling page). */
+  cooperative?: boolean;
   onReady?: (map: MLMap) => void;
   label?: string;
   /** Called when map data (tiles, style) fails to load, e.g. the tile server answers 429. */
@@ -21,10 +26,11 @@ interface Props {
 }
 
 /** A MapLibre map with the Swiss style and empty trail layers ready to fill. */
-export function MapView({ tileTemplate, center, zoom = 12, bounds, interactive = true, onReady, label = 'Map', onProblem }: Props) {
+export function MapView({ tileTemplate, center, zoom = 12, bounds, interactive = true, minZoom = MAP_MIN_ZOOM, maxZoom = MAP_MAX_ZOOM, cooperative = false, onReady, label = 'Map', onProblem }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const ready = useRef(onReady);
   ready.current = onReady;
+  const mapRef = useRef<MLMap | null>(null);
   const problem = useRef(onProblem);
   problem.current = onProblem;
 
@@ -37,11 +43,15 @@ export function MapView({ tileTemplate, center, zoom = 12, bounds, interactive =
       bounds,
       fitBoundsOptions: { padding: 32 },
       interactive,
+      minZoom,
+      maxZoom,
+      cooperativeGestures: cooperative,
       attributionControl: { compact: true },
       dragRotate: false,
       pitchWithRotate: false,
       transformRequest, // native apps only: saved maps come from Cache Storage (no service worker there)
     });
+    mapRef.current = map;
     map.touchZoomRotate.disableRotation();
     map.on('error', (e) => { console.warn('[map]', e.error?.message ?? e); problem.current?.(); });
     (window as unknown as { __ridgelineMap?: MLMap }).__ridgelineMap = map;
@@ -58,10 +68,13 @@ export function MapView({ tileTemplate, center, zoom = 12, bounds, interactive =
       map.addLayer({ id: 'me-dot', type: 'circle', source: 'me', paint: { 'circle-radius': 8, 'circle-color': INK, 'circle-stroke-color': '#FFFFFF', 'circle-stroke-width': 3 } });
       ready.current?.(map);
     });
-    return () => map.remove();
+    return () => { mapRef.current = null; map.remove(); };
     // The map is created once per mount; parents remount to change the template.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tileTemplate]);
+
+  // Limits can change while the map is open (the connection drops with a saved trail).
+  useEffect(() => { mapRef.current?.setMinZoom(minZoom); mapRef.current?.setMaxZoom(maxZoom); }, [minZoom, maxZoom]);
 
   return <div ref={ref} className="map" role="region" aria-label={label} />;
 }

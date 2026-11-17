@@ -54,9 +54,15 @@
 .find-body { position: relative; flex: 1; min-height: 320px; }
 .find-map, .find-list { position: absolute; inset: 0; }
 .find-map .map { position: absolute; inset: 0; }
+.find-map .maplibregl-ctrl-bottom-right { bottom: var(--pick-h, 0px); } /* above the selected-trail card */
 .find-list { overflow-y: auto; padding: 4px 20px 24px; background: var(--paper); display: flex; flex-direction: column; gap: 12px; }
 .map-action2 { position: absolute; z-index: 2; left: 50%; top: 12px; transform: translateX(-50%); min-height: 44px; padding: 0 18px; border-radius: 22px; background: var(--ink); color: #fff; border: 0; font: 600 14px var(--text); white-space: nowrap; }
-.map-locate { position: absolute; z-index: 2; right: 16px; top: 64px; }
+/* Zoom pair: round buttons like Locate, stacked in the same right-hand thumb column. */
+.zoom-pair { display: flex; flex-direction: column; gap: 8px; }
+.zoom-pair .round:disabled { opacity: .4; }
+.map-col { position: absolute; z-index: 2; right: 16px; top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.trail-zoom { position: absolute; z-index: 2; right: 16px; bottom: 36px; } /* bottom right, above the map credit, clear of share and save */
+.trail-fit { position: absolute; z-index: 2; left: 16px; bottom: 40px; min-height: 44px; padding: 0 16px; border-radius: 22px; background: var(--card); color: var(--ink); border: 1px solid var(--hair); font: 600 14px var(--text); }
 .map-note { position: absolute; z-index: 2; left: 16px; right: 16px; top: 64px; padding: 10px 14px; border-radius: 12px; background: var(--card); border: 1px solid var(--ink); font-size: 14px; }
 .map-pick { position: absolute; z-index: 2; left: 12px; right: 12px; bottom: 12px; }
 
@@ -108,7 +114,7 @@
 /* Trail page */
 .trail-page { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .trail-scroll { flex: 1; overflow-y: auto; min-height: 0; }
-.trail-map { position: relative; height: 230px; background: var(--ground); flex: none; }
+.trail-map { position: relative; height: calc(230px + var(--safe-top)); background: var(--ground); flex: none; }
 .trail-map .map { position: absolute; inset: 0; }
 .trail-back { position: absolute; left: 16px; top: calc(var(--safe-top) + 16px); z-index: 2; }
 .trail-actions { position: absolute; right: 16px; top: calc(var(--safe-top) + 16px); z-index: 2; display: flex; gap: 8px; }
@@ -164,3 +170,10 @@
 .saved-item { gap: 0; }
 .act-row .btn { flex-wrap: nowrap; gap: 6px; font-size: 14px; padding: 0 8px; white-space: nowrap; }
 .trail-map .map { background: var(--ground); }
+
+/* Short phones: the zoom pair and Locate lie in a row along the top, so with a trail card open they never reach the credit. */
+@media (max-height: 699px) {
+  .map-col { flex-direction: row; right: 12px; gap: 6px; }
+  .map-col .zoom-pair { flex-direction: row; gap: 6px; }
+  .map-action2 { left: 12px; transform: none; padding: 0 12px; } /* beside the row, not under it */
+}

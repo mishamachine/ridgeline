@@ -1,4 +1,4 @@
-import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Map as MLMap } from 'maplibre-gl';
 import { setGeo } from '../components/mapGeo';
 import { LazyMap as MapView } from '../components/LazyMap';
@@ -8,6 +8,9 @@ import { TrailCard } from '../components/TrailCard';
 import { hasHighlight } from '../components/Chips';
 import { FindIcon, ListIcon, MapIcon, ShareIcon, CloseIcon } from '../components/NavIcons';
 import { LocateIcon } from '../components/Icons';
+import { useOnline } from '../lib/useOnline';
+import { zoomLimits } from '../lib/mapZoom';
+import { ZoomButtons } from '../components/ZoomButtons';
 import { fetchCellTrails, getIndex } from '../lib/cells';
 import { byDistance, centreOf, inCoverage, listNames, regionsOf, type CoverageRegion } from '../lib/coverage';
 import { fetchTrails, Trail } from '../lib/trails';
@@ -70,6 +73,8 @@ const List = memo(function List({ trails, savedIds, offlineIds, me, onOpen, onTo
 export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onToggleSave, preset, onHome }: Props) {
   const [{ units }] = useSettings();
   const mapRef = useRef<MLMap | null>(null);
+  const [mapInst, setMapInst] = useState<MLMap | null>(null);
+  const limits = zoomLimits({ online: useOnline() });
   const viewRef = useRef<{ center: LngLat; zoom: number }>(DEFAULT_VIEW);
   const abortRef = useRef<AbortController | null>(null);
   const presetCenter = useRef(preset?.center);
@@ -199,6 +204,7 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
 
   function onReady(map: MLMap) {
     mapRef.current = map;
+    setMapInst(map);
     map.jumpTo({ center: viewRef.current.center, zoom: viewRef.current.zoom });
     map.on('moveend', (e) => { if ((e as { originalEvent?: unknown }).originalEvent) setMoved(true); });
     map.on('click', 'trails-hit', (e) => {
@@ -268,6 +274,19 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
   function closeSearch() { setQuery(''); setOpen(false); setPlaces(null); setPlaceMsg(null); }
 
   const activeSelected = shown.find((t) => t.id === selected) ?? null;
+  // The selected-trail card sits over the bottom of the map: lift the map credit above it (it must never be covered).
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const pickRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const body = bodyRef.current, pick = pickRef.current;
+    if (!body) return;
+    const set = () => body.style.setProperty('--pick-h', pick ? `${pick.offsetHeight + 18}px` : '0px');
+    set();
+    if (!pick || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(set);
+    ro.observe(pick);
+    return () => ro.disconnect();
+  }, [activeSelected?.id, mode]);
   const filtering = chips.size > 0 && !(chips.size === 1 && chips.has('near'));
   const q = query.trim();
   const showSuggest = open && q.length >= 2;
@@ -330,17 +349,20 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
         </div>
       </div>
 
-      <div className="find-body">
+      <div className="find-body" ref={bodyRef}>
         <div className="find-map" inert={mode !== 'map'}>
-          <MapView key={retry} tileTemplate={tpl} onReady={onReady} label="Trail map" onProblem={() => setMapMsg(true)} />
+          <MapView key={retry} tileTemplate={tpl} minZoom={limits.minZoom} maxZoom={limits.maxZoom} onReady={onReady} label="Trail map" onProblem={() => setMapMsg(true)} />
         </div>
         {mode === 'map' && (
           <>
             {moved && status.kind !== 'loading' && <button className="map-action2" onClick={loadArea}>Search this area</button>}
-            <button className="round map-locate" aria-label="Go to my location" onClick={nearMe}><LocateIcon /></button>
+            <div className="map-col">
+              <ZoomButtons map={mapInst} minZoom={limits.minZoom} maxZoom={limits.maxZoom} onZoom={() => setMoved(true)} />
+              <button className="round" aria-label="Go to my location" onClick={nearMe}><LocateIcon /></button>
+            </div>
             {mapMsg && <div className="map-note" role="status">The map is slow right now. The list still works. <button className="link-btn" onClick={() => { setMapMsg(false); setRetry((n) => n + 1); }}>Retry</button></div>}
             {activeSelected && (
-              <div className="map-pick">
+              <div className="map-pick" ref={pickRef}>
                 <TrailCard trail={activeSelected} saved={savedIds.has(activeSelected.id)} offline={offlineIds.has(activeSelected.id)} onOpen={onOpen} onToggleSave={onToggleSave} />
               </div>
             )}

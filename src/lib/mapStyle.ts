@@ -1,6 +1,7 @@
 // Swiss Field Guide map style over OpenFreeMap (OpenMapTiles schema).
 import type { StyleSpecification } from 'maplibre-gl';
 import { GLYPHS_URL } from './tiles';
+import { SOURCE_MAX_ZOOM } from './mapZoom';
 
 export const INK = '#111111';
 export const RED = '#D52B26';
@@ -18,7 +19,7 @@ export function swissStyle(tileTemplate: string): StyleSpecification {
     version: 8,
     glyphs: GLYPHS_URL,
     sources: {
-      omt: { type: 'vector', tiles: [tileTemplate], minzoom: 0, maxzoom: 14, attribution: ATTRIBUTION },
+      omt: { type: 'vector', tiles: [tileTemplate], minzoom: 0, maxzoom: SOURCE_MAX_ZOOM, attribution: ATTRIBUTION },
     },
     layers: [
       { id: 'bg', type: 'background', paint: { 'background-color': PAPER } },
