@@ -11,6 +11,8 @@ import type { Trail } from '../lib/trails';
 import { getSaved, SavedTrail } from '../lib/store';
 import { removeTrailOffline, tilesForTrail } from '../lib/offline';
 import { bboxOf } from '../lib/geo';
+import { ZoomButtons } from '../components/ZoomButtons';
+import { zoomLimits } from '../lib/mapZoom';
 import { ft, hrs, km, mb, metres, mi } from '../lib/format';
 import { METRIC_COPY } from '../lib/metricCopy';
 import { useSettings } from '../lib/settings';
@@ -52,7 +54,23 @@ export function Detail({ tpl, trail, bookmarked, onBack, onStart, onSavedChange 
   useEffect(() => { refresh(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [trail.id]);
 
   const b = useMemo(() => bboxOf(trail.coords), [trail]);
+  const mapRef = useRef<MLMap | null>(null);
+  const [mapInst, setMapInst] = useState<MLMap | null>(null);
+  const [moved, setMoved] = useState(false);
+  const fitting = useRef(false);
+  const [online, setOnline] = useState(navigator.onLine);
+  useEffect(() => {
+    const net = () => setOnline(navigator.onLine);
+    window.addEventListener('online', net); window.addEventListener('offline', net);
+    return () => { window.removeEventListener('online', net); window.removeEventListener('offline', net); };
+  }, []);
+  const limits = zoomLimits({ online });
+  const fitTrail = () => { fitting.current = true; setMoved(false); mapRef.current?.fitBounds([[b.west, b.south], [b.east, b.north]], { padding: 32, bearing: 0, pitch: 0 }); };
   const onReady = (map: MLMap) => {
+    mapRef.current = map;
+    setMapInst(map);
+    map.on('movestart', () => { if (!fitting.current) setMoved(true); });
+    map.on('moveend', () => { fitting.current = false; });
     map.setPaintProperty('bg', 'background-color', '#E9ECE4'); // map ground shows even when tiles are slow or offline
     // The trailhead is its own marker (never the "you are here" dot): a P on a white disc for a mapped lot, else a black start dot.
     const th = trailheadOf(trail);
@@ -101,7 +119,9 @@ export function Detail({ tpl, trail, bookmarked, onBack, onStart, onSavedChange 
     <div className="trail-page">
       <div className="trail-scroll">
         <div className="trail-map">
-          <MapView tileTemplate={tpl} bounds={[[b.west, b.south], [b.east, b.north]]} interactive={false} onReady={onReady} label={`Map of ${trail.name}`} />
+          <MapView tileTemplate={tpl} bounds={[[b.west, b.south], [b.east, b.north]]} cooperative minZoom={limits.minZoom} maxZoom={limits.maxZoom} onReady={onReady} label={`Map of ${trail.name}`} />
+          <ZoomButtons map={mapInst} className="trail-zoom" onZoom={() => setMoved(true)} />
+          {moved && <button className="trail-fit" onClick={fitTrail}>Fit trail</button>}
           <button className="round trail-back" aria-label="Back" onClick={onBack}><BackIcon /></button>
           <div className="trail-actions">
             <button className="round" aria-label={`Share ${trail.name}`} onClick={() => shareTrail(trail)}><ShareIcon /></button>

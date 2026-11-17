@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Marker, type Map as MLMap } from 'maplibre-gl';
 import { LazyMap as MapView } from '../components/LazyMap';
+import { ZoomButtons } from '../components/ZoomButtons';
+import { breaksFollow, zoomLimits } from '../lib/mapZoom';
 import { setGeo, metersToPixels } from '../components/mapGeo';
 import { LocateIcon, SwapIcon } from '../components/Icons';
 import { Banner } from '../components/nav/Banner';
@@ -47,6 +49,7 @@ const MIN_PROGRESS_M = 400;   // walked this far before adjusting time to your o
 
 export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) {
   const mapRef = useRef<MLMap | null>(null);
+  const [mapInst, setMapInst] = useState<MLMap | null>(null);
   const actRef = useRef<Activity>(null as unknown as Activity);
   if (!actRef.current) actRef.current = resume ?? startActivity(trail);
   const startAlongRef = useRef<number | null>(null);
@@ -152,6 +155,8 @@ export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) 
   }, [engine]);
 
   const pos: LngLat | null = g.position;
+  const posRef = useRef<LngLat | null>(null);
+  posRef.current = pos;
   const near = g.along != null;
   const offRoute = g.offRoute; // the engine holds this until you have joined the trail
   const along = g.along;
@@ -281,7 +286,8 @@ export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) 
     setGeo(map, 'done', { type: 'FeatureCollection', features: behind.length > 1 ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: behind } }] : [] });
     if (pos) {
       setGeo(map, 'me', { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { r: metersToPixels(map, g.uncertaintyM ?? 0, pos[1]), anchored: g.anchored || g.stalePosition }, geometry: { type: 'Point', coordinates: pos } }] });
-      if (followRef.current) map.easeTo({ center: pos, duration: 600 });
+      // A new fix must not cut a zoom animation short (zoom buttons); the zoomend handler in onReady re-centres.
+      if (followRef.current && !map.isZooming()) map.easeTo({ center: pos, duration: 600 });
     }
   }, [g, route]);
 
@@ -310,7 +316,9 @@ export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) 
 
   function onReady(map: MLMap) {
     mapRef.current = map;
-    map.on('dragstart', () => { followRef.current = false; setFollowing(false); });
+    setMapInst(map);
+    map.on('zoomend', () => { if (followRef.current && posRef.current) map.easeTo({ center: posRef.current, duration: 300 }); });
+    map.on('dragstart', () => { if (!breaksFollow('dragstart')) return; followRef.current = false; setFollowing(false); });
     // Hollow dot while the position is a manual "I'm here" anchor.
     map.setPaintProperty('me-dot', 'circle-color', ['case', ['boolean', ['get', 'anchored'], false], '#FFFFFF', INK]);
     map.setPaintProperty('me-dot', 'circle-stroke-color', ['case', ['boolean', ['get', 'anchored'], false], INK, '#FFFFFF']);
@@ -404,10 +412,11 @@ export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) 
       <Banner view={view} voiceOn={voiceOn} onVoice={toggleVoice} onBack={offRoute && offSide ? takeMeBack : undefined} onSwitch={!trail.loop && !offRoute && (headingBack || (pct ?? 0) >= 0.25) ? () => switchDirection(false) : undefined} />
 
       <div className="nv-map">
-        <MapView tileTemplate={tpl} center={start} zoom={15} onReady={onReady} label={`Navigation map for ${trail.name}`} />
+        <MapView tileTemplate={tpl} center={start} zoom={15} minZoom={zoomLimits({ online }).minZoom} onReady={onReady} label={`Navigation map for ${trail.name}`} />
         <div className={`nv-chip${caution ? ' caution' : ''}`} style={{ top: 8 }} role="status">{paused ? 'Paused · ' : ''}{status}{net}</div>
         {headingBack && <div className="nv-tag">Heading back</div>}
         <div className="nv-map-btns">
+          {!more && !confirming && <ZoomButtons map={mapInst} />}
           {!following && <button className="nv-pill" aria-label="Center on me" onClick={recenter}><LocateIcon size={18} />Center</button>}
           <button className="nv-pill" onClick={() => setMore(true)}>More</button>
         </div>

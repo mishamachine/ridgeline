@@ -8,6 +8,7 @@ import { TrailCard } from '../components/TrailCard';
 import { hasHighlight } from '../components/Chips';
 import { FindIcon, ListIcon, MapIcon, ShareIcon, CloseIcon } from '../components/NavIcons';
 import { LocateIcon } from '../components/Icons';
+import { ZoomButtons } from '../components/ZoomButtons';
 import { fetchCellTrails, getIndex } from '../lib/cells';
 import { byDistance, centreOf, inCoverage, listNames, regionsOf, type CoverageRegion } from '../lib/coverage';
 import { fetchTrails, Trail } from '../lib/trails';
@@ -70,6 +71,7 @@ const List = memo(function List({ trails, savedIds, offlineIds, me, onOpen, onTo
 export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onToggleSave, preset, onHome }: Props) {
   const [{ units }] = useSettings();
   const mapRef = useRef<MLMap | null>(null);
+  const [mapInst, setMapInst] = useState<MLMap | null>(null);
   const viewRef = useRef<{ center: LngLat; zoom: number }>(DEFAULT_VIEW);
   const abortRef = useRef<AbortController | null>(null);
   const presetCenter = useRef(preset?.center);
@@ -199,6 +201,7 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
 
   function onReady(map: MLMap) {
     mapRef.current = map;
+    setMapInst(map);
     map.jumpTo({ center: viewRef.current.center, zoom: viewRef.current.zoom });
     map.on('moveend', (e) => { if ((e as { originalEvent?: unknown }).originalEvent) setMoved(true); });
     map.on('click', 'trails-hit', (e) => {
@@ -337,7 +340,10 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
         {mode === 'map' && (
           <>
             {moved && status.kind !== 'loading' && <button className="map-action2" onClick={loadArea}>Search this area</button>}
-            <button className="round map-locate" aria-label="Go to my location" onClick={nearMe}><LocateIcon /></button>
+            <div className="map-col">
+              <ZoomButtons map={mapInst} onZoom={() => setMoved(true)} />
+              <button className="round" aria-label="Go to my location" onClick={nearMe}><LocateIcon /></button>
+            </div>
             {mapMsg && <div className="map-note" role="status">The map is slow right now. The list still works. <button className="link-btn" onClick={() => { setMapMsg(false); setRetry((n) => n + 1); }}>Retry</button></div>}
             {activeSelected && (
               <div className="map-pick">

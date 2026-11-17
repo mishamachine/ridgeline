@@ -92,3 +92,12 @@ jobs:
           path: test-results/home-visual/
           if-no-files-found: warn
           retention-days: 14
+
+      # Map screenshots at 375 px (e2e/map-zoom.spec.ts): Find, trail page and Navigate with the zoom buttons.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: map-zoom
+          path: test-results/map-zoom/
+          if-no-files-found: warn
+          retention-days: 14
