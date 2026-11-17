@@ -306,10 +306,9 @@ def cell_center(keys, size=0.25, routes=None):
 
 
 def route_count(path):
-    """Routes (relations plus lone ways) in one cell file, v1 or v2."""
+    """Routes in one cell file, v1 or v2: the relations ('r'), the same "routes" the build report counts. Lone named ways ('w') are not routes."""
     with open(path) as f:
-        body = json.load(f)
-    return len(body.get('r', [])) + len(body.get('w', []))
+        return len(json.load(f).get('r', []))
 
 
 def verify_centers(v2_dir):

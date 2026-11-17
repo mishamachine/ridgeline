@@ -278,6 +278,11 @@ class Merge(unittest.TestCase):
             regions.merge_cell({'v': 2, 'r': [], 'w': []}, {'v': 1, 'r': [], 'w': []})
 
 
+def routed(i=1):
+    g = [-122.0, 47.0, -121.9999, 47.0001]
+    return cell(rels=[rel(i, 1, [[i, g, [10, 1]]])], ways=[way(i, g)])
+
+
 class CentersInBuiltIndex(unittest.TestCase):
     """Runs on a real combine() output: every region's centre cell must hold at least one route, so CI fails if a centre lands on an empty cell."""
 
@@ -285,7 +290,7 @@ class CentersInBuiltIndex(unittest.TestCase):
         regs = [{'id': 'a', 'code': 'AA', 'name': 'A', 'cc': 'us', 'v1': True}, {'id': 'b', 'code': 'BB', 'name': 'B', 'cc': 'us'}]
         g = [-122.0, 47.0, -121.9999, 47.0001]
         dirs = []
-        for rid, cells in (('a', {'1_1': cell(ways=[way(5, g)])}), ('b', cells_b)):
+        for rid, cells in (('a', {'1_1': routed(5)}), ('b', cells_b)):
             d = os.path.join(t, 'trails-' + rid)
             os.makedirs(os.path.join(d, 'full'))
             for k, body in cells.items():
@@ -301,8 +306,8 @@ class CentersInBuiltIndex(unittest.TestCase):
 
     def test_every_centre_has_a_route(self):
         with tempfile.TemporaryDirectory() as t:
-            # b: the mean (cell 4_4) is empty, like California's 240_509; the centre must move to a cell with a route
-            idx, v2 = self.build(t, {'0_0': cell(ways=[way(6, [-122.0, 47.0, -121.9999, 47.0001])]), '4_4': cell(), '8_8': cell(ways=[way(7, [-122.0, 47.0, -121.9999, 47.0001])])})
+            # b: the mean (cell 4_4) holds a named path but no route, like California's 240_509 (8 named paths, 0 routes); the centre must move to a cell with a route
+            idx, v2 = self.build(t, {'0_0': routed(6), '4_4': cell(ways=[way(9, [-122.0, 47.0, -121.9999, 47.0001])]), '8_8': routed(7)})
             for r in idx['regions']:
                 self.assertTrue(regions.route_count(os.path.join(v2, '%d_%d.json' % (int((r['center'][0] + 180) // 0.25), int((r['center'][1] + 90) // 0.25)))) >= 1, r['id'])
             self.assertEqual(regions.verify_centers(v2), [])
@@ -310,7 +315,7 @@ class CentersInBuiltIndex(unittest.TestCase):
     def test_combine_fails_when_a_region_has_no_routes_at_all(self):
         with tempfile.TemporaryDirectory() as t:
             with self.assertRaises(SystemExit) as e:
-                self.build(t, {'4_4': cell()})
+                self.build(t, {'4_4': cell(ways=[way(9, [-122.0, 47.0, -121.9999, 47.0001])])})
             self.assertIn('b: centre cell 4_4 has 0 routes', str(e.exception))
 
 
@@ -331,8 +336,8 @@ class Combine(unittest.TestCase):
                 for f, body in (('1_1.json', {'v': 1, 'r': [], 'w': []}), ('index.json', {'v': 1, 'cells': ['1_1']}), ('names.json', {'v': 1, 'e': names})):
                     json.dump(body, open(os.path.join(d, 'full', f), 'w'))
                 return d
-            da = make('a', {'1_1': cell(ways=[way(5, g)]), '1_2': cell()}, [0, 0, 1, 1], [NAMES[0]])
-            db = make('b', {'1_1': cell(ways=[way(6, g)]), '3_3': cell()}, [1, 1, 2, 2], [NAMES[0], NAMES[1]])
+            da = make('a', {'1_1': cell(rels=[rel(5, 1, [[5, g, [10, 1]]])], ways=[way(5, g)]), '1_2': cell()}, [0, 0, 1, 1], [NAMES[0]])
+            db = make('b', {'1_1': cell(rels=[rel(6, 1, [[6, g, [10, 1]]])], ways=[way(6, g)]), '3_3': cell()}, [1, 1, 2, 2], [NAMES[0], NAMES[1]])
             out = os.path.join(t, 'out')
             idx = regions.combine(out, [da, db], regs)
             v2 = os.path.join(out, 'v2')
