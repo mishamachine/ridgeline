@@ -91,3 +91,7 @@
 .ob-primary { min-height: 56px; border-radius: 12px; border: 0; background: var(--red); color: var(--white); font: 800 18px var(--display); }
 .ob-quiet { min-height: 44px; border: 0; background: transparent; font-weight: 600; font-size: 15px; color: var(--ink); }
 .ob-arrows { display: flex; justify-content: space-between; }
+.ob-steps { display: flex; justify-content: center; color: var(--ink); }
+.ob-steps .a2-steps { text-align: left; margin: 0; padding-left: 0; list-style-position: inside; font-size: 16px; }
+.ob .ob-steps li { display: list-item; }
+.ob .ob-steps li::before { content: none; }

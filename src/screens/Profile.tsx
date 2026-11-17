@@ -11,6 +11,7 @@ import { Backup, MAX_BACKUP_BYTES, downloadBackup, exportBackup, parseBackup, re
 import { ELEVATION_NOTICE } from '../lib/credits';
 import { shareApp } from '../lib/share';
 import { features } from '../lib/features';
+import { InstallProfile } from '../components/Install';
 import { ChevronIcon } from '../components/Icons';
 import { PageHead } from '../components/PageHead';
 import { BadgeMedal } from './Badges';
@@ -231,6 +232,7 @@ export function Profile({ onOpenBadges, onReplayTour, onOpenActivity, version, p
           </details>
 
           <a className="pf-row" href={`${base}support/`}><span>Help &amp; support</span><ChevronIcon size={16} /></a>
+          <InstallProfile />
           <button className="pf-row" onClick={onReplayTour}><span>Replay the tour</span><ChevronIcon size={16} /></button>
 
           <details className="pf-row" style={{ display: 'block', padding: 0 }}>

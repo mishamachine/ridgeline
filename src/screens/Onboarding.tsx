@@ -6,12 +6,16 @@ import offlineArt from '../assets/onboard-offline.svg';
 import voiceArt from '../assets/onboard-voice.svg';
 import badgesArt from '../assets/onboard-badges.svg';
 import boboUrl from '../assets/trail-bobo.svg';
+import { INSTALL_BODY, InstallSteps, usePromptReady } from '../components/Install';
+import { installPlatform, isInAppBrowser, isStandalone, promptInstall } from '../lib/pwa';
+import { isNative } from '../lib/native/platform';
+import { markInstalled } from '../lib/install';
 import './profile.css';
 
-export interface Card { id: 'find' | 'offline' | 'forks' | 'badges' | 'location'; tag: string; title: string; body: string; art: string; alt: string }
+export interface Card { id: 'find' | 'offline' | 'install' | 'forks' | 'badges' | 'location'; tag: string; title: string; body: string; art: string; alt: string }
 
 /** Copy is driven by `features`, so a card never promises something this build cannot do. */
-export function onboardingCards(f: { voice: boolean; screenOff: boolean; badges: boolean }, withLocation: boolean): Card[] {
+export function onboardingCards(f: { voice: boolean; screenOff: boolean; badges: boolean }, withLocation: boolean, install = false): Card[] {
   const forks = f.voice && f.screenOff
     ? 'Short spoken directions at the forks, even with your phone in your pocket and the screen off.'
     : f.voice
@@ -22,6 +26,7 @@ export function onboardingCards(f: { voice: boolean; screenOff: boolean; badges:
     { id: 'offline', tag: 'Offline', title: 'Works with no signal', body: 'Tap Save offline the night before. The map and route live on your phone.', art: offlineArt, alt: 'A phone with a saved map' },
     { id: 'forks', tag: f.voice ? 'Voice' : 'Directions', title: f.voice ? 'Bobo talks you through the forks' : 'Keep your eyes on the trail', body: forks, art: voiceArt, alt: 'Bobo at a fork in the trail' },
   ];
+  if (install) cards.splice(2, 0, { id: 'install', tag: 'Home screen', title: 'Add Ridgeline to your home screen', body: INSTALL_BODY, art: offlineArt, alt: 'A phone with a saved map' });
   if (f.badges) cards.push({ id: 'badges', tag: 'Badges', title: 'Collect badges, share Ridgeline', body: 'Earn badges for classics, early starts and more. They stay on your phone. Share Ridgeline with a friend any time from Profile.', art: badgesArt, alt: 'Badges on a trail' });
   if (withLocation) cards.push({ id: 'location', tag: 'Location', title: 'Let Ridgeline find you?', body: 'Your location makes Ridgeline work on the trail. It stops when you finish.', art: boboUrl, alt: 'Bobo with a bandana' });
   return cards;
@@ -34,7 +39,10 @@ const PERKS = ['Centre the map on you when you open it or tap Locate', 'Your pre
  * The OS location prompt appears only after "Allow location".
  */
 export function Onboarding({ onDone, replay = false }: { onDone: () => void; replay?: boolean }) {
-  const cards = onboardingCards(features, !replay);
+  const promptReady = usePromptReady();
+  const platform = installPlatform();
+  const canInstall = !isNative() && !isStandalone() && !isInAppBrowser() && platform !== 'desktop';
+  const cards = onboardingCards(features, !replay, canInstall);
   const [i, setI] = useState(0);
   const [asking, setAsking] = useState(false);
   const head = useRef<HTMLHeadingElement>(null);
@@ -108,6 +116,7 @@ export function Onboarding({ onDone, replay = false }: { onDone: () => void; rep
         <p>{card.body}</p>
       </div>
 
+      {card.id === 'install' && !(platform === 'android' && promptReady) && <div className="ob-steps"><InstallSteps platform={platform} /></div>}
       {card.id === 'location' && <ul>{PERKS.map((p) => <li key={p}>{p}</li>)}</ul>}
 
       <div className="ob-foot">
@@ -115,6 +124,14 @@ export function Onboarding({ onDone, replay = false }: { onDone: () => void; rep
           <>
             <button className="ob-primary" onClick={allow} disabled={asking}>{asking ? 'Waiting for your phone…' : 'Allow location'}</button>
             <button className="ob-quiet" onClick={finish} disabled={asking}>Not now</button>
+          </>
+        ) : card.id === 'install' ? (
+          <>
+            {platform === 'android' && promptReady
+              ? <button className="ob-primary" onClick={async () => { if ((await promptInstall()) === 'accepted') markInstalled(); go(i + 1); }}>Add to home screen</button>
+              : <button className="ob-primary" onClick={() => go(i + 1)}>Got it</button>}
+            {platform === 'android' && promptReady && <button className="ob-quiet" onClick={() => go(i + 1)}>Not now</button>}
+            <button className="ob-quiet" onClick={() => go(i - 1)}>Back</button>
           </>
         ) : (
           <>
