@@ -13,6 +13,7 @@ import { onboardingCards } from '../screens/Onboarding';
 import type { Activity } from './store';
 import type { LngLat } from './geo';
 import type { Trail } from './trails';
+import { OVERPASS_SERVERS } from './trails';
 
 const coords: LngLat[] = Array.from({ length: 21 }, (_, k) => [-121.77, 47.43 + k * 0.0015]);
 const trail: Trail = { id: 'osm-w1', name: 'Rattlesnake Ledge', coords, lengthM: 3300, loop: false, partial: false, osmUrl: 'https://www.openstreetmap.org/way/1', tags: {}, ascentM: 370, highlights: ['view', 'lake'] };
@@ -43,9 +44,13 @@ describe('routes', () => {
   it('the privacy page describes sharing a hike and carries today\'s date', () => {
     const html = readFileSync('public/privacy/index.html', 'utf8');
     expect(html).toContain('<h2>Sharing a hike</h2>');
-    expect(html).toContain('Last updated 14 November 2026');
+    expect(html).toContain('Last updated 17 November 2026');
     expect(html).toContain('first and last 200 m');
     expect(html).toContain('whether you finished');
+  });
+  it('the privacy page names every Overpass server the app can ask', () => {
+    const html = readFileSync('public/privacy/index.html', 'utf8');
+    for (const server of OVERPASS_SERVERS) expect(html).toContain(new URL(server).hostname);
   });
   it('the location wording says exact location, and what our host can tell', () => {
     const html = readFileSync('public/privacy/index.html', 'utf8');
