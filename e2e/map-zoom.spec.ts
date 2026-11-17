@@ -63,6 +63,7 @@ async function checkButtons(page: Page) {
 }
 
 test('Find: zoom buttons sit above Locate, change the zoom and grey out at the limits', async ({ page, context }) => {
+  test.setTimeout(180_000);
   const errors = await setup(page, context);
   await page.goto('/');
   await page.getByRole('button', { name: /Explore the map/ }).click();
@@ -82,8 +83,23 @@ test('Find: zoom buttons sit above Locate, change the zoom and grey out at the l
   await page.evaluate(() => (window as unknown as Win).__ridgelineMap!.setZoom(2)); await settle(page);
   expect(await zoom(page)).toBe(9);
   await expect(page.getByRole('button', { name: 'Zoom out' })).toBeDisabled();
+  await checkAttribution(page, '.find-body', false);
+  // A selected trail opens a card over the bottom of the map: the credit must sit above it, not under it.
+  type M = { jumpTo(o: unknown): void; querySourceFeatures(s: string): { geometry: { coordinates: number[][] } }[]; project(c: number[]): { x: number; y: number }; getContainer(): HTMLElement };
+  await page.evaluate(() => (window as unknown as { __ridgelineMap: M }).__ridgelineMap.jumpTo({ center: [-121.7717, 47.4356], zoom: 13 }));
+  await page.getByRole('button', { name: 'Zoom in' }).click(); // counts as moving, so "Search this area" shows
+  await page.getByRole('button', { name: 'Search this area' }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __ridgelineMap: M }).__ridgelineMap.querySourceFeatures('trails').length), { timeout: 20_000 }).toBeGreaterThan(0);
+  await settle(page);
+  const at = await page.evaluate(() => { const m = (window as unknown as { __ridgelineMap: M }).__ridgelineMap; const c = m.querySourceFeatures('trails')[0].geometry.coordinates; const p = m.project(c[Math.floor(c.length / 2)]); const r = m.getContainer().getBoundingClientRect(); return { x: r.left + p.x, y: r.top + p.y }; });
+  await page.mouse.click(at.x, at.y);
+  await expect(page.locator('.map-pick')).toBeVisible();
+  await checkAttribution(page, '.find-body', false);
+  const credit = (await page.locator('.find-body .maplibregl-ctrl-attrib').boundingBox())!;
+  const cardBox = (await page.locator('.map-pick').boundingBox())!;
+  expect(credit.y + credit.height, 'credit sits above the card').toBeLessThanOrEqual(cardBox.y);
   mkdirSync(OUT, { recursive: true });
-  await page.screenshot({ path: `${OUT}/find-375.png` });
+  await page.screenshot({ path: `${OUT}/find-card-375.png` });
   expect(errors).toEqual([]);
 });
 
