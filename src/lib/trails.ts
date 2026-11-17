@@ -148,6 +148,15 @@ export function pathStatKey(name: string, a: LngLat, b: LngLat): string {
   return `w${name}|${ends.join('|')}`;
 }
 
+/**
+ * A mountain-bike trail: mtb:scale present, or bicycle=designated with foot not yes/designated, or a route=mtb relation.
+ * Hosted builds judge the raw tags and keep only mtb=1 on the entry (scripts/name_index.py is_mtb is the same rule), so that counts too.
+ */
+export function isMtbTags(t: Record<string, string> = {}): boolean {
+  if (t.mtb === '1' || t['mtb:scale'] || t.route === 'mtb') return true;
+  return t.bicycle === 'designated' && t.foot !== 'yes' && t.foot !== 'designated';
+}
+
 /** `stored` (hosted v2 data): each route's length measured on the full line, key "r<id>"; the minimum length is judged on it for a complete route; named paths use key "w<name>|<lon,lat>|<lon,lat>" (the two ends sorted as text). */
 export function parseOverpass(elements: OsmElement[], stored?: ReadonlyMap<string, number[]>): Trail[] {
   const trails: Trail[] = [];
@@ -155,6 +164,7 @@ export function parseOverpass(elements: OsmElement[], stored?: ReadonlyMap<strin
   const keepTags = (t: Record<string, string> = {}) => {
     const out: Record<string, string> = {};
     for (const k of ['sac_scale', 'surface', 'dog', 'operator', 'description', 'trail_visibility', 'website']) if (t[k]) out[k] = t[k];
+    if (isMtbTags(t)) out.mtb = '1';   // the raw tags are not kept; Home and the lists leave mountain-bike trails out (quality.ts)
     return out;
   };
 

@@ -51,7 +51,8 @@
 .seg button { height: 44px; padding: 0 14px; border: 0; background: var(--card); font: 600 14px var(--text); display: flex; align-items: center; gap: 6px; }
 .seg button[aria-pressed='true'] { background: var(--ink); color: #fff; }
 .seg-wide { width: 100%; } .seg-wide button { flex: 1; justify-content: center; }
-.find-body { position: relative; flex: 1; min-height: 320px; }
+.find-body { position: relative; flex: 1; min-height: 0; } /* shrinks with the phone: a fixed minimum height pushed the map and its credit under the tab bar on short screens */
+.find-body.has-pick { min-height: 320px; } /* with a trail card open the map needs room for the card and the buttons, as before */
 .find-map, .find-list { position: absolute; inset: 0; }
 .find-map .map { position: absolute; inset: 0; }
 .find-map .maplibregl-ctrl-bottom-right { bottom: var(--pick-h, 0px); } /* above the selected-trail card */

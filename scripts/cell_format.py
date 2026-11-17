@@ -10,7 +10,7 @@ Cell file format v2 (smaller files; the app still reads v1). One cell file is {"
   j  = [[vertex index (into the kept points), [[dx, dy, name?, routes?], ...]], ...]: each branch point as an
        offset from its own vertex.
   t  keeps only the tags the app reads (name, ref on relations, sac_scale, surface, dog, operator, description,
-       trail_visibility, website): way ref and route are dropped.
+       trail_visibility, website, and mtb=1 where the build found a mountain-bike trail): way ref and route are dropped.
   Other keys are as in v1: r entries {id, t, n, m: [[way id, g, z, j?], ...], h?, th?}; w entries {id, t, g, z, h?, th?, j?}.
 
 decode() is the exact inverse apart from the simplification (used by the tests; the app has its own decoder in
@@ -21,7 +21,7 @@ import numpy as np
 SCALE = 100000          # 1e-5 degrees
 DP_TOLERANCE_M = 5.0
 Z_TURN_M = 2.0           # height turns smaller than this are ignored when protecting peaks and dips
-KEEP_WAY_TAGS = ('name', 'sac_scale', 'surface', 'dog', 'operator', 'description', 'trail_visibility', 'website')
+KEEP_WAY_TAGS = ('name', 'sac_scale', 'surface', 'dog', 'operator', 'description', 'trail_visibility', 'website', 'mtb')
 KEEP_REL_TAGS = ('name', 'ref') + KEEP_WAY_TAGS[1:]
 
 

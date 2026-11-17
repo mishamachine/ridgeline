@@ -8,7 +8,7 @@ Region tooling for the multi-region trail build (scripts/regions.json).
   regions.py note <id> <state> [key]      job-summary line: cache hit or miss, the PBF date
   regions.py check <id> <dir>             report + fail if under 50% of the expected trail count or a classic is missing
   regions.py size <dir>                   fail if the published trail data is over 950 MB (each host must stay under 1 GB)
-  regions.py centers <out>/v2             fail unless every region's centre cell has at least 10 trails (combine runs this too)
+  regions.py centers <out>/v2             fail unless every region's centre cell has at least 10 trails with 500 ft of gain or more, mountain-bike trails left out (combine runs this too)
   regions.py combine <out> <dir>...       merge per-region build dirs (each named by region id) into <out>/v2, plus the frozen v1 copy in <out>
 
 Geofabrik etiquette: one download per region per week (the workflow caches on the ISO week), an identifying
@@ -290,12 +290,19 @@ def cmd_check(rid, d):
     sys.exit(1 if bad else 0)
 
 
-MIN_CENTER_TRAILS = 10      # the build fails if a region's centre cell holds fewer trails than this
+MIN_CENTER_TRAILS = 10      # the build fails if a region's centre cell holds fewer qualifying trails than this
+MIN_CENTER_GAIN_FT = 500    # a trail counts toward the centre only with this much gain (152 m): flat fitness loops do not make a hiking centre
 MIN_WAY_M = 805             # Home's floor for a named path (src/lib/quality.ts MIN_WAY_M); relations are exempt
 
 
+def stored_gain_ft(s):
+    """Headline gain in feet from a stored [length m, ascent m, descent m] (cells' `s`, see trail-stats.mjs): the bigger of the two ways,
+    as Home shows it (gain_ft above; for a loop ascent and descent are the same to within noise)."""
+    return round(max(s[1], s[2]) * 3.28084)
+
+
 def cell_center(keys, size=0.25, trails=None):
-    """[lon, lat] of the cell with the most trails in the region; ties go to the one nearest the mean of all the cells' centres.
+    """[lon, lat] of the cell with the most qualifying trails in the region (see cell_trails: 500 ft of gain or more, no mountain-bike trails); ties go to the one nearest the mean of all the cells' centres.
     Home opens on this point with location off, so it must be a place with trails (a bbox midpoint can be in the sea, and a
     covered cell can hold nothing). trails maps cell key -> trail count (see cell_trails); without it every cell counts the
     same, so the cell nearest the mean wins. None when there are no cells."""
@@ -319,26 +326,37 @@ def _line(g, v2):
 
 
 def cell_trails(path):
-    """(trails, relations) in one cell file, v1 or v2: a close proxy for what Home lists from this cell (src/lib/quality.ts filterTrails).
-    Relations with a real name count one each (routes are exempt from the length floor). Named paths that are not a member of any relation
-    in the cell are stitched by name, as the app does, and count one per name when their summed length reaches MIN_WAY_M and the name is
-    not junk. Not modelled: a trail that crosses cells (counted once per cell), the 5 km same-name merge and the stats-mismatch exclusion."""
+    """(qualifying, total) in one cell file, v1 or v2: a close proxy for what Home lists from this cell (src/lib/quality.ts filterTrails).
+    total: relations with a real name (routes are exempt from the length floor) plus named paths that are not a member of any relation
+    in the cell, stitched by name as the app does, one per name when the summed length reaches MIN_WAY_M and the name is not junk.
+    Mountain-bike trails (name_index.is_mtb, or mtb=1 as the build marks them) are left out of both numbers, as Home leaves them out.
+    qualifying: those of the total with at least MIN_CENTER_GAIN_FT of gain in the build's stored stats (`s`: key r<id> for a route, w<name>|<end>|<end>
+    for a named path; a name with several stored chains counts if any chain of at least MIN_WAY_M qualifies). No stored stats, no gain, not counted.
+    Not modelled: a trail that crosses cells (counted once per cell), the 5 km same-name merge and the stats-mismatch exclusion."""
     with open(path) as f:
         body = json.load(f)
     v2 = body.get('v') == 2
-    rels = [r for r in body.get('r', []) if not name_index.is_junk_name(r.get('t', {}).get('name', ''))]
+    stored = body.get('s') or {}
+    rels = [r for r in body.get('r', []) if not name_index.is_junk_name(r.get('t', {}).get('name', '')) and not name_index.is_mtb(r.get('t', {}))]
     members = {m[0] for r in body.get('r', []) for m in r['m']}
-    length = {}
+    length, mtb = {}, set()
     for w in body.get('w', []):
         name = w.get('t', {}).get('name', '')
         if w['id'] in members or not name or name_index.is_junk_name(name):
             continue
+        if name_index.is_mtb(w.get('t', {})):
+            mtb.add(name)   # the app merges a name's tags across its ways, so one mountain-bike way marks the whole name
         length[name] = length.get(name, 0) + name_index.length(_line(w['g'], v2))
-    return len(rels) + sum(1 for m in length.values() if m >= MIN_WAY_M), len(rels)
+    paths = [n for n, m in length.items() if m >= MIN_WAY_M and n not in mtb]
+    qual = sum(1 for r in rels if f"r{r['id']}" in stored and stored_gain_ft(stored[f"r{r['id']}"]) >= MIN_CENTER_GAIN_FT)
+    for n in paths:
+        if any(k.startswith(f'w{n}|') and s[0] >= MIN_WAY_M and stored_gain_ft(s) >= MIN_CENTER_GAIN_FT for k, s in stored.items()):
+            qual += 1
+    return qual, len(rels) + len(paths)
 
 
 def count_cells(dirpath, keys, cache=None):
-    """{cell key: trails}, parsing each cell file once (cache is shared between callers)."""
+    """{cell key: qualifying trails}, parsing each cell file once (cache is shared between callers; it holds (qualifying, total))."""
     cache = {} if cache is None else cache
     for k in keys:
         path = os.path.join(dirpath, k + '.json')
@@ -348,8 +366,8 @@ def count_cells(dirpath, keys, cache=None):
 
 
 def verify_centers(v2_dir, cache=None):
-    """Returns the problems unless every region's centre cell, in the built <v2_dir>/index.json, holds at least MIN_CENTER_TRAILS trails.
-    Per-cell counts are cached in `cache` (path -> (trails, relations)), so a cell file is parsed once."""
+    """Returns the problems unless every region's centre cell, in the built <v2_dir>/index.json, holds at least MIN_CENTER_TRAILS qualifying trails.
+    Per-cell counts are cached in `cache` (path -> (qualifying, total)), so a cell file is parsed once."""
     with open(os.path.join(v2_dir, 'index.json')) as f:
         idx = json.load(f)
     size, bad = idx['cell'], []
@@ -361,8 +379,27 @@ def verify_centers(v2_dir, cache=None):
         key = f"{int((c[0] + 180) // size)}_{int((c[1] + 90) // size)}"
         n = count_cells(v2_dir, [key], cache)[key]
         if n < MIN_CENTER_TRAILS:
-            bad.append(f"{r['id']}: centre cell {key} has {n} trails (minimum {MIN_CENTER_TRAILS})")
+            bad.append(f"{r['id']}: centre cell {key} has {n} trails with {MIN_CENTER_GAIN_FT} ft of gain or more (minimum {MIN_CENTER_TRAILS})")
     return bad
+
+
+def report_centers(v2_dir, listing, cache):
+    """One line per region for the log and the job summary: the centre cell, its lon/lat, and its qualifying and total trails."""
+    size, lines = 0.25, []
+    for r in listing:
+        c = r['center']
+        if not c:
+            continue
+        key = f"{int((c[0] + 180) // size)}_{int((c[1] + 90) // size)}"
+        count_cells(v2_dir, [key], cache)
+        q, total = cache[os.path.join(v2_dir, key + '.json')]
+        lines.append(f"| {r['name']} | {key} | {c[0]}, {c[1]} | {q} | {total} |")
+    table = '| Region | Centre cell | Centre lon, lat | Trails with 500 ft of gain or more | Trails (all, mountain-bike trails left out) |\n|---|---|---|---|---|\n' + '\n'.join(lines)
+    print(table)
+    summary = os.environ.get('GITHUB_STEP_SUMMARY')
+    if summary:
+        with open(summary, 'a') as f:
+            f.write('Region centres (Home opens here with location off):\n\n' + table + '\n\n')
 
 
 def merge_cell(a, b):
@@ -444,7 +481,8 @@ def combine(root, dirs, regs=None):
     for d in v1:  # the old path: this region's full-resolution old-format cells, index.json and names.json, as the old reader expects
         for f in os.listdir(os.path.join(d, 'full')):
             shutil.copyfile(os.path.join(d, 'full', f), os.path.join(root, f))
-    bad = verify_centers(out)   # counts the built (merged) cells; a border cell holds at least what its region's own file did
+    report_centers(out, listing, counts)
+    bad = verify_centers(out, counts)   # counts the built (merged) cells; a border cell holds at least what its region's own file did
     if bad:
         sys.exit('region centre with too few trails (Home opens there): ' + '; '.join(bad))
     return index

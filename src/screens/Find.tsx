@@ -349,7 +349,7 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
         </div>
       </div>
 
-      <div className="find-body" ref={bodyRef}>
+      <div className={`find-body${mode === 'map' && activeSelected ? ' has-pick' : ''}`} ref={bodyRef}>
         <div className="find-map" inert={mode !== 'map'}>
           <MapView key={retry} tileTemplate={tpl} minZoom={limits.minZoom} maxZoom={limits.maxZoom} onReady={onReady} label="Trail map" onProblem={() => setMapMsg(true)} />
         </div>

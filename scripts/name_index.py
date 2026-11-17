@@ -29,6 +29,14 @@ def is_junk_name(name):
     return len(n) < 3 or bool(JUNK_WORDS.search(n) or NUMBER_ONLY.match(n) or ROAD_CODE.match(n) or SHORT_JUNK.match(n))
 
 
+def is_mtb(tags):
+    """A mountain-bike trail, kept out of Home's picks: mtb:scale present, or bicycle=designated with foot not yes/designated,
+    or a route=mtb relation. Mirrors isMtbTags in src/lib/quality.ts; the cells carry the result as mtb=1 (see build_trails.py)."""
+    if tags.get('mtb') == '1' or tags.get('mtb:scale') or tags.get('route') == 'mtb':
+        return True
+    return tags.get('bicycle') == 'designated' and tags.get('foot') not in ('yes', 'designated')
+
+
 def haversine(a, b):
     r = 6371008.8
     p1, p2 = math.radians(a[1]), math.radians(b[1])
