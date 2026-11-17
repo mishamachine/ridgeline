@@ -119,6 +119,15 @@ class Center(unittest.TestCase):
         self.assertIn(tuple(c), [(round(x, 4), round(y, 4)) for x, y in pts])
         self.assertIsNone(regions.cell_center([]))
 
+    def test_centre_skips_cells_with_no_routes(self):
+        # the mean falls on 1_1, which is covered but empty (the California / British Columbia bug): the centre moves to the nearest cell with a route
+        keys = ['0_0', '1_1', '2_2']
+        self.assertEqual(regions.cell_center(keys), [-179.625, -89.625])
+        self.assertEqual(regions.cell_center(keys, routes={'0_0': 3, '1_1': 0, '2_2': 1}), [-179.875, -89.875])   # tie on distance: most routes
+        self.assertEqual(regions.cell_center(keys, routes={'0_0': 1, '1_1': 0, '2_2': 5}), [-179.375, -89.375])
+        self.assertEqual(regions.cell_center(keys, routes={'0_0': 0, '1_1': 0, '2_2': 2}), [-179.375, -89.375])   # only one cell has routes
+        self.assertEqual(regions.cell_center(keys, routes={}), [-179.625, -89.625])                              # none has: nearest cell, verify_centers then fails the build
+
     def test_combine_needs_exactly_one_v1_region(self):
         with tempfile.TemporaryDirectory() as t:
             d = os.path.join(t, 'trails-a')
@@ -267,6 +276,42 @@ class Merge(unittest.TestCase):
     def test_versions_must_match(self):
         with self.assertRaises(AssertionError):
             regions.merge_cell({'v': 2, 'r': [], 'w': []}, {'v': 1, 'r': [], 'w': []})
+
+
+class CentersInBuiltIndex(unittest.TestCase):
+    """Runs on a real combine() output: every region's centre cell must hold at least one route, so CI fails if a centre lands on an empty cell."""
+
+    def build(self, t, cells_b):
+        regs = [{'id': 'a', 'code': 'AA', 'name': 'A', 'cc': 'us', 'v1': True}, {'id': 'b', 'code': 'BB', 'name': 'B', 'cc': 'us'}]
+        g = [-122.0, 47.0, -121.9999, 47.0001]
+        dirs = []
+        for rid, cells in (('a', {'1_1': cell(ways=[way(5, g)])}), ('b', cells_b)):
+            d = os.path.join(t, 'trails-' + rid)
+            os.makedirs(os.path.join(d, 'full'))
+            for k, body in cells.items():
+                json.dump(cf.encode_cell(body), open(os.path.join(d, k + '.json'), 'w'))
+            json.dump({'bbox': [0, 0, 1, 1], 'cells': list(cells)}, open(os.path.join(d, 'index.json'), 'w'))
+            json.dump({'v': 1, 'e': []}, open(os.path.join(d, 'names.json'), 'w'))
+            json.dump({'v': 1, 'region': '', 'e': []}, open(os.path.join(d, 'places.json'), 'w'))
+            for f in ('1_1.json', 'index.json', 'names.json'):
+                json.dump({'v': 1, 'r': [], 'w': [], 'cells': []}, open(os.path.join(d, 'full', f), 'w'))
+            dirs.append(d)
+        out = os.path.join(t, 'out')
+        return regions.combine(out, dirs, regs), os.path.join(out, 'v2')
+
+    def test_every_centre_has_a_route(self):
+        with tempfile.TemporaryDirectory() as t:
+            # b: the mean (cell 4_4) is empty, like California's 240_509; the centre must move to a cell with a route
+            idx, v2 = self.build(t, {'0_0': cell(ways=[way(6, [-122.0, 47.0, -121.9999, 47.0001])]), '4_4': cell(), '8_8': cell(ways=[way(7, [-122.0, 47.0, -121.9999, 47.0001])])})
+            for r in idx['regions']:
+                self.assertTrue(regions.route_count(os.path.join(v2, '%d_%d.json' % (int((r['center'][0] + 180) // 0.25), int((r['center'][1] + 90) // 0.25)))) >= 1, r['id'])
+            self.assertEqual(regions.verify_centers(v2), [])
+
+    def test_combine_fails_when_a_region_has_no_routes_at_all(self):
+        with tempfile.TemporaryDirectory() as t:
+            with self.assertRaises(SystemExit) as e:
+                self.build(t, {'4_4': cell()})
+            self.assertIn('b: centre cell 4_4 has 0 routes', str(e.exception))
 
 
 class Combine(unittest.TestCase):

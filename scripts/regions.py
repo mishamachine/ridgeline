@@ -8,6 +8,7 @@ Region tooling for the multi-region trail build (scripts/regions.json).
   regions.py note <id> <state> [key]      job-summary line: cache hit or miss, the PBF date
   regions.py check <id> <dir>             report + fail if under 50% of the expected trail count or a classic is missing
   regions.py size <dir>                   fail if the published trail data is over 950 MB (each host must stay under 1 GB)
+  regions.py centers <out>/v2             fail unless every region's centre cell has at least one route (combine runs this too)
   regions.py combine <out> <dir>...       merge per-region build dirs (each named by region id) into <out>/v2, plus the frozen v1 copy in <out>
 
 Geofabrik etiquette: one download per region per week (the workflow caches on the ISO week), an identifying
@@ -289,15 +290,44 @@ def cmd_check(rid, d):
     sys.exit(1 if bad else 0)
 
 
-def cell_center(keys, size=0.25):
-    """[lon, lat] of the covered cell whose centre is nearest the mean of all the cells' centres: a point that has trails, unlike a bbox midpoint
-    (which can fall in the sea or another state). None when there are no cells."""
-    pts = [((int(k.split('_')[0]) + 0.5) * size - 180, (int(k.split('_')[1]) + 0.5) * size - 90) for k in keys]
+def cell_center(keys, size=0.25, routes=None):
+    """[lon, lat] of the cell nearest the mean of all the cells' centres that has at least one route (ties: the cell with
+    the most routes): a point that has trails, unlike a bbox midpoint (which can fall in the sea or another state) or a
+    covered cell with nothing in it (Home opens on this point with location off). routes maps cell key -> route count;
+    without it every cell counts as having routes. If no cell has any, falls back to the nearest cell (verify_centers then fails the build).
+    None when there are no cells."""
+    pts = [(((int(k.split('_')[0]) + 0.5) * size - 180, (int(k.split('_')[1]) + 0.5) * size - 90), (routes.get(k, 0) if routes is not None else 1)) for k in keys]
     if not pts:
         return None
-    mx, my = sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)
-    best = min(pts, key=lambda p: (p[0] - mx) ** 2 + (p[1] - my) ** 2)
+    mx, my = sum(p[0][0] for p in pts) / len(pts), sum(p[0][1] for p in pts) / len(pts)
+    pool = [p for p in pts if p[1] > 0] or pts
+    best = min(pool, key=lambda p: ((p[0][0] - mx) ** 2 + (p[0][1] - my) ** 2, -p[1]))[0]
     return [round(best[0], 4), round(best[1], 4)]
+
+
+def route_count(path):
+    """Routes (relations plus lone ways) in one cell file, v1 or v2."""
+    with open(path) as f:
+        body = json.load(f)
+    return len(body.get('r', [])) + len(body.get('w', []))
+
+
+def verify_centers(v2_dir):
+    """Fails (returns the problems) unless every region's centre cell, in the built <v2_dir>/index.json, has at least one route."""
+    with open(os.path.join(v2_dir, 'index.json')) as f:
+        idx = json.load(f)
+    size, bad = idx['cell'], []
+    for r in idx['regions']:
+        c = r.get('center')
+        if not c:
+            bad.append(f"{r['id']}: no centre")
+            continue
+        key = f"{int((c[0] + 180) // size)}_{int((c[1] + 90) // size)}"
+        path = os.path.join(v2_dir, key + '.json')
+        n = route_count(path) if os.path.exists(path) else 0
+        if n < 1:
+            bad.append(f"{r['id']}: centre cell {key} has {n} routes")
+    return bad
 
 
 def merge_cell(a, b):
@@ -355,7 +385,7 @@ def combine(root, dirs, regs=None):
         places['region'] = rid
         with open(os.path.join(out, 'places', rid + '.json'), 'w', encoding='utf-8') as f:
             json.dump(places, f, separators=(',', ':'), ensure_ascii=False)
-        listing.append({'id': rid, 'code': r['code'], 'name': r['name'], 'cc': r['cc'], 'center': cell_center(idx['cells']), 'bbox': idx['bbox'], 'cells': len(idx['cells']), 'names': f'names/{rid}.json', 'places': f'places/{rid}.json'})
+        listing.append({'id': rid, 'code': r['code'], 'name': r['name'], 'cc': r['cc'], 'center': cell_center(idx['cells'], routes={c: route_count(os.path.join(d, c + '.json')) for c in idx['cells']}), 'bbox': idx['bbox'], 'cells': len(idx['cells']), 'names': f'names/{rid}.json', 'places': f'places/{rid}.json'})
         if idx['bbox']:
             boxes.append(idx['bbox'])
         sources.append(r['name'])
@@ -378,6 +408,9 @@ def combine(root, dirs, regs=None):
     for d in v1:  # the old path: this region's full-resolution old-format cells, index.json and names.json, as the old reader expects
         for f in os.listdir(os.path.join(d, 'full')):
             shutil.copyfile(os.path.join(d, 'full', f), os.path.join(root, f))
+    bad = verify_centers(out)
+    if bad:
+        sys.exit('region centre without routes (Home opens there): ' + '; '.join(bad))
     return index
 
 
@@ -401,6 +434,10 @@ if __name__ == '__main__':
         cmd_check(a[1], a[2])
     elif a[:1] == ['size'] and len(a) == 2:
         cmd_size(a[1])
+    elif a[:1] == ['centers'] and len(a) == 2:
+        bad = verify_centers(a[1])
+        print('\n'.join(bad) or 'every region centre has routes')
+        sys.exit(1 if bad else 0)
     elif a[:1] == ['combine'] and len(a) >= 3:
         cmd_combine(a[1], a[2:])
     else:
