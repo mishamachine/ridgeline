@@ -75,4 +75,4 @@ export function shouldShowInstallPopup(s: PopupState, c: PopupContext, now: numb
 export const showNoCarryLine = (platform: InstallPlatform, hasSavedTrails: boolean) => platform === 'ios' && hasSavedTrails;
 
 /** The note under the Saved list. iPhone/iPad: the steps, then the no-carry line (this browser holds saved trails there by definition). */
-export const savedInstallNote = (ios: boolean) => (ios ? `${A2HS_TIP} ${IOS_NO_CARRY_LINE}` : 'Install Ridgeline from your browser menu.');
+export const savedInstallNote = (ios: boolean) => (ios ? `${A2HS_TIP} ${IOS_NO_CARRY_LINE}` : 'If your browser offers it, you can install Ridgeline from its menu.');

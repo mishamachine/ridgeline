@@ -111,7 +111,7 @@ describe('where the tip shows', () => {
     expect(savedInstallNote(true)).toBe(`${A2HS_TIP} ${IOS_NO_CARRY_LINE}`);
     expect(savedInstallNote(true)).toBe('On iPhone or iPad, tap Share, then Add to Home Screen. Trails saved here won\u2019t move to the home-screen app. Save them again there.');
   });
-  it('Saved elsewhere: the browser-menu line, no storage claim', () => expect(savedInstallNote(false)).toBe('Install Ridgeline from your browser menu.'));
+  it('Saved elsewhere: the browser-menu line, no storage claim', () => expect(savedInstallNote(false)).toBe('If your browser offers it, you can install Ridgeline from its menu.'));
   it('Detail shows no home-screen tip (it would re-create the after-save trigger)', () => {
     const src = readFileSync(new URL('../screens/Detail.tsx', import.meta.url), 'utf8');
     expect(src).not.toMatch(/A2HS_TIP|isIOS|justSaved/);
