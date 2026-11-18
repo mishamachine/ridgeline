@@ -33,22 +33,18 @@ describe('quality filter', () => {
     expect(out.map((t) => t.name)).toEqual(['Tiny Route']);
   });
 
-  it('keeps mountain-bike trails out of Home and the lists', () => {
-    // real OpenStreetMap tag shapes; a trail that carries none of them stays
-    const mk = (id: string, name: string, tags: Record<string, string>) => trail({ id, name, tags });
-    const trails = [
-      mk('osm-w1-0', 'Hiker Path', { sac_scale: 'hiking' }),
-      mk('osm-w2-0', 'Flow Trail', { mtb: '1' }),                                          // the hosted builds keep only this
-      mk('osm-w3-0', 'Scale Trail', { 'mtb:scale': '2' }),
-      mk('osm-w4-0', 'Bike Only Path', { bicycle: 'designated' }),
-      mk('osm-w5-0', 'Banned Foot Path', { bicycle: 'designated', foot: 'no' }),
-      mk('osm-w6-0', 'Shared Path', { bicycle: 'designated', foot: 'yes' }),
-      mk('osm-w7-0', 'Both Designated Path', { bicycle: 'designated', foot: 'designated' }),
-      mk('osm-w8-0', 'Hikers Only Path', { bicycle: 'no', sac_scale: 'mountain_hiking' }),
-      mk('osm-r9', 'Bike Route', { route: 'mtb' }),
-    ].map((t, i) => ({ ...t, coords: line(-121.78 + i * 0.1, 47.49, 2) }));
-    expect(filterTrails(trails).map((t) => t.name).sort()).toEqual(['Both Designated Path', 'Hiker Path', 'Hikers Only Path', 'Shared Path']);
-    expect(trails.filter(isMtb)).toHaveLength(5);
+  it('recognises mountain-bike trails from tags, and filterTrails keeps them (Find shows them)', () => {
+    // real OpenStreetMap tag shapes; a trail that carries none of them is not a mountain-bike trail
+    const mk = (id: string, name: string, tags: Record<string, string>, i: number) => trail({ id, name, tags, coords: line(-121.78 + i * 0.1, 47.49, 2) });
+    const cases: [string, Record<string, string>, boolean][] = [
+      ['Hiker Path', { sac_scale: 'hiking' }, false], ['Flow Trail', { mtb: '1' }, true], ['Scale Trail', { 'mtb:scale': '2' }, true],
+      ['Bike Only Path', { bicycle: 'designated' }, true], ['Banned Foot Path', { bicycle: 'designated', foot: 'no' }, true],
+      ['Shared Path', { bicycle: 'designated', foot: 'yes' }, false], ['Both Designated Path', { bicycle: 'designated', foot: 'designated' }, false],
+      ['Hikers Only Path', { bicycle: 'no', sac_scale: 'mountain_hiking' }, false], ['Bike Route', { route: 'mtb' }, true],
+    ];
+    const trails = cases.map(([name, tags], i) => mk(i === 8 ? 'osm-r9' : `osm-w${i + 1}-0`, name, tags, i));
+    cases.forEach(([name, , want], i) => expect(isMtb(trails[i]), name).toBe(want));
+    expect(filterTrails(trails)).toHaveLength(cases.length);
   });
 
   it('marks mountain-bike trails when it parses raw OpenStreetMap elements', () => {

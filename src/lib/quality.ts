@@ -35,12 +35,12 @@ export function relevance(t: Trail): number {
   return (isRoute(t) ? 30 : 0) + len + hl;
 }
 
-/** Mountain-bike trail (mtb:scale, bicycle=designated without foot, route=mtb): Home and the lists are for walkers. */
+/** Mountain-bike trail (mtb:scale, bicycle=designated without foot, route=mtb). Home's picks leave these out (home.ts); Find's map, list and search keep them. */
 export const isMtb = (t: Pick<Trail, 'tags'>) => isMtbTags(t.tags);
 
-/** Remove junk names, mountain-bike trails and tiny ways, and merge trails that share a name and sit in the same place. */
+/** Remove junk names and tiny ways, and merge trails that share a name and sit in the same place. */
 export function filterTrails(trails: Trail[]): Trail[] {
-  const kept = trails.filter((t) => !isJunkName(t.name) && !isMtb(t) && (isRoute(t) || t.lengthM >= MIN_WAY_M));
+  const kept = trails.filter((t) => !isJunkName(t.name) && (isRoute(t) || t.lengthM >= MIN_WAY_M));
   const best: Trail[] = [];
   const byName = new Map<string, Trail[]>();
   for (const t of kept.sort((a, b) => relevance(b) - relevance(a) || b.lengthM - a.lengthM)) {

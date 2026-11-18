@@ -2,7 +2,7 @@
 import { cellsFor, fetchCellTrails, getIndex, type CellIndex } from './cells';
 import { haversine, M_TO_MI, type BBox, type LngLat } from './geo';
 import { level, roundTripM } from './plan';
-import { filterTrails, rankTrails } from './quality';
+import { filterTrails, isMtb, rankTrails } from './quality';
 import { trailheadOf } from './maps';
 import { dogsStatus } from './parks';
 import type { Units } from './settings';
@@ -138,8 +138,9 @@ export const ROW_MIN = 3;
 
 /** Rows of up to eight trails, best first. A row with fewer than ROW_MIN trails is left out. */
 export function buildCollections(trails: Trail[], origin?: LngLat, units: Units = 'imperial'): Collection[] {
+  // Mountain-bike trails stay out of the rows (Home's picks) but remain in All trails, Find and search.
   // A trail whose shown numbers are over 10% from its stored full-line figure stays out of the rows (it remains in search, All trails and on the map).
-  const ranked = rankTrails(filterTrails(trails.filter((t) => !t.statsMismatch)), origin);
+  const ranked = rankTrails(filterTrails(trails.filter((t) => !t.statsMismatch && !isMtb(t))), origin);
   return COLLECTIONS.map((c) => ({ ...c, trails: ranked.filter((t) => c.pick(t, units)).slice(0, ROW_MAX) })).filter((c) => c.trails.length >= ROW_MIN);
 }
 

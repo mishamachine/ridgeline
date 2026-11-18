@@ -3,6 +3,7 @@ import { LEDGE_CELL, RICH_INDEX, richCell } from '../../e2e/fixtures';
 import { cellsToTrails } from './cells';
 import { NO_FILTERS, ROW_MIN, applyFilters, buildCollections, coverageRegions } from './home';
 import { searchNames, type NameEntry } from './nameIndex';
+import { filterTrails } from './quality';
 
 // The fixture the browser screenshots use: real geometry, with tags added so every row has trails.
 describe('screenshot fixture', () => {
@@ -50,5 +51,21 @@ describe('stats mismatch', () => {
   it('search by name does not look at the flag', () => {
     const names = [['osm-w1-0', 'Woodpecker', -120.27, 48.44, 7719]] as NameEntry[];
     expect(searchNames(names, 'woodp').map((e) => e[1])).toEqual(['Woodpecker']);
+  });
+});
+
+describe('mountain-bike trails', () => {
+  const trails = cellsToTrails([richCell()]);
+  const pool = trails.slice(0, 5).map((t, i) => ({ ...t, id: `${t.id}-${i}`, name: `${t.name} ${i}`, highlights: ['falls', 'view'], coords: t.coords.map(([x, y]) => [x + i * 0.3, y] as [number, number]) }));
+
+  it('stay out of Home collection rows but remain in the All trails list that Find and search read', () => {
+    const bike = { ...pool[0], tags: { ...pool[0].tags, 'mtb:scale': '2' } };
+    const all = [bike, ...pool.slice(1)];
+    expect(buildCollections(all).flatMap((r) => r.trails.map((t) => t.id))).not.toContain(bike.id);
+    expect(buildCollections(pool).flatMap((r) => r.trails.map((t) => t.id))).toContain(pool[0].id);   // same trail without the tag is picked
+    expect(applyFilters(all, NO_FILTERS).map((t) => t.id)).toContain(bike.id);
+    expect(filterTrails(all).map((t) => t.id)).toContain(bike.id);   // Find's own list
+    const entries: NameEntry[] = [[bike.id, bike.name, bike.coords[0][0], bike.coords[0][1], Math.round(bike.lengthM)] as unknown as NameEntry];
+    expect(searchNames(entries, bike.name, 5).map((e) => e[0])).toEqual([bike.id]);
   });
 });
