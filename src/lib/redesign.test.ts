@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import type { Trail } from './trails';
-import { filterTrails, isJunkName, rankTrails, relevance, suitability } from './quality';
+import { parseOverpass, type Trail } from './trails';
+import { filterTrails, isMtb, isJunkName, rankTrails, relevance, suitability } from './quality';
 import { level, roundTripM, roundTripClimbM, tripMinutes } from './plan';
 import { driveLabel, mapsOptions, trailheadOf } from './maps';
 import { shortlistUrl, trailUrl } from './share';
@@ -31,6 +31,29 @@ describe('quality filter', () => {
       trail({ id: 'osm-w3-0', name: 'Private', lengthM: 5000 }),
     ]);
     expect(out.map((t) => t.name)).toEqual(['Tiny Route']);
+  });
+
+  it('recognises mountain-bike trails from tags, and filterTrails keeps them (Find shows them)', () => {
+    // real OpenStreetMap tag shapes; a trail that carries none of them is not a mountain-bike trail
+    const mk = (id: string, name: string, tags: Record<string, string>, i: number) => trail({ id, name, tags, coords: line(-121.78 + i * 0.1, 47.49, 2) });
+    const cases: [string, Record<string, string>, boolean][] = [
+      ['Hiker Path', { sac_scale: 'hiking' }, false], ['Flow Trail', { mtb: '1' }, true], ['Scale Trail', { 'mtb:scale': '2' }, true],
+      ['Bike Only Path', { bicycle: 'designated' }, true], ['Banned Foot Path', { bicycle: 'designated', foot: 'no' }, true],
+      ['Shared Path', { bicycle: 'designated', foot: 'yes' }, false], ['Both Designated Path', { bicycle: 'designated', foot: 'designated' }, false],
+      ['Hikers Only Path', { bicycle: 'no', sac_scale: 'mountain_hiking' }, false], ['Bike Route', { route: 'mtb' }, true],
+    ];
+    const trails = cases.map(([name, tags], i) => mk(i === 8 ? 'osm-r9' : `osm-w${i + 1}-0`, name, tags, i));
+    cases.forEach(([name, , want], i) => expect(isMtb(trails[i]), name).toBe(want));
+    expect(filterTrails(trails)).toHaveLength(cases.length);
+  });
+
+  it('marks mountain-bike trails when it parses raw OpenStreetMap elements', () => {
+    const g = [{ lat: 47.49, lon: -121.78 }, { lat: 47.5, lon: -121.78 }];
+    const out = parseOverpass([
+      { type: 'way', id: 1, geometry: g, tags: { name: 'Flow Trail', highway: 'path', 'mtb:scale': '1' } },
+      { type: 'way', id: 2, geometry: g.map((p) => ({ ...p, lon: p.lon + 0.1 })), tags: { name: 'Hiker Path', highway: 'path', sac_scale: 'hiking' } },
+    ]);
+    expect(Object.fromEntries(out.map((t) => [t.name, t.tags.mtb]))).toEqual({ 'Flow Trail': '1', 'Hiker Path': undefined });
   });
 
   it('merges same-name segments in one place, keeps same name far apart', () => {

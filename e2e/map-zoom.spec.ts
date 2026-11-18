@@ -255,11 +255,40 @@ for (const c of CASES) {
       await page.getByRole('button', { name: 'Search this area' }).click();
       await expect.poll(() => page.evaluate(() => (window as unknown as { __ridgelineMap: M }).__ridgelineMap.querySourceFeatures('trails').length), { timeout: 20_000 }).toBeGreaterThan(0);
       await settle(page);
-      const at = await page.evaluate(() => { const m = (window as unknown as { __ridgelineMap: M }).__ridgelineMap; const g = m.querySourceFeatures('trails')[0].geometry.coordinates; const p = m.project(g[Math.floor(g.length / 2)]); const r = m.getContainer().getBoundingClientRect(); return { x: r.left + p.x, y: r.top + p.y }; });
+      const at = await page.evaluate(() => { const m = (window as unknown as { __ridgelineMap: M }).__ridgelineMap; const r = m.getContainer().getBoundingClientRect(); const pts = m.querySourceFeatures('trails').flatMap((f) => f.geometry.coordinates).map((c) => m.project(c)); const d = (p: { x: number; y: number }) => Math.hypot(p.x - r.width / 2, p.y - r.height / 2); const p = pts.reduce((a, b) => (d(b) < d(a) ? b : a)); return { x: r.left + p.x, y: r.top + p.y }; }); // the trail point nearest the middle of the map: a short map can have the middle of the trail off screen
       await page.mouse.click(at.x, at.y);
       await expect(page.locator('.map-pick')).toBeVisible();
       await settle(page);
       assertLayout(await layout(page, '.find-body'));
+      expect(errors).toEqual([]);
+    });
+  });
+}
+
+// Short phones: on first load of Find's map, with nothing scrolled, the whole map sits above the tab bar, so the credit in its bottom
+// right corner is fully on screen (the map used to have a 320 px minimum height, which pushed it under the tab bar below about 700 px).
+for (const s of [{ w: 320, h: 568 }, { w: 360, h: 640 }, { w: 375, h: 667 }]) {
+  test.describe(`credit above the tab bar ${s.w}x${s.h}`, () => {
+    test.use({ viewport: { width: s.w, height: s.h } });
+    test('Find map on first load', async ({ page, context }) => {
+      const errors = await setup(page, context);
+      await page.goto('/');
+      await page.getByRole('button', { name: /Explore the map/ }).click();
+      await expect(page.getByRole('button', { name: 'Zoom in' })).toBeVisible({ timeout: 30_000 });
+      const attr = page.locator('.find-body .maplibregl-ctrl-attrib');
+      await expect(attr).toHaveClass(/maplibregl-compact-show/);
+      const credit = (await attr.boundingBox())!;
+      const tabs = (await page.locator('.tabbar2').boundingBox())!;
+      const body = (await page.locator('.find-body').boundingBox())!;
+      expect(credit.y, 'credit starts on screen').toBeGreaterThanOrEqual(0);
+      expect(credit.x + credit.width, 'credit inside the width').toBeLessThanOrEqual(s.w + 0.5);
+      expect(credit.y + credit.height, 'credit ends above the tab bar').toBeLessThanOrEqual(tabs.y + 0.5);
+      expect(body.y + body.height, 'the whole map ends above the tab bar').toBeLessThanOrEqual(tabs.y + 0.5);
+      expect(body.height, 'the map is still big enough to use').toBeGreaterThanOrEqual(150);
+      expect(await page.locator('.screen').first().evaluate((el) => el.scrollTop), 'nothing scrolled').toBe(0);
+      await checkAttribution(page, '.find-body', true);
+      mkdirSync(OUT, { recursive: true });
+      await page.screenshot({ path: `${OUT}/find-${s.w}x${s.h}.png` });
       expect(errors).toEqual([]);
     });
   });

@@ -1,7 +1,7 @@
 // Turn raw OpenStreetMap ways into a list a hiker would want: drop junk, merge duplicates, best first.
 import { haversine, M_TO_MI, type LngLat } from './geo';
 import { level, roundTripM } from './plan';
-import type { Trail } from './trails';
+import { isMtbTags, type Trail } from './trails';
 
 const MIN_WAY_M = 805; // half a mile; routes (relations) are exempt
 const DUP_RADIUS_M = 5000;
@@ -34,6 +34,9 @@ export function relevance(t: Trail): number {
   const hl = Math.min(3, t.highlights?.filter((h) => !h.endsWith('?')).length ?? 0) * 2;
   return (isRoute(t) ? 30 : 0) + len + hl;
 }
+
+/** Mountain-bike trail (mtb:scale, bicycle=designated without foot, route=mtb). Home's picks leave these out (home.ts); Find's map, list and search keep them. */
+export const isMtb = (t: Pick<Trail, 'tags'>) => isMtbTags(t.tags);
 
 /** Remove junk names and tiny ways, and merge trails that share a name and sit in the same place. */
 export function filterTrails(trails: Trail[]): Trail[] {

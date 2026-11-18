@@ -123,7 +123,7 @@ class RouteHandler(osmium.SimpleHandler):
         ways = [m.ref for m in r.members if m.type == 'w']
         if not ways:
             return
-        self.routes[r.id] = {'tags': keep_tags(r.tags), 'ways': ways, 'modes': mode_tags(r.tags)}
+        self.routes[r.id] = {'tags': keep_tags(r.tags), 'ways': ways, 'modes': mode_tags(r.tags), 'mtb': name_index.is_mtb(r.tags)}
         self.member_ways.update(ways)
 
 
@@ -143,6 +143,7 @@ class WayHandler(osmium.SimpleHandler):
         self.names = {}        # way id -> name
         self.modes = {}        # way id -> bicycle/horse/dog tags
         self.paths = {}        # way id -> tags, for named paths not in a route
+        self.mtb = set()       # way ids of named paths that are mountain-bike trails (name_index.is_mtb); marked mtb=1 in the v2 cells only
         self.features = {k: hl.PointIndex() for k in hl.FEATURES}
         self.parking = []      # one outline per usable lot: [(lon, lat)] (a single point for a node)
 
@@ -214,6 +215,8 @@ class WayHandler(osmium.SimpleHandler):
         self.modes[w.id] = mode_tags(w.tags)
         if is_path and not is_member:
             self.paths[w.id] = keep_tags(w.tags)
+            if name_index.is_mtb(w.tags):
+                self.mtb.add(w.id)
 
 
 class JunctionHandler(osmium.SimpleHandler):
@@ -395,8 +398,9 @@ def build(pbf, out_dir, source, dem_dir=None):
         j = [[pos[vi], bs] for vi, bs in sorted(jh.result[wid].items())] if wid in jh.result else None
         simple[wid] = (flat([g[i] for i in kept]), elevation.encode_deltas(zabs[kept].tolist()), j)
 
-    def make_cells(geom):
-        """(x, y) -> {'r': {rel id: entry}, 'w': [entries]}, with each way's (coords, z, junctions) taken from geom."""
+    def make_cells(geom, mark_mtb=False):
+        """(x, y) -> {'r': {rel id: entry}, 'w': [entries]}, with each way's (coords, z, junctions) taken from geom.
+        mark_mtb (the v2 cells): mountain-bike trails carry mtb=1 in their tags. The frozen v1 copy is built without it, so it stays as it was."""
         cells = {}
 
         def cell(key):
@@ -412,7 +416,7 @@ def build(pbf, out_dir, source, dem_dir=None):
                 if geom[wid][2]:
                     member.append(geom[wid][2])
                 for key in cells_for(g):
-                    entry = cell(key)['r'].setdefault(rid, {'id': rid, 't': route['tags'], 'n': total, 'm': []})
+                    entry = cell(key)['r'].setdefault(rid, {'id': rid, 't': {**route['tags'], 'mtb': '1'} if mark_mtb and route.get('mtb') else route['tags'], 'n': total, 'm': []})
                     if rid in route_info:
                         entry['h'] = route_info[rid]['h']
                         entry['th'] = route_info[rid]['th']
@@ -420,7 +424,7 @@ def build(pbf, out_dir, source, dem_dir=None):
 
         for wid, tags in ways.paths.items():
             g = ways.geoms[wid]
-            entry = {'id': wid, 't': tags, 'g': geom[wid][0], 'z': geom[wid][1]}
+            entry = {'id': wid, 't': {**tags, 'mtb': '1'} if mark_mtb and wid in ways.mtb else tags, 'g': geom[wid][0], 'z': geom[wid][1]}
             if path_info[wid]['h']:
                 entry['h'] = path_info[wid]['h']
             if path_info[wid]['th']:
@@ -432,7 +436,7 @@ def build(pbf, out_dir, source, dem_dir=None):
 
         return cells
 
-    cells = make_cells(simple)
+    cells = make_cells(simple, mark_mtb=True)
     # Full-resolution cells in the old format, into <out>/full/. scripts/trail-stats.mjs reads them to compute each trail's
     # length and gain from the full line (the app stores those; the 5 m simplification only affects what is drawn).
     # The same files are Washington's frozen old-format copy at trails/ (kept by regions.py combine for regions marked v1).

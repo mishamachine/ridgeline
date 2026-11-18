@@ -4,6 +4,7 @@ import tempfile
 import unittest
 
 import cell_format as cf
+import name_index
 import regions
 
 # Same shapes the build writes: names.json rows are [id, name, lon, lat, metres].
@@ -11,8 +12,19 @@ NAMES = [['osm-r1', 'Multnomah Falls Trail', -122.11, 45.57, 2400], ['osm-w9', '
          ['osm-r3', 'Tom McCall Point Trail', -121.4, 45.69, 2860]]
 
 
-def cell(rels=(), ways=()):
-    return {'r': {r['id']: r for r in rels}, 'w': list(ways)}   # the build's in-memory shape, absolute coordinates
+def cell(rels=(), ways=(), s=None):
+    c = {'r': {r['id']: r for r in rels}, 'w': list(ways)}   # the build's in-memory shape, absolute coordinates
+    if s:
+        c['s'] = s   # stored trail stats as trail-stats.mjs writes them into the finished cell: key -> [length m, ascent m, descent m]
+    return c
+
+
+def enc(body):
+    """The finished v2 cell file: the encoded body plus its stored stats (trail-stats.mjs adds them after the encoding)."""
+    out = cf.encode_cell(body)
+    if body.get('s'):
+        out['s'] = body['s']
+    return out
 
 
 class RegionConfig(unittest.TestCase):
@@ -128,22 +140,106 @@ class Center(unittest.TestCase):
         keys = ['0_0', '3_3', '4_4', '5_5']                                                                       # three-way tie: 3_3 is nearest the mean (index 3)
         self.assertEqual(regions.cell_center(keys, trails={'0_0': 1, '3_3': 9, '4_4': 9, '5_5': 9}), [-179.125, -89.125])
 
+    @staticmethod
+    def line(i, name, lat0, deg, tags=None):
+        n = 4
+        g = []
+        for k in range(n):
+            g += [-122.0, lat0 + deg * k / (n - 1)]
+        return {'id': i, 't': {'name': name, **(tags or {})}, 'g': g, 'z': [10] * n}
+
+    @staticmethod
+    def write(t, body):
+        p = os.path.join(t, '1_1.json')
+        json.dump(enc(body), open(p, 'w'))
+        return p
+
     def test_cell_trails_counts_what_home_lists(self):
         # one named route plus two long named paths = 3 trails (Home needs 3 for a row); a short path, a junk name, a route member and a repeat of a name do not add
         with tempfile.TemporaryDirectory() as t:
-            def line(i, name, lat0, deg):
-                n = 4
-                g = []
-                for k in range(n):
-                    g += [-122.0, lat0 + deg * k / (n - 1)]
-                return {'id': i, 't': {'name': name}, 'g': g, 'z': [10] * n}
+            line = self.line
             member = line(1, 'Alpha Ridge Trail', 47.0, 0.02)
             body = cell(rels=[rel(777, 1, [[1, member['g'], member['z']]])],
                         ways=[member, line(2, 'Beta Loop', 47.1, 0.01), line(3, 'Gamma Path', 47.2, 0.01), line(4, 'Delta Spur', 47.3, 0.005),
                               line(5, 'Trail', 47.4, 0.02), line(6, 'Beta Loop', 47.5, 0.001)])
-            p = os.path.join(t, '1_1.json')
-            json.dump(cf.encode_cell(body), open(p, 'w'))
-            self.assertEqual(regions.cell_trails(p), (3, 1))   # Alpha (route), Beta Loop (1.1 km + a 100 m piece, stitched by name), Gamma Path (1.1 km)
+            # Alpha (route), Beta Loop (1.1 km + a 100 m piece, stitched by name), Gamma Path (1.1 km): three trails; none has stored stats, so none qualifies
+            self.assertEqual(regions.cell_trails(self.write(t, body)), (0, 3))
+
+    def test_only_trails_with_500_ft_of_gain_count_for_the_centre(self):
+        with tempfile.TemporaryDirectory() as t:
+            line = self.line
+            ft = lambda f: round(f / 3.28084)   # metres for a gain in feet, so the edge cases read as feet
+            stats = {
+                'r777': [3000, ft(800), 40],                                    # route, 800 ft: counts
+                'r778': [3000, ft(499) - 1, 10],                                # route, 498 ft: one foot short... a foot and a bit
+                'wBeta Loop|-122.00000,47.10000|-122.00000,47.11000': [1100, 20, ft(700)],   # named path, 700 ft down (the bigger way): counts
+                'wGamma Path|-122.00000,47.20000|-122.00000,47.21000': [1100, ft(120), ft(90)],   # a fitness loop: does not count
+                'wEpsilon Way|-122.00000,47.30000|-122.00000,47.31000': [600, ft(900), 0],     # steep but under 805 m stored: does not count
+            }
+            body = cell(rels=[rel(777, 1, [[1, line(1, 'x', 47.0, 0.02)['g'], [10] * 4]]), rel(778, 1, [[2, line(2, 'x', 47.0, 0.02)['g'], [10] * 4]])],
+                        ways=[line(3, 'Beta Loop', 47.1, 0.01), line(4, 'Gamma Path', 47.2, 0.01), line(5, 'Epsilon Way', 47.3, 0.01)], s=stats)
+            body['r'][777]['t']['name'] = 'Alpha Ridge Trail'
+            body['r'][778]['t']['name'] = 'Bravo Hill Trail'
+            self.assertEqual(regions.cell_trails(self.write(t, body)), (2, 5))
+            self.assertEqual(regions.stored_gain_ft([1, 152, 0]), 499)
+            self.assertEqual(regions.stored_gain_ft([1, 153, 0]), 502)
+
+    def test_mountain_bike_trails_are_left_out(self):
+        with tempfile.TemporaryDirectory() as t:
+            line = self.line
+            # real cell shape: the build keeps only mtb=1 on a mountain-bike trail (raw tags like mtb:scale are judged at build time, see test_mtb_build.py)
+            names = {'Hiker Loop': {}, 'Flow Trail': {'mtb': '1'}, 'Shared Use': {}, 'Also Marked': {'mtb': '1'}}
+            ways = [line(i + 1, n, 47.0 + i * 0.1, 0.01, tags) for i, (n, tags) in enumerate(names.items())]
+            # the same name split in two ways, one of them a mountain-bike way: the app merges tags across a name, so the whole name goes
+            ways += [line(20, 'Split Trail', 48.0, 0.01), line(21, 'Split Trail', 48.2, 0.01, {'mtb': '1'})]
+            stats = {f"w{n}|-122.00000,{47.0 + i * 0.1:.5f}|-122.00000,{47.0 + i * 0.1 + 0.01:.5f}": [1100, 200, 10] for i, n in enumerate(names)}
+            rels = [{**rel(900, 1, [[31, line(31, 'x', 49.0, 0.02)['g'], [10] * 4]]), 't': {'name': 'Bike Route', 'mtb': '1'}},
+                    {**rel(901, 1, [[32, line(32, 'x', 49.1, 0.02)['g'], [10] * 4]]), 't': {'name': 'Hiking Route'}}]
+            stats.update({'r900': [3000, 300, 10], 'r901': [3000, 300, 10]})
+            body = cell(rels=rels, ways=ways, s=stats)
+            qual, total = regions.cell_trails(self.write(t, body))
+            self.assertEqual((qual, total), (3, 3))   # Hiker Loop, Shared Use and the Hiking Route; the marked ones and Split Trail are out
+
+    def test_is_mtb_tag_fixtures(self):
+        for tags, want in [({'mtb:scale': '0'}, True), ({'mtb:scale': '3', 'foot': 'yes'}, True), ({'bicycle': 'designated'}, True), ({'bicycle': 'designated', 'foot': 'no'}, True),
+                           ({'bicycle': 'designated', 'foot': 'yes'}, False), ({'bicycle': 'designated', 'foot': 'designated'}, False), ({'route': 'mtb'}, True),
+                           ({'route': 'hiking', 'bicycle': 'yes'}, False), ({'bicycle': 'no', 'sac_scale': 'mountain_hiking'}, False), ({'mtb': '1'}, True), ({}, False)]:
+            self.assertEqual(name_index.is_mtb(tags), want, tags)
+
+    def test_a_valid_centre_hint_is_used(self):
+        keys = ['1_1', '2_2']
+        c, how = regions.pick_center(keys, {'1_1': 30, '2_2': 12}, '2_2', rid='x')
+        self.assertEqual((c, how), ([-179.375, -89.375], 'hint'))   # not the busiest cell: the hint wins while it holds 10 or more
+        self.assertEqual(regions.pick_center(keys, {'1_1': 30, '2_2': 12}, None)[1], 'auto')
+
+    def test_a_hint_under_the_floor_or_not_built_falls_back_with_a_warning(self):
+        import io
+        import contextlib
+        keys = ['1_1', '2_2']
+        for hint, counts in (('2_2', {'1_1': 30, '2_2': 9}), ('9_9', {'1_1': 30, '2_2': 12})):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                c, how = regions.pick_center(keys, counts, hint, rid='x')
+            self.assertEqual((c, how), ([-179.625, -89.625], 'auto'))   # the busiest cell, 1_1
+            self.assertIn('::warning::x: centre hint ' + hint, buf.getvalue())
+
+    def test_combine_uses_a_hint_and_survives_a_stale_one(self):
+        with tempfile.TemporaryDirectory() as t:
+            idx, v2 = CentersInBuiltIndex().build(t, {'0_0': routed(6, 10), '8_8': routed(7, 12)}, hint='0_0')
+            self.assertEqual(idx['regions'][1]['center'], [-179.875, -89.875])   # hint 0_0 (10 trails) beats 8_8 (12)
+        with tempfile.TemporaryDirectory() as t:
+            idx, v2 = CentersInBuiltIndex().build(t, {'0_0': routed(6, 10), '8_8': routed(7, 12)}, hint='5_5')
+            self.assertEqual(idx['regions'][1]['center'], [-177.875, -87.875])   # stale hint: falls back to 8_8, build still passes
+
+    def test_a_flat_busy_cell_loses_to_a_steeper_one(self):
+        # the old metric picked the cell with the most trails: 14 flat fitness loops beat 11 real hikes. Now the hikes win.
+        with tempfile.TemporaryDirectory() as t:
+            flat, hilly = routed(1, 14, gain_m=30), routed(2, 11, gain_m=200)
+            for k, b in (('1_1', flat), ('2_2', hilly)):
+                json.dump(enc(b), open(os.path.join(t, k + '.json'), 'w'))
+            counts = regions.count_cells(t, ['1_1', '2_2'])
+            self.assertEqual(counts, {'1_1': 0, '2_2': 11})
+            self.assertEqual(regions.cell_center(['1_1', '2_2'], trails=counts), [-179.375, -89.375])
 
     def test_combine_needs_exactly_one_v1_region(self):
         with tempfile.TemporaryDirectory() as t:
@@ -295,24 +391,26 @@ class Merge(unittest.TestCase):
             regions.merge_cell({'v': 2, 'r': [], 'w': []}, {'v': 1, 'r': [], 'w': []})
 
 
-def routed(i=1, n=10):
-    """A cell with n routes (relations) and one lone way; relation ids i*100 and up, way id i. 10 is the build floor for a region's centre."""
+def routed(i=1, n=10, gain_m=200):
+    """A cell with n routes (relations) and one lone way; relation ids i*100 and up, way id i. 10 is the build floor for a region's centre.
+    Every route has a stored gain of gain_m metres (200 m is 656 ft; the centre counts 500 ft or more)."""
     g = [-122.0, 47.0, -121.9999, 47.0001]
-    return cell(rels=[rel(i * 100 + j, 1, [[i * 100 + j, g, [10, 1]]]) for j in range(n)], ways=[way(i, g)])
+    return cell(rels=[rel(i * 100 + j, 1, [[i * 100 + j, g, [10, 1]]]) for j in range(n)], ways=[way(i, g)],
+                s={f'r{i * 100 + j}': [1500, gain_m, 20] for j in range(n)})
 
 
 class CentersInBuiltIndex(unittest.TestCase):
     """Runs on a real combine() output: every region's centre cell must hold at least 10 trails, so CI fails if a centre lands on a thin or empty cell."""
 
-    def build(self, t, cells_b):
-        regs = [{'id': 'a', 'code': 'AA', 'name': 'A', 'cc': 'us', 'v1': True}, {'id': 'b', 'code': 'BB', 'name': 'B', 'cc': 'us'}]
+    def build(self, t, cells_b, hint=None):
+        regs = [{'id': 'a', 'code': 'AA', 'name': 'A', 'cc': 'us', 'v1': True}, {'id': 'b', 'code': 'BB', 'name': 'B', 'cc': 'us', **({'center_hint': hint} if hint else {})}]
         g = [-122.0, 47.0, -121.9999, 47.0001]
         dirs = []
         for rid, cells in (('a', {'1_1': routed(5)}), ('b', cells_b)):
             d = os.path.join(t, 'trails-' + rid)
             os.makedirs(os.path.join(d, 'full'))
             for k, body in cells.items():
-                json.dump(cf.encode_cell(body), open(os.path.join(d, k + '.json'), 'w'))
+                json.dump(enc(body), open(os.path.join(d, k + '.json'), 'w'))
             json.dump({'bbox': [0, 0, 1, 1], 'cells': list(cells)}, open(os.path.join(d, 'index.json'), 'w'))
             json.dump({'v': 1, 'e': []}, open(os.path.join(d, 'names.json'), 'w'))
             json.dump({'v': 1, 'region': '', 'e': []}, open(os.path.join(d, 'places.json'), 'w'))
@@ -336,7 +434,7 @@ class CentersInBuiltIndex(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             with self.assertRaises(SystemExit) as e:
                 self.build(t, {'4_4': routed(9, 9)})
-            self.assertIn('b: centre cell 4_4 has 9 trails (minimum 10)', str(e.exception))
+            self.assertIn('b: centre cell 4_4 has 9 trails with 500 ft of gain or more (minimum 10)', str(e.exception))
 
 
 class Combine(unittest.TestCase):
@@ -348,7 +446,7 @@ class Combine(unittest.TestCase):
                 d = os.path.join(t, 'trails-' + rid)   # CI artifact directory names
                 os.makedirs(d)
                 for k, body in cells.items():
-                    json.dump(cf.encode_cell(body), open(os.path.join(d, k + '.json'), 'w'))
+                    json.dump(enc(body), open(os.path.join(d, k + '.json'), 'w'))
                 json.dump({'bbox': bbox, 'cells': list(cells)}, open(os.path.join(d, 'index.json'), 'w'))
                 json.dump({'v': 1, 'e': names}, open(os.path.join(d, 'names.json'), 'w'))
                 json.dump({'v': 1, 'region': '', 'e': [['Park', 'a', 4700000, -12200000]]}, open(os.path.join(d, 'places.json'), 'w'))
