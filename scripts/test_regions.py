@@ -203,7 +203,10 @@ class Center(unittest.TestCase):
     def test_is_mtb_tag_fixtures(self):
         for tags, want in [({'mtb:scale': '0'}, True), ({'mtb:scale': '3', 'foot': 'yes'}, True), ({'bicycle': 'designated'}, True), ({'bicycle': 'designated', 'foot': 'no'}, True),
                            ({'bicycle': 'designated', 'foot': 'yes'}, False), ({'bicycle': 'designated', 'foot': 'designated'}, False), ({'route': 'mtb'}, True),
-                           ({'route': 'hiking', 'bicycle': 'yes'}, False), ({'bicycle': 'no', 'sac_scale': 'mountain_hiking'}, False), ({'mtb': '1'}, True), ({}, False)]:
+                           ({'route': 'hiking', 'bicycle': 'yes'}, False), ({'bicycle': 'no', 'sac_scale': 'mountain_hiking'}, False), ({'mtb': '1'}, True), ({}, False),
+                           ({'bicycle': 'designated', 'foot': 'permissive'}, False), ({'bicycle': 'designated', 'foot': 'official'}, False),
+                           ({'bicycle': 'designated', 'sac_scale': 'hiking'}, False), ({'bicycle': 'designated', 'foot': 'no', 'sac_scale': 'mountain_hiking'}, False),
+                           ({'bicycle': 'designated', 'sac_scale': 'hiking', 'mtb:scale': '1'}, True)]:
             self.assertEqual(name_index.is_mtb(tags), want, tags)
 
     def test_a_valid_centre_hint_is_used(self):

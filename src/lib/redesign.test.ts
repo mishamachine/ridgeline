@@ -41,6 +41,8 @@ describe('quality filter', () => {
       ['Bike Only Path', { bicycle: 'designated' }, true], ['Banned Foot Path', { bicycle: 'designated', foot: 'no' }, true],
       ['Shared Path', { bicycle: 'designated', foot: 'yes' }, false], ['Both Designated Path', { bicycle: 'designated', foot: 'designated' }, false],
       ['Hikers Only Path', { bicycle: 'no', sac_scale: 'mountain_hiking' }, false], ['Bike Route', { route: 'mtb' }, true],
+      ['Permissive Foot Path', { bicycle: 'designated', foot: 'permissive' }, false], ['Official Foot Path', { bicycle: 'designated', foot: 'official' }, false],
+      ['Hiking Scale Path', { bicycle: 'designated', foot: 'no', sac_scale: 'hiking' }, false], ['Scaled Both Path', { bicycle: 'designated', sac_scale: 'hiking', 'mtb:scale': '1' }, true],
     ];
     const trails = cases.map(([name, tags], i) => mk(i === 8 ? 'osm-r9' : `osm-w${i + 1}-0`, name, tags, i));
     cases.forEach(([name, , want], i) => expect(isMtb(trails[i]), name).toBe(want));

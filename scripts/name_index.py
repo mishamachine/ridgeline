@@ -30,11 +30,13 @@ def is_junk_name(name):
 
 
 def is_mtb(tags):
-    """A mountain-bike trail, kept out of Home's picks: mtb:scale present, or bicycle=designated with foot not yes/designated,
-    or a route=mtb relation. Mirrors isMtbTags in src/lib/quality.ts; the cells carry the result as mtb=1 (see build_trails.py)."""
+    """A mountain-bike trail, kept out of Home's picks: mtb:scale present, or a route=mtb relation, or bicycle=designated with foot not
+    yes/designated/permissive/official; a way with sac_scale is a hiking trail unless it carries mtb:scale. Mirrors isMtbTags in src/lib/quality.ts; the cells carry the result as mtb=1 (see build_trails.py)."""
     if tags.get('mtb') == '1' or tags.get('mtb:scale') or tags.get('route') == 'mtb':
         return True
-    return tags.get('bicycle') == 'designated' and tags.get('foot') not in ('yes', 'designated')
+    if tags.get('sac_scale'):
+        return False
+    return tags.get('bicycle') == 'designated' and tags.get('foot') not in ('yes', 'designated', 'permissive', 'official')
 
 
 def haversine(a, b):
