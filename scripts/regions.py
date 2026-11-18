@@ -342,7 +342,7 @@ def cell_trails(path):
     """(qualifying, total) in one cell file, v1 or v2: a close proxy for what Home lists from this cell (src/lib/quality.ts filterTrails).
     total: relations with a real name (routes are exempt from the length floor) plus named paths that are not a member of any relation
     in the cell, stitched by name as the app does, one per name when the summed length reaches MIN_WAY_M and the name is not junk.
-    Mountain-bike trails (name_index.is_mtb, or mtb=1 as the build marks them) are left out of both numbers, as Home leaves them out.
+    Mountain-bike trails (name_index.is_mtb, or mtb=1 as the build marks them) are left out of both numbers, as Home leaves them out; so are profane names (Home's rows only).
     qualifying: those of the total with at least MIN_CENTER_GAIN_FT of gain in the build's stored stats (`s`: key r<id> for a route, w<name>|<end>|<end>
     for a named path; a name with several stored chains counts if any chain of at least MIN_WAY_M qualifies). No stored stats, no gain, not counted.
     Not modelled: a trail that crosses cells (counted once per cell), the 5 km same-name merge and the stats-mismatch exclusion."""
@@ -350,12 +350,12 @@ def cell_trails(path):
         body = json.load(f)
     v2 = body.get('v') == 2
     stored = body.get('s') or {}
-    rels = [r for r in body.get('r', []) if not name_index.is_junk_name(r.get('t', {}).get('name', '')) and not name_index.is_mtb(r.get('t', {}))]
+    rels = [r for r in body.get('r', []) if not name_index.is_junk_name(r.get('t', {}).get('name', '')) and not name_index.is_profane_name(r.get('t', {}).get('name', '')) and not name_index.is_mtb(r.get('t', {}))]
     members = {m[0] for r in body.get('r', []) for m in r['m']}
     length, mtb = {}, set()
     for w in body.get('w', []):
         name = w.get('t', {}).get('name', '')
-        if w['id'] in members or not name or name_index.is_junk_name(name):
+        if w['id'] in members or not name or name_index.is_junk_name(name) or name_index.is_profane_name(name):
             continue
         if name_index.is_mtb(w.get('t', {})):
             mtb.add(name)   # the app merges a name's tags across its ways, so one mountain-bike way marks the whole name

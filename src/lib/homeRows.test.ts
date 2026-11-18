@@ -3,7 +3,7 @@ import { LEDGE_CELL, RICH_INDEX, richCell } from '../../e2e/fixtures';
 import { cellsToTrails } from './cells';
 import { NO_FILTERS, ROW_MIN, applyFilters, buildCollections, coverageRegions } from './home';
 import { searchNames, type NameEntry } from './nameIndex';
-import { filterTrails } from './quality';
+import { filterTrails, isProfaneName } from './quality';
 
 // The fixture the browser screenshots use: real geometry, with tags added so every row has trails.
 describe('screenshot fixture', () => {
@@ -19,6 +19,20 @@ describe('screenshot fixture', () => {
     expect(ROW_MIN).toBe(3);
     expect(buildCollections([a, b, c].slice(0, 2).map(tagged)).find((r) => r.id === 'falls')).toBeUndefined();
     expect(buildCollections([a, b, c].map(tagged)).find((r) => r.id === 'falls')?.trails).toHaveLength(3);
+  });
+  it('leaves profane names out of Home rows only; Find, All trails and search keep them', () => {
+    const [a, b, c] = trails.slice(0, 3);
+    const mk = (t: typeof a, i: number, name: string) => ({ ...t, id: `${t.id}-p${i}`, name, highlights: ['falls'], coords: t.coords.map(([x, y]) => [x + i * 0.3, y] as [number, number]) });
+    const clean = [a, b, c].map((t, i) => mk(t, i, `Clean Falls ${i}`));
+    const profane = mk(a, 9, 'Shit Happens');
+    const row = (ts: typeof clean) => buildCollections(ts).find((r) => r.id === 'falls')?.trails.map((t) => t.name) ?? [];
+    expect(row([...clean, profane])).toEqual(expect.not.arrayContaining(['Shit Happens']));
+    expect(row([...clean, profane])).toHaveLength(3);
+    expect(row([clean[0], clean[1], profane])).toEqual([]);   // only two clean trails: the row is gone, not padded
+    expect(filterTrails([...clean, profane]).map((t) => t.name)).toContain('Shit Happens');
+    expect(applyFilters([...clean, profane], NO_FILTERS).map((t) => t.name)).toContain('Shit Happens');
+    for (const n of ['Shit Happens', 'Fucking Hill', 'Damn Fine Loop', 'Bitch Creek', 'Ass Kicker', 'Crap Trail', 'Piss Pot Falls', 'Cock Rock', 'Bastard Ridge', 'Holy SHIT']) expect(isProfaneName(n), n).toBe(true);
+    for (const n of ['Grass Lakes', 'Passage Creek', 'Cassidy Loop', 'Assiniboine Trail', 'Cockpit Lookout', 'Scrapbook Loop', 'Damascus Trail', 'Dickens Falls', 'Pissarro Path', "Dick's Trail", 'Dick Peak', 'Dickhead Hill', 'Damné Ridge', 'Arsenic Springs', 'Arsenault Trail', 'Crappie Lake', 'Lac Crapaud', 'Shittim Creek']) expect(isProfaneName(n), n).toBe(false);
   });
   it('has no spur duplicated at one place (names differ, geometry from different real ways)', () => {
     expect(new Set(trails.map((t) => t.name)).size).toBe(trails.length);

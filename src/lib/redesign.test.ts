@@ -41,6 +41,14 @@ describe('quality filter', () => {
       ['Bike Only Path', { bicycle: 'designated' }, true], ['Banned Foot Path', { bicycle: 'designated', foot: 'no' }, true],
       ['Shared Path', { bicycle: 'designated', foot: 'yes' }, false], ['Both Designated Path', { bicycle: 'designated', foot: 'designated' }, false],
       ['Hikers Only Path', { bicycle: 'no', sac_scale: 'mountain_hiking' }, false], ['Bike Route', { route: 'mtb' }, true],
+      ['Permissive Foot Path', { bicycle: 'designated', foot: 'permissive' }, false], ['Official Foot Path', { bicycle: 'designated', foot: 'official' }, false],
+      ['Hiking Scale Path', { bicycle: 'designated', foot: 'no', sac_scale: 'hiking' }, false], ['Scaled Both Path', { bicycle: 'designated', sac_scale: 'hiking', 'mtb:scale': '1' }, true],
+      // real Whistler ways (OpenStreetMap, read 18 Nov 2026)
+      ['Shit Happens', { bicycle: 'designated', foot: 'designated', highway: 'path', mtb: 'designated', 'mtb:scale:imba': '3', sac_scale: 'hiking' }, true],
+      ['Imba Only Path', { highway: 'path', 'mtb:scale:imba': '3' }, true],
+      ['Upper Panorama', { access: 'yes', bicycle: 'designated', foot: 'designated', highway: 'track', 'piste:type': 'nordic' }, false],
+      ['Heart Burn', { bicycle: 'no', highway: 'path', sac_scale: 'mountain_hiking' }, false],
+      ['A Crumb of Numb', { access: 'discouraged', highway: 'path', informal: 'yes' }, false],
     ];
     const trails = cases.map(([name, tags], i) => mk(i === 8 ? 'osm-r9' : `osm-w${i + 1}-0`, name, tags, i));
     cases.forEach(([name, , want], i) => expect(isMtb(trails[i]), name).toBe(want));

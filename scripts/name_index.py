@@ -30,11 +30,21 @@ def is_junk_name(name):
 
 
 def is_mtb(tags):
-    """A mountain-bike trail, kept out of Home's picks: mtb:scale present, or bicycle=designated with foot not yes/designated,
-    or a route=mtb relation. Mirrors isMtbTags in src/lib/quality.ts; the cells carry the result as mtb=1 (see build_trails.py)."""
-    if tags.get('mtb') == '1' or tags.get('mtb:scale') or tags.get('route') == 'mtb':
-        return True
-    return tags.get('bicycle') == 'designated' and tags.get('foot') not in ('yes', 'designated')
+    """A mountain-bike trail, kept out of Home's picks: mtb:scale present, or a route=mtb relation, or bicycle=designated with foot not
+    yes/designated/permissive/official; a way with sac_scale is a hiking trail unless it carries an mtb:scale* key or mtb=designated. Mirrors isMtbTags in src/lib/quality.ts; the cells carry the result as mtb=1 (see build_trails.py)."""
+    if tags.get('mtb') in ('1', 'designated') or tags.get('route') == 'mtb' or any(getattr(k, 'k', k).startswith('mtb:scale') for k in tags):
+        return True   # any mtb:scale* key (mtb:scale, mtb:scale:imba, mtb:scale:uphill) or mtb=designated beats sac_scale
+    if tags.get('sac_scale'):
+        return False
+    return tags.get('bicycle') == 'designated' and tags.get('foot') not in ('yes', 'designated', 'permissive', 'official')
+
+
+PROFANE = re.compile(r"(?<!\w)(?:shit|shits|shitty|shite|shithead\w*|shitt(?:ing|ed)|bullshit|fuck\w*|motherfuck\w*|damn(?:ed|ing|it)?|goddamn(?:ed|ing|it)?|dammit|bitch\w*|ass|asses|asshole\w*|crap|craps|crappy|crapper|piss(?:ed|ing|y|er)?|cocks?|bastards?|arse|arses|arsehole\w*)(?!\w)", re.I)   # Unicode-aware boundary: letters, digits and _ on either side mean no match (same as the TS lookarounds)
+
+
+def is_profane_name(name):
+    """A profane trail name, left out of Home's rows only. Mirrors isProfaneName in src/lib/quality.ts: whole words (Unicode letters and digits count as word characters), so "Grass" and "Passage" do not match."""
+    return bool(PROFANE.search(name or ''))
 
 
 def haversine(a, b):
