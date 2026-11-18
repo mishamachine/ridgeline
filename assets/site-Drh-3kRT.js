@@ -1,0 +1,1 @@
+var e=`https://hike.bbprojectfactory.com`,t=`https://hike.bbprojectfactory.com/v`;export{e as n,t};

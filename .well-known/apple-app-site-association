@@ -1,0 +1,10 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["TODO_RELEASE_TEAMID.com.bbprojectfactory.ridgeline"],
+        "components": [{ "/": "/trail/*" }]
+      }
+    ]
+  }
+}
