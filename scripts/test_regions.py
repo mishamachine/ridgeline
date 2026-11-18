@@ -201,9 +201,9 @@ class Center(unittest.TestCase):
             self.assertEqual((qual, total), (3, 3))   # Hiker Loop, Shared Use and the Hiking Route; the marked ones and Split Trail are out
 
     def test_is_profane_name(self):
-        for n in ['Shit Happens', 'Fucking Hill', 'Damn Fine Loop', 'Bitch Creek', 'Ass Kicker', 'Crap Trail', 'Piss Pot Falls', 'Cock Rock', 'Dick Peak', 'Bastard Ridge', 'Holy SHIT']:
+        for n in ['Shit Happens', 'Fucking Hill', 'Damn Fine Loop', 'Bitch Creek', 'Ass Kicker', 'Crap Trail', 'Piss Pot Falls', 'Cock Rock', 'Bastard Ridge', 'Holy SHIT']:
             self.assertTrue(name_index.is_profane_name(n), n)
-        for n in ['Grass Lakes', 'Passage Creek', 'Cassidy Loop', 'Assiniboine Trail', 'Cockpit Lookout', 'Scrapbook Loop', 'Damascus Trail', 'Dickens Falls', 'Pissarro Path', '']:
+        for n in ['Grass Lakes', 'Passage Creek', 'Cassidy Loop', 'Assiniboine Trail', 'Cockpit Lookout', 'Scrapbook Loop', 'Damascus Trail', 'Dickens Falls', 'Pissarro Path', "Dick's Trail", '']:
             self.assertFalse(name_index.is_profane_name(n), n)
 
     def test_is_mtb_tag_fixtures(self):

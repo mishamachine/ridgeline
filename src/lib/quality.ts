@@ -16,7 +16,7 @@ export function isJunkName(name: string): boolean {
   return n.length < 3 || JUNK_WORDS.test(n) || NUMBER_ONLY.test(n) || ROAD_CODE.test(n) || SHORT_JUNK.test(n);
 }
 
-const PROFANE = /\b(shit\w*|bullshit|fuck\w*|motherfuck\w*|damn(?:ed|ing|it)?|goddamn(?:ed|ing|it)?|dammit|bitch\w*|ass|asses|asshole\w*|crap\w*|piss(?:ed|ing|y|er)?|cocks?|dicks?|dickhead\w*|bastards?|arse\w*)\b/i;
+const PROFANE = /\b(shit\w*|bullshit|fuck\w*|motherfuck\w*|damn(?:ed|ing|it)?|goddamn(?:ed|ing|it)?|dammit|bitch\w*|ass|asses|asshole\w*|crap\w*|piss(?:ed|ing|y|er)?|cocks?|dickhead\w*|bastards?|arse\w*)\b/i;
 /** A profane trail name: Home's rows leave it out; Find, All trails and search keep the real name. Whole words only ("Grass", "Passage" are fine). Same list as scripts/name_index.py. */
 export const isProfaneName = (name: string) => PROFANE.test(name);
 

@@ -39,7 +39,7 @@ def is_mtb(tags):
     return tags.get('bicycle') == 'designated' and tags.get('foot') not in ('yes', 'designated', 'permissive', 'official')
 
 
-PROFANE = re.compile(r"\b(shit\w*|bullshit|fuck\w*|motherfuck\w*|damn(?:ed|ing|it)?|goddamn(?:ed|ing|it)?|dammit|bitch\w*|ass|asses|asshole\w*|crap\w*|piss(?:ed|ing|y|er)?|cocks?|dicks?|dickhead\w*|bastards?|arse\w*)\b", re.I)
+PROFANE = re.compile(r"\b(shit\w*|bullshit|fuck\w*|motherfuck\w*|damn(?:ed|ing|it)?|goddamn(?:ed|ing|it)?|dammit|bitch\w*|ass|asses|asshole\w*|crap\w*|piss(?:ed|ing|y|er)?|cocks?|dickhead\w*|bastards?|arse\w*)\b", re.I)
 
 
 def is_profane_name(name):
