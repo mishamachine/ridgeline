@@ -150,11 +150,11 @@ export function pathStatKey(name: string, a: LngLat, b: LngLat): string {
 
 /**
  * A mountain-bike trail: mtb:scale present, or a route=mtb relation, or bicycle=designated with foot not yes/designated/permissive/official;
- * a way with sac_scale is a hiking trail unless it carries mtb:scale.
+ * a way with sac_scale is a hiking trail unless it carries an mtb:scale* key or mtb=designated.
  * Hosted builds judge the raw tags and keep only mtb=1 on the entry (scripts/name_index.py is_mtb is the same rule), so that counts too.
  */
 export function isMtbTags(t: Record<string, string> = {}): boolean {
-  if (t.mtb === '1' || t['mtb:scale'] || t.route === 'mtb') return true;
+  if (t.mtb === '1' || t.mtb === 'designated' || t.route === 'mtb' || Object.keys(t).some((k) => k.startsWith('mtb:scale'))) return true;
   if (t.sac_scale) return false;
   return t.bicycle === 'designated' && !['yes', 'designated', 'permissive', 'official'].includes(t.foot);
 }

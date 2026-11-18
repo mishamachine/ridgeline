@@ -31,12 +31,20 @@ def is_junk_name(name):
 
 def is_mtb(tags):
     """A mountain-bike trail, kept out of Home's picks: mtb:scale present, or a route=mtb relation, or bicycle=designated with foot not
-    yes/designated/permissive/official; a way with sac_scale is a hiking trail unless it carries mtb:scale. Mirrors isMtbTags in src/lib/quality.ts; the cells carry the result as mtb=1 (see build_trails.py)."""
-    if tags.get('mtb') == '1' or tags.get('mtb:scale') or tags.get('route') == 'mtb':
-        return True
+    yes/designated/permissive/official; a way with sac_scale is a hiking trail unless it carries an mtb:scale* key or mtb=designated. Mirrors isMtbTags in src/lib/quality.ts; the cells carry the result as mtb=1 (see build_trails.py)."""
+    if tags.get('mtb') in ('1', 'designated') or tags.get('route') == 'mtb' or any(getattr(k, 'k', k).startswith('mtb:scale') for k in tags):
+        return True   # any mtb:scale* key (mtb:scale, mtb:scale:imba, mtb:scale:uphill) or mtb=designated beats sac_scale
     if tags.get('sac_scale'):
         return False
     return tags.get('bicycle') == 'designated' and tags.get('foot') not in ('yes', 'designated', 'permissive', 'official')
+
+
+PROFANE = re.compile(r"\b(shit\w*|bullshit|fuck\w*|motherfuck\w*|damn(?:ed|ing|it)?|goddamn(?:ed|ing|it)?|dammit|bitch\w*|ass|asses|asshole\w*|crap\w*|piss(?:ed|ing|y|er)?|cocks?|dicks?|dickhead\w*|bastards?|arse\w*)\b", re.I)
+
+
+def is_profane_name(name):
+    """A profane trail name, left out of Home's rows only. Mirrors isProfaneName in src/lib/quality.ts: whole words, so "Grass" and "Passage" do not match."""
+    return bool(PROFANE.search(name or ''))
 
 
 def haversine(a, b):

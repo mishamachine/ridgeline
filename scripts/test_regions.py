@@ -200,13 +200,25 @@ class Center(unittest.TestCase):
             qual, total = regions.cell_trails(self.write(t, body))
             self.assertEqual((qual, total), (3, 3))   # Hiker Loop, Shared Use and the Hiking Route; the marked ones and Split Trail are out
 
+    def test_is_profane_name(self):
+        for n in ['Shit Happens', 'Fucking Hill', 'Damn Fine Loop', 'Bitch Creek', 'Ass Kicker', 'Crap Trail', 'Piss Pot Falls', 'Cock Rock', 'Dick Peak', 'Bastard Ridge', 'Holy SHIT']:
+            self.assertTrue(name_index.is_profane_name(n), n)
+        for n in ['Grass Lakes', 'Passage Creek', 'Cassidy Loop', 'Assiniboine Trail', 'Cockpit Lookout', 'Scrapbook Loop', 'Damascus Trail', 'Dickens Falls', 'Pissarro Path', '']:
+            self.assertFalse(name_index.is_profane_name(n), n)
+
     def test_is_mtb_tag_fixtures(self):
         for tags, want in [({'mtb:scale': '0'}, True), ({'mtb:scale': '3', 'foot': 'yes'}, True), ({'bicycle': 'designated'}, True), ({'bicycle': 'designated', 'foot': 'no'}, True),
                            ({'bicycle': 'designated', 'foot': 'yes'}, False), ({'bicycle': 'designated', 'foot': 'designated'}, False), ({'route': 'mtb'}, True),
                            ({'route': 'hiking', 'bicycle': 'yes'}, False), ({'bicycle': 'no', 'sac_scale': 'mountain_hiking'}, False), ({'mtb': '1'}, True), ({}, False),
                            ({'bicycle': 'designated', 'foot': 'permissive'}, False), ({'bicycle': 'designated', 'foot': 'official'}, False),
                            ({'bicycle': 'designated', 'sac_scale': 'hiking'}, False), ({'bicycle': 'designated', 'foot': 'no', 'sac_scale': 'mountain_hiking'}, False),
-                           ({'bicycle': 'designated', 'sac_scale': 'hiking', 'mtb:scale': '1'}, True)]:
+                           ({'bicycle': 'designated', 'sac_scale': 'hiking', 'mtb:scale': '1'}, True),
+                           # real Whistler ways (OpenStreetMap, read 18 Nov 2026)
+                           ({'bicycle': 'designated', 'foot': 'designated', 'highway': 'path', 'mtb': 'designated', 'mtb:scale:imba': '3', 'sac_scale': 'hiking'}, True),
+                           ({'highway': 'path', 'mtb:scale:imba': '3'}, True),
+                           ({'access': 'yes', 'bicycle': 'designated', 'foot': 'designated', 'highway': 'track', 'piste:type': 'nordic'}, False),
+                           ({'bicycle': 'no', 'highway': 'path', 'sac_scale': 'mountain_hiking'}, False),
+                           ({'access': 'discouraged', 'highway': 'path', 'informal': 'yes'}, False)]:
             self.assertEqual(name_index.is_mtb(tags), want, tags)
 
     def test_a_valid_centre_hint_is_used(self):
