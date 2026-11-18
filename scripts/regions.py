@@ -303,7 +303,7 @@ def stored_gain_ft(s):
 
 def cell_center(keys, size=0.25, trails=None):
     """[lon, lat] of the cell with the most qualifying trails in the region (see cell_trails: 500 ft of gain or more, no mountain-bike trails); ties go to the one nearest the mean of all the cells' centres.
-    Home opens on this point with location off, so it must be a place with trails (a bbox midpoint can be in the sea, and a
+    Home opens on this point with location off (a region's regions.json "center_hint" can pick the cell, see pick_center), so it must be a place with trails (a bbox midpoint can be in the sea, and a
     covered cell can hold nothing). trails maps cell key -> trail count (see cell_trails); without it every cell counts the
     same, so the cell nearest the mean wins. None when there are no cells."""
     pts = [(((int(k.split('_')[0]) + 0.5) * size - 180, (int(k.split('_')[1]) + 0.5) * size - 90), (trails.get(k, 0) if trails is not None else 1)) for k in keys]
@@ -312,6 +312,19 @@ def cell_center(keys, size=0.25, trails=None):
     mx, my = sum(p[0][0] for p in pts) / len(pts), sum(p[0][1] for p in pts) / len(pts)
     best = min(pts, key=lambda p: (-p[1], (p[0][0] - mx) ** 2 + (p[0][1] - my) ** 2))[0]
     return [round(best[0], 4), round(best[1], 4)]
+
+
+def pick_center(keys, trails, hint=None, size=0.25, rid=''):
+    """([lon, lat] or None, 'hint' or 'auto'). A region may name a centre cell in regions.json ("center_hint", "<x>_<y>"); it is used only
+    while that cell is built and holds at least MIN_CENTER_TRAILS qualifying trails. Otherwise (a stale hint) the build warns and falls back
+    to cell_center's own pick, and never fails because of the hint."""
+    if hint:
+        n = (trails or {}).get(hint, 0) if hint in keys else 0
+        if hint in keys and n >= MIN_CENTER_TRAILS:
+            x, y = (int(v) for v in hint.split('_'))
+            return [round((x + 0.5) * size - 180, 4), round((y + 0.5) * size - 90, 4)], 'hint'
+        print(f"::warning::{rid}: centre hint {hint} has {n} qualifying trails (minimum {MIN_CENTER_TRAILS}) or is not built; using the automatic centre")
+    return cell_center(keys, size, trails), 'auto'
 
 
 def _line(g, v2):
@@ -383,7 +396,7 @@ def verify_centers(v2_dir, cache=None):
     return bad
 
 
-def report_centers(v2_dir, listing, cache):
+def report_centers(v2_dir, listing, cache, sources=None):
     """One line per region for the log and the job summary: the centre cell, its lon/lat, and its qualifying and total trails."""
     size, lines = 0.25, []
     for r in listing:
@@ -393,8 +406,8 @@ def report_centers(v2_dir, listing, cache):
         key = f"{int((c[0] + 180) // size)}_{int((c[1] + 90) // size)}"
         count_cells(v2_dir, [key], cache)
         q, total = cache[os.path.join(v2_dir, key + '.json')]
-        lines.append(f"| {r['name']} | {key} | {c[0]}, {c[1]} | {q} | {total} |")
-    table = '| Region | Centre cell | Centre lon, lat | Trails with 500 ft of gain or more | Trails (all, mountain-bike trails left out) |\n|---|---|---|---|---|\n' + '\n'.join(lines)
+        lines.append(f"| {r['name']} | {key} | {c[0]}, {c[1]} | {(sources or {}).get(r['id'], 'auto')} | {q} | {total} |")
+    table = '| Region | Centre cell | Centre lon, lat | Centre chosen by | Trails with 500 ft of gain or more | Trails (all, mountain-bike trails left out) |\n|---|---|---|---|---|---|\n' + '\n'.join(lines)
     print(table)
     summary = os.environ.get('GITHUB_STEP_SUMMARY')
     if summary:
@@ -434,6 +447,7 @@ def combine(root, dirs, regs=None):
     os.makedirs(os.path.join(out, 'names'), exist_ok=True)
     os.makedirs(os.path.join(out, 'places'), exist_ok=True)
     cells, listing, boxes, sources = {}, [], [], []
+    how = {}      # region id -> 'hint' or 'auto'
     counts = {}   # per-cell trail counts, parsed once
     for d in dirs:
         rid = os.path.basename(os.path.normpath(d)).removeprefix('trails-')  # CI artifacts are named trails-<id>
@@ -458,7 +472,8 @@ def combine(root, dirs, regs=None):
         places['region'] = rid
         with open(os.path.join(out, 'places', rid + '.json'), 'w', encoding='utf-8') as f:
             json.dump(places, f, separators=(',', ':'), ensure_ascii=False)
-        listing.append({'id': rid, 'code': r['code'], 'name': r['name'], 'cc': r['cc'], 'center': cell_center(idx['cells'], trails=count_cells(d, idx['cells'], counts)), 'bbox': idx['bbox'], 'cells': len(idx['cells']), 'names': f'names/{rid}.json', 'places': f'places/{rid}.json'})
+        center, how[rid] = pick_center(idx['cells'], count_cells(d, idx['cells'], counts), r.get('center_hint'), rid=rid)
+        listing.append({'id': rid, 'code': r['code'], 'name': r['name'], 'cc': r['cc'], 'center': center, 'bbox': idx['bbox'], 'cells': len(idx['cells']), 'names': f'names/{rid}.json', 'places': f'places/{rid}.json'})
         if idx['bbox']:
             boxes.append(idx['bbox'])
         sources.append(r['name'])
@@ -481,7 +496,7 @@ def combine(root, dirs, regs=None):
     for d in v1:  # the old path: this region's full-resolution old-format cells, index.json and names.json, as the old reader expects
         for f in os.listdir(os.path.join(d, 'full')):
             shutil.copyfile(os.path.join(d, 'full', f), os.path.join(root, f))
-    report_centers(out, listing, counts)
+    report_centers(out, listing, counts, how)
     bad = verify_centers(out, counts)   # counts the built (merged) cells; a border cell holds at least what its region's own file did
     if bad:
         sys.exit('region centre with too few trails (Home opens there): ' + '; '.join(bad))

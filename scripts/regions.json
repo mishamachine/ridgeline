@@ -118,6 +118,7 @@
   {
    "id": "california",
    "name": "California",
+   "center_hint": "231_508",
    "cc": "us",
    "geofabrik": "us/california",
    "classics": [

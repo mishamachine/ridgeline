@@ -206,6 +206,31 @@ class Center(unittest.TestCase):
                            ({'route': 'hiking', 'bicycle': 'yes'}, False), ({'bicycle': 'no', 'sac_scale': 'mountain_hiking'}, False), ({'mtb': '1'}, True), ({}, False)]:
             self.assertEqual(name_index.is_mtb(tags), want, tags)
 
+    def test_a_valid_centre_hint_is_used(self):
+        keys = ['1_1', '2_2']
+        c, how = regions.pick_center(keys, {'1_1': 30, '2_2': 12}, '2_2', rid='x')
+        self.assertEqual((c, how), ([-179.375, -89.375], 'hint'))   # not the busiest cell: the hint wins while it holds 10 or more
+        self.assertEqual(regions.pick_center(keys, {'1_1': 30, '2_2': 12}, None)[1], 'auto')
+
+    def test_a_hint_under_the_floor_or_not_built_falls_back_with_a_warning(self):
+        import io
+        import contextlib
+        keys = ['1_1', '2_2']
+        for hint, counts in (('2_2', {'1_1': 30, '2_2': 9}), ('9_9', {'1_1': 30, '2_2': 12})):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                c, how = regions.pick_center(keys, counts, hint, rid='x')
+            self.assertEqual((c, how), ([-179.625, -89.625], 'auto'))   # the busiest cell, 1_1
+            self.assertIn('::warning::x: centre hint ' + hint, buf.getvalue())
+
+    def test_combine_uses_a_hint_and_survives_a_stale_one(self):
+        with tempfile.TemporaryDirectory() as t:
+            idx, v2 = CentersInBuiltIndex().build(t, {'0_0': routed(6, 10), '8_8': routed(7, 12)}, hint='0_0')
+            self.assertEqual(idx['regions'][1]['center'], [-179.875, -89.875])   # hint 0_0 (10 trails) beats 8_8 (12)
+        with tempfile.TemporaryDirectory() as t:
+            idx, v2 = CentersInBuiltIndex().build(t, {'0_0': routed(6, 10), '8_8': routed(7, 12)}, hint='5_5')
+            self.assertEqual(idx['regions'][1]['center'], [-177.875, -87.875])   # stale hint: falls back to 8_8, build still passes
+
     def test_a_flat_busy_cell_loses_to_a_steeper_one(self):
         # the old metric picked the cell with the most trails: 14 flat fitness loops beat 11 real hikes. Now the hikes win.
         with tempfile.TemporaryDirectory() as t:
@@ -377,8 +402,8 @@ def routed(i=1, n=10, gain_m=200):
 class CentersInBuiltIndex(unittest.TestCase):
     """Runs on a real combine() output: every region's centre cell must hold at least 10 trails, so CI fails if a centre lands on a thin or empty cell."""
 
-    def build(self, t, cells_b):
-        regs = [{'id': 'a', 'code': 'AA', 'name': 'A', 'cc': 'us', 'v1': True}, {'id': 'b', 'code': 'BB', 'name': 'B', 'cc': 'us'}]
+    def build(self, t, cells_b, hint=None):
+        regs = [{'id': 'a', 'code': 'AA', 'name': 'A', 'cc': 'us', 'v1': True}, {'id': 'b', 'code': 'BB', 'name': 'B', 'cc': 'us', **({'center_hint': hint} if hint else {})}]
         g = [-122.0, 47.0, -121.9999, 47.0001]
         dirs = []
         for rid, cells in (('a', {'1_1': routed(5)}), ('b', cells_b)):
