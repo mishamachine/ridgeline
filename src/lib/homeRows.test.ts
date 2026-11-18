@@ -32,7 +32,7 @@ describe('screenshot fixture', () => {
     expect(filterTrails([...clean, profane]).map((t) => t.name)).toContain('Shit Happens');
     expect(applyFilters([...clean, profane], NO_FILTERS).map((t) => t.name)).toContain('Shit Happens');
     for (const n of ['Shit Happens', 'Fucking Hill', 'Damn Fine Loop', 'Bitch Creek', 'Ass Kicker', 'Crap Trail', 'Piss Pot Falls', 'Cock Rock', 'Bastard Ridge', 'Holy SHIT']) expect(isProfaneName(n), n).toBe(true);
-    for (const n of ['Grass Lakes', 'Passage Creek', 'Cassidy Loop', 'Assiniboine Trail', 'Cockpit Lookout', 'Scrapbook Loop', 'Damascus Trail', 'Dickens Falls', 'Pissarro Path', "Dick's Trail"]) expect(isProfaneName(n), n).toBe(false);
+    for (const n of ['Grass Lakes', 'Passage Creek', 'Cassidy Loop', 'Assiniboine Trail', 'Cockpit Lookout', 'Scrapbook Loop', 'Damascus Trail', 'Dickens Falls', 'Pissarro Path', "Dick's Trail", 'Dick Peak', 'Dickhead Hill', 'Damné Ridge', 'Arsenic Springs', 'Arsenault Trail', 'Crappie Lake', 'Lac Crapaud', 'Shittim Creek']) expect(isProfaneName(n), n).toBe(false);
   });
   it('has no spur duplicated at one place (names differ, geometry from different real ways)', () => {
     expect(new Set(trails.map((t) => t.name)).size).toBe(trails.length);

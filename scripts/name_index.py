@@ -39,11 +39,11 @@ def is_mtb(tags):
     return tags.get('bicycle') == 'designated' and tags.get('foot') not in ('yes', 'designated', 'permissive', 'official')
 
 
-PROFANE = re.compile(r"\b(shit\w*|bullshit|fuck\w*|motherfuck\w*|damn(?:ed|ing|it)?|goddamn(?:ed|ing|it)?|dammit|bitch\w*|ass|asses|asshole\w*|crap\w*|piss(?:ed|ing|y|er)?|cocks?|dickhead\w*|bastards?|arse\w*)\b", re.I)
+PROFANE = re.compile(r"(?<!\w)(?:shit|shits|shitty|shite|shithead\w*|shitt(?:ing|ed)|bullshit|fuck\w*|motherfuck\w*|damn(?:ed|ing|it)?|goddamn(?:ed|ing|it)?|dammit|bitch\w*|ass|asses|asshole\w*|crap|craps|crappy|crapper|piss(?:ed|ing|y|er)?|cocks?|bastards?|arse|arses|arsehole\w*)(?!\w)", re.I)   # Unicode-aware boundary: letters, digits and _ on either side mean no match (same as the TS lookarounds)
 
 
 def is_profane_name(name):
-    """A profane trail name, left out of Home's rows only. Mirrors isProfaneName in src/lib/quality.ts: whole words, so "Grass" and "Passage" do not match."""
+    """A profane trail name, left out of Home's rows only. Mirrors isProfaneName in src/lib/quality.ts: whole words (Unicode letters and digits count as word characters), so "Grass" and "Passage" do not match."""
     return bool(PROFANE.search(name or ''))
 
 

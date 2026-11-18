@@ -203,8 +203,20 @@ class Center(unittest.TestCase):
     def test_is_profane_name(self):
         for n in ['Shit Happens', 'Fucking Hill', 'Damn Fine Loop', 'Bitch Creek', 'Ass Kicker', 'Crap Trail', 'Piss Pot Falls', 'Cock Rock', 'Bastard Ridge', 'Holy SHIT']:
             self.assertTrue(name_index.is_profane_name(n), n)
-        for n in ['Grass Lakes', 'Passage Creek', 'Cassidy Loop', 'Assiniboine Trail', 'Cockpit Lookout', 'Scrapbook Loop', 'Damascus Trail', 'Dickens Falls', 'Pissarro Path', "Dick's Trail", '']:
+        for n in ['Grass Lakes', 'Passage Creek', 'Cassidy Loop', 'Assiniboine Trail', 'Cockpit Lookout', 'Scrapbook Loop', 'Damascus Trail', 'Dickens Falls', 'Pissarro Path', "Dick's Trail", 'Arsenic Springs', 'Arsenault Trail', 'Crappie Lake', 'Lac Crapaud', 'Shittim Creek', 'Dick Peak', 'Dickhead Hill', 'Damné Ridge', '']:
             self.assertFalse(name_index.is_profane_name(n), n)
+
+    def test_is_mtb_with_osmium_style_tags(self):
+        class Tag:
+            def __init__(self, k, v): self.k, self.v = k, v
+
+        class TagList(list):   # osmium's TagList: .get(key) plus iteration that yields Tag objects (.k/.v)
+            def get(self, key, default=None):
+                return next((t.v for t in self if t.k == key), default)
+
+        self.assertTrue(name_index.is_mtb(TagList([Tag('highway', 'path'), Tag('mtb:scale:imba', '3'), Tag('sac_scale', 'hiking')])))
+        self.assertTrue(name_index.is_mtb(TagList([Tag('mtb', 'designated'), Tag('sac_scale', 'hiking')])))
+        self.assertFalse(name_index.is_mtb(TagList([Tag('highway', 'path'), Tag('sac_scale', 'hiking'), Tag('bicycle', 'no')])))
 
     def test_is_mtb_tag_fixtures(self):
         for tags, want in [({'mtb:scale': '0'}, True), ({'mtb:scale': '3', 'foot': 'yes'}, True), ({'bicycle': 'designated'}, True), ({'bicycle': 'designated', 'foot': 'no'}, True),
