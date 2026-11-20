@@ -45,7 +45,7 @@ export function sharedLabel(surface?: string): string {
   const s = (surface ?? '').trim().toLowerCase();
   return PAVED_SURFACES.test(s) ? 'Paved · shared with bikes' : GRAVEL_SURFACES.test(s) ? 'Gravel · shared with bikes' : UNPAVED_SURFACES.test(s) ? 'Unpaved · shared with bikes' : 'Shared with bikes';
 }
-const isPavedSurface = (s?: string) => PAVED_SURFACES.test((s ?? '').trim().toLowerCase());
+const isHardSurface = (s?: string) => PAVED_SURFACES.test((s ?? '').trim().toLowerCase()) || GRAVEL_SURFACES.test((s ?? '').trim().toLowerCase());
 const FOOT_OK = ['yes', 'designated', 'permissive'];
 const FOOT_BANNED = ['no', 'private', 'use_sidepath'];
 
@@ -177,7 +177,8 @@ export function pathStatKey(name: string, a: LngLat, b: LngLat): string {
 export function isMtbTags(t: Record<string, string> = {}): boolean {
   if (t.mtb === '1' || t.mtb === 'designated' || t.route === 'mtb' || Object.keys(t).some((k) => k.startsWith('mtb:scale'))) return true;
   if (t.sac_scale || t.kind === PAVED_KIND) return false; // hosted data: the build marks kind only on cycleways it judged not mountain-bike
-  if (t.highway === 'cycleway' && (isPavedSurface(t.surface) || FOOT_OK.includes(t.foot))) return false; // a paved cycleway, or one people may walk, is a shared trail; a dirt one for bikes only runs the rule below
+  // A cycleway is a shared trail when people may walk it or it has a hard surface; any other one (bare, dirt, unpaved or no surface, no foot tag) is a bikes-only track.
+  if (t.highway === 'cycleway') return !(isHardSurface(t.surface) || FOOT_OK.includes(t.foot));
   return t.bicycle === 'designated' && !['yes', 'designated', 'permissive', 'official'].includes(t.foot);
 }
 

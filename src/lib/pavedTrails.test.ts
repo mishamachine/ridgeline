@@ -29,13 +29,19 @@ describe('paved shared-use trails', () => {
     expect(isMtb(u)).toBe(false);
   });
 
-  it('a dirt cycleway for bikes only (no foot tag) is a mountain-bike trail; with foot yes it is shared', () => {
-    const tags = (extra: Record<string, string>) => ({ highway: 'cycleway', surface: 'dirt', name: 'Dirt Way Trail', ...extra });
+  it('a bare or dirt cycleway with no foot tag is a mountain-bike trail; with foot yes, or a hard surface, it is shared', () => {
+    const tags = (extra: Record<string, string>) => ({ highway: 'cycleway', name: 'Dirt Way Trail', ...extra });
     const one = (extra: Record<string, string>) => parseOverpass([{ type: 'way', id: 6, geometry: g, tags: tags(extra) }])[0];
     const flow = one({ bicycle: 'designated' });
     expect(isMtb(flow)).toBe(true);
     expect(isPavedShared(flow)).toBe(false);
-    for (const extra of [{ bicycle: 'designated', foot: 'yes' }, { bicycle: 'designated', foot: 'designated' }, { bicycle: 'designated', foot: 'permissive' }, {} as Record<string, string>]) {
+    for (const bare of [{}, { surface: 'dirt' }, { surface: 'ground' }, { surface: 'unpaved', motor_vehicle: 'yes' }]) {   // real Oregon shapes: bare highway=cycleway, dirt
+      const m = one(bare as Record<string, string>);
+      expect(isMtb(m), JSON.stringify(bare)).toBe(true);
+      expect(isPavedShared(m), JSON.stringify(bare)).toBe(false);
+    }
+    const okExtras: Record<string, string>[] = [{ bicycle: 'designated', foot: 'yes' }, { bicycle: 'designated', foot: 'designated' }, { bicycle: 'designated', foot: 'permissive' }, { surface: 'gravel' }, { bicycle: 'designated', surface: 'compacted' }];
+    for (const extra of okExtras) {
       const t = one(extra);
       expect(isMtb(t), JSON.stringify(extra)).toBe(false);
       expect(isPavedShared(t), JSON.stringify(extra)).toBe(true);
