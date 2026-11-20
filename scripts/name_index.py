@@ -34,8 +34,8 @@ def is_mtb(tags):
     yes/designated/permissive/official; a way with sac_scale is a hiking trail unless it carries an mtb:scale* key or mtb=designated. Mirrors isMtbTags in src/lib/quality.ts; the cells carry the result as mtb=1 (see build_trails.py)."""
     if tags.get('mtb') in ('1', 'designated') or tags.get('route') == 'mtb' or any(getattr(k, 'k', k).startswith('mtb:scale') for k in tags):
         return True   # any mtb:scale* key (mtb:scale, mtb:scale:imba, mtb:scale:uphill) or mtb=designated beats sac_scale
-    if tags.get('sac_scale'):
-        return False
+    if tags.get('sac_scale') or tags.get('highway') == 'cycleway':
+        return False   # a paved cycleway people walk on is a shared trail (build_trails.is_paved_shared), not a mountain-bike trail
     return tags.get('bicycle') == 'designated' and tags.get('foot') not in ('yes', 'designated', 'permissive', 'official')
 
 

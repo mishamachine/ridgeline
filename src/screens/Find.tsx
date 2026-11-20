@@ -10,6 +10,7 @@ import { FindIcon, ListIcon, MapIcon, ShareIcon, CloseIcon } from '../components
 import { LocateIcon } from '../components/Icons';
 import { useOnline } from '../lib/useOnline';
 import { zoomLimits } from '../lib/mapZoom';
+import { basemapPathAt, NOT_LISTED } from '../lib/mapTap';
 import { ZoomButtons } from '../components/ZoomButtons';
 import { fetchCellTrails, getIndex } from '../lib/cells';
 import { byDistance, centreOf, inCoverage, listNames, regionsOf, type CoverageRegion } from '../lib/coverage';
@@ -48,6 +49,7 @@ const PRESET_CHIPS: Record<NonNullable<BrowsePreset['collection']>, Chip[]> = { 
 const MAX_SPAN_DEG = 0.5;                          // ~35 km across: a handful of trail cells
 const DEFAULT_VIEW = { center: [-121.78, 47.49] as LngLat, zoom: 12 }; // North Bend, WA: many trails within an hour of Seattle
 const PAGE = 30;
+const RELOAD_MS = 500;                           // the list reloads this long after a pan or zoom stops
 
 /** Search box that stays responsive while the trail list re-renders. */
 const List = memo(function List({ trails, savedIds, offlineIds, me, onOpen, onToggleSave }: {
@@ -81,7 +83,8 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
   const [trails, setTrails] = useState<Trail[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [status, setStatus] = useState<Status>({ kind: 'loading' });
-  const [moved, setMoved] = useState(false);
+  const [pathNote, setPathNote] = useState<{ name?: string } | null>(null); // a tap on a basemap path that is not one of our trails
+  const reloadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [mode, setMode] = useState<'list' | 'map'>('list');
   const [chips, setChips] = useState<Set<Chip>>(new Set());
   const [me, setMe] = useState<LngLat | null>(null);
@@ -135,7 +138,6 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
 
   /** Load trails for the map's view, or for the remembered view while the map itself is still starting. */
   const loadArea = useCallback(async () => {
-    setMoved(false);
     const map = mapRef.current;
     let box;
     if (map) {
@@ -187,7 +189,15 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
       if (live && last && inCoverage(r, last.center) && !presetCenter.current) viewRef.current = last;
       if (live) loadArea();
     });
-    return () => { live = false; abortRef.current?.abort(); };
+    return () => { live = false; abortRef.current?.abort(); clearTimeout(reloadTimer.current); };
+  }, [loadArea]);
+
+  useEffect(() => { if (!pathNote) return; const t = setTimeout(() => setPathNote(null), 6000); return () => clearTimeout(t); }, [pathNote]);
+
+  /** After a pan or zoom settles, reload the list for the new view (replaces the old "Search this area" button). */
+  const reloadSoon = useCallback(() => {
+    clearTimeout(reloadTimer.current);
+    reloadTimer.current = setTimeout(() => { setAreaLabel(null); loadArea(); }, RELOAD_MS);
   }, [loadArea]);
 
   // Home's "See all" and "Explore the map": apply that row's filters and look where Home was looking.
@@ -206,12 +216,16 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
     mapRef.current = map;
     setMapInst(map);
     map.jumpTo({ center: viewRef.current.center, zoom: viewRef.current.zoom });
-    map.on('moveend', (e) => { if ((e as { originalEvent?: unknown }).originalEvent) setMoved(true); });
+    map.on('moveend', (e) => { if ((e as { originalEvent?: unknown }).originalEvent) reloadSoon(); });
     map.on('click', 'trails-hit', (e) => {
       const id = e.features?.[0]?.properties?.id as string | undefined;
       if (id) setSelected(id);
     });
-    map.on('click', (e) => { if (!map.queryRenderedFeatures(e.point, { layers: ['trails-hit'] }).length) setSelected(null); });
+    map.on('click', (e) => {
+      if (map.queryRenderedFeatures(e.point, { layers: ['trails-hit'] }).length) { setPathNote(null); return; }
+      setSelected(null);
+      setPathNote(basemapPathAt(map as never, e.point));   // a path of the basemap that is not in our list: say so, never nothing
+    });
     setGeo(map, 'trails', { type: 'FeatureCollection', features: [] });
     setDrawTick((k) => k + 1); // redraw the trails already loaded
   }
@@ -355,11 +369,17 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
         </div>
         {mode === 'map' && (
           <>
-            {moved && status.kind !== 'loading' && <button className="map-action2" onClick={loadArea}>Search this area</button>}
             <div className="map-col">
-              <ZoomButtons map={mapInst} minZoom={limits.minZoom} maxZoom={limits.maxZoom} onZoom={() => setMoved(true)} />
+              <ZoomButtons map={mapInst} minZoom={limits.minZoom} maxZoom={limits.maxZoom} onZoom={reloadSoon} />
               <button className="round" aria-label="Go to my location" onClick={nearMe}><LocateIcon /></button>
             </div>
+            {pathNote && (
+              <div className="map-note path-note" role="status">
+                {pathNote.name && <b className="path-note-name">{pathNote.name}</b>}
+                {NOT_LISTED}
+                <button className="link-btn" aria-label="Dismiss" onClick={() => setPathNote(null)}>OK</button>
+              </div>
+            )}
             {mapMsg && <div className="map-note" role="status">The map is slow right now. The list still works. <button className="link-btn" onClick={() => { setMapMsg(false); setRetry((n) => n + 1); }}>Retry</button></div>}
             {activeSelected && (
               <div className="map-pick" ref={pickRef}>

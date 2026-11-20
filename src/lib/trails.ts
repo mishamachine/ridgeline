@@ -34,6 +34,10 @@ export interface Trail {
 /** `along` is metres from the start of `coords`; each branch has a point about 20 m along it. */
 export interface Junction { along: number; branches: { name?: string; point: LngLat }[] }
 
+/** Value of tags.kind on a named paved shared-use trail (highway=cycleway that people on foot may use). Hosted v2 data carries it; Overpass trails get it from the raw tags. */
+export const PAVED_KIND = 'paved_shared';
+export const PAVED_LABEL = 'Paved · shared with bikes';
+
 export const HIGHLIGHT_CLIMB_FT = 2500;
 export const HIGHLIGHT_LONG_MI = 8;
 
@@ -63,6 +67,7 @@ export function overpassQuery(b: BBox): string {
 (
   relation["route"~"^(hiking|foot)$"](${bb});
   way["highway"~"^(path|footway|track|bridleway)$"]["name"](${bb});
+  way["highway"="cycleway"]["foot"!="no"]["name"](${bb});
 );
 out body geom(${bb});`;
 }
@@ -155,7 +160,7 @@ export function pathStatKey(name: string, a: LngLat, b: LngLat): string {
  */
 export function isMtbTags(t: Record<string, string> = {}): boolean {
   if (t.mtb === '1' || t.mtb === 'designated' || t.route === 'mtb' || Object.keys(t).some((k) => k.startsWith('mtb:scale'))) return true;
-  if (t.sac_scale) return false;
+  if (t.sac_scale || t.kind === PAVED_KIND || t.highway === 'cycleway') return false; // a paved cycleway people walk on is a shared trail, not a mountain-bike trail
   return t.bicycle === 'designated' && !['yes', 'designated', 'permissive', 'official'].includes(t.foot);
 }
 
@@ -166,6 +171,7 @@ export function parseOverpass(elements: OsmElement[], stored?: ReadonlyMap<strin
   const keepTags = (t: Record<string, string> = {}) => {
     const out: Record<string, string> = {};
     for (const k of ['sac_scale', 'surface', 'dog', 'operator', 'description', 'trail_visibility', 'website']) if (t[k]) out[k] = t[k];
+    if (t.kind === PAVED_KIND || (t.highway === 'cycleway' && t.foot !== 'no')) out.kind = PAVED_KIND;
     if (isMtbTags(t)) out.mtb = '1';   // the raw tags are not kept; Home and the lists leave mountain-bike trails out (quality.ts)
     return out;
   };

@@ -10,6 +10,7 @@ Reads an .osm.pbf (e.g. Geofabrik's washington-latest.osm.pbf) and writes:
 Trails are the same two kinds the app searches for:
   - route relations tagged route=hiking|foot (with a name or ref)
   - named paths (highway=path|footway|track|bridleway) not already part of such a route
+  - named paved shared-use trails (highway=cycleway with foot not "no", e.g. rail trails), marked kind=paved_shared in the v2 cells
 
 Every way also carries `z`: the elevation in whole metres at each of its vertices, sampled
 from the Copernicus DEM GLO-90 (scripts/elevation.py) and delta-encoded ([z0, z1-z0, ...]).
@@ -48,6 +49,13 @@ import place_index
 CELL = 0.25  # degrees, ~28 km north-south, ~19 km east-west at 47°N
 ROUTE_RE = re.compile(r'^(hiking|foot)$')
 PATH_RE = re.compile(r'^(path|footway|track|bridleway)$')
+
+def is_paved_shared(tags):
+    """A named paved shared-use trail: highway=cycleway that people on foot may use (foot is not "no"). The app labels it
+    "Paved · shared with bikes" and keeps it out of Home's top picks unless it has real gain (src/lib/quality.ts)."""
+    return tags.get('highway') == 'cycleway' and tags.get('foot') != 'no'
+
+
 KEEP = ['name', 'ref', 'route', 'sac_scale', 'surface', 'dog', 'operator', 'description', 'trail_visibility', 'website']
 MAX_DESC = 300
 JUNCTION_RE = re.compile(r'^(path|footway|track|bridleway|steps)$')
@@ -143,6 +151,7 @@ class WayHandler(osmium.SimpleHandler):
         self.names = {}        # way id -> name
         self.modes = {}        # way id -> bicycle/horse/dog tags
         self.paths = {}        # way id -> tags, for named paths not in a route
+        self.paved = set()     # way ids of named paved shared-use trails (is_paved_shared); marked kind=paved_shared in the v2 cells only
         self.mtb = set()       # way ids of named paths that are mountain-bike trails (name_index.is_mtb); marked mtb=1 in the v2 cells only
         self.features = {k: hl.PointIndex() for k in hl.FEATURES}
         self.parking = []      # one outline per usable lot: [(lon, lat)] (a single point for a node)
@@ -186,7 +195,7 @@ class WayHandler(osmium.SimpleHandler):
         is_member = w.id in self.member_ways
         hw = w.tags.get('highway', '')
         name = w.tags.get('name', '')
-        is_path = bool(PATH_RE.match(hw)) and bool(name) and is_trail_name(hw, name)
+        is_path = (bool(PATH_RE.match(hw)) or is_paved_shared(w.tags)) and bool(name) and is_trail_name(hw, name)
         untagged = (w.tags.get('natural') == 'water' and not w.tags.get('water')) or w.id in self.water_untagged
         compact = False
         if untagged and not (w.id in self.water_outer):
@@ -217,6 +226,8 @@ class WayHandler(osmium.SimpleHandler):
             self.paths[w.id] = keep_tags(w.tags)
             if name_index.is_mtb(w.tags):
                 self.mtb.add(w.id)
+            if is_paved_shared(w.tags):
+                self.paved.add(w.id)
 
 
 class JunctionHandler(osmium.SimpleHandler):
@@ -398,9 +409,9 @@ def build(pbf, out_dir, source, dem_dir=None):
         j = [[pos[vi], bs] for vi, bs in sorted(jh.result[wid].items())] if wid in jh.result else None
         simple[wid] = (flat([g[i] for i in kept]), elevation.encode_deltas(zabs[kept].tolist()), j)
 
-    def make_cells(geom, mark_mtb=False):
+    def make_cells(geom, mark=False):
         """(x, y) -> {'r': {rel id: entry}, 'w': [entries]}, with each way's (coords, z, junctions) taken from geom.
-        mark_mtb (the v2 cells): mountain-bike trails carry mtb=1 in their tags. The frozen v1 copy is built without it, so it stays as it was."""
+        mark (the v2 cells): mountain-bike trails carry mtb=1 and paved shared-use trails kind=paved_shared in their tags. The frozen v1 copy is built without them, so its tags stay as they were."""
         cells = {}
 
         def cell(key):
@@ -416,7 +427,7 @@ def build(pbf, out_dir, source, dem_dir=None):
                 if geom[wid][2]:
                     member.append(geom[wid][2])
                 for key in cells_for(g):
-                    entry = cell(key)['r'].setdefault(rid, {'id': rid, 't': {**route['tags'], 'mtb': '1'} if mark_mtb and route.get('mtb') else route['tags'], 'n': total, 'm': []})
+                    entry = cell(key)['r'].setdefault(rid, {'id': rid, 't': {**route['tags'], 'mtb': '1'} if mark and route.get('mtb') else route['tags'], 'n': total, 'm': []})
                     if rid in route_info:
                         entry['h'] = route_info[rid]['h']
                         entry['th'] = route_info[rid]['th']
@@ -424,7 +435,8 @@ def build(pbf, out_dir, source, dem_dir=None):
 
         for wid, tags in ways.paths.items():
             g = ways.geoms[wid]
-            entry = {'id': wid, 't': {**tags, 'mtb': '1'} if mark_mtb and wid in ways.mtb else tags, 'g': geom[wid][0], 'z': geom[wid][1]}
+            marks = {**({'mtb': '1'} if wid in ways.mtb else {}), **({'kind': 'paved_shared'} if wid in ways.paved else {})} if mark else {}
+            entry = {'id': wid, 't': {**tags, **marks}, 'g': geom[wid][0], 'z': geom[wid][1]}
             if path_info[wid]['h']:
                 entry['h'] = path_info[wid]['h']
             if path_info[wid]['th']:
@@ -436,7 +448,7 @@ def build(pbf, out_dir, source, dem_dir=None):
 
         return cells
 
-    cells = make_cells(simple, mark_mtb=True)
+    cells = make_cells(simple, mark=True)
     # Full-resolution cells in the old format, into <out>/full/. scripts/trail-stats.mjs reads them to compute each trail's
     # length and gain from the full line (the app stores those; the 5 m simplification only affects what is drawn).
     # The same files are Washington's frozen old-format copy at trails/ (kept by regions.py combine for regions marked v1).

@@ -1,16 +1,17 @@
 import { isBigClimb, isLong } from '../lib/plan';
 import { DOGS_UNKNOWN, DOGS_YES, dogsStatus } from '../lib/parks';
-import type { Trail } from '../lib/trails';
+import { isPavedShared } from '../lib/quality';
+import { PAVED_LABEL, type Trail } from '../lib/trails';
 
 const LABEL: Record<string, string> = {
   view: 'Views', lake: 'Lake', falls: 'Waterfall', beach: 'Beach', bikes: 'Bikes share', horses: 'Horses share',
-  dogs: DOGS_YES, dogsunknown: DOGS_UNKNOWN, nodogs: 'Dogs: No (OSM)', climb: 'Big climb', long: 'Long',
+  paved: PAVED_LABEL, dogs: DOGS_YES, dogsunknown: DOGS_UNKNOWN, nodogs: 'Dogs: No (OSM)', climb: 'Big climb', long: 'Long',
 };
 
 export interface Hl { kind: string; maybe: boolean }
 
 /** Highlights from the data (a trailing "?" = maybe), plus Big climb and Long computed from the route. */
-export function highlightsOf(t: Pick<Trail, 'highlights' | 'lengthM' | 'loop' | 'ascentM'> & Partial<Pick<Trail, 'coords' | 'trailhead' | 'name'>>): Hl[] {
+export function highlightsOf(t: Pick<Trail, 'highlights' | 'lengthM' | 'loop' | 'ascentM'> & Partial<Pick<Trail, 'coords' | 'trailhead' | 'name' | 'tags'>>): Hl[] {
   const out: Hl[] = [];
   for (const h of t.highlights ?? []) {
     let kind = h.replace(/\?$/, '');
@@ -23,7 +24,9 @@ export function highlightsOf(t: Pick<Trail, 'highlights' | 'lengthM' | 'loop' | 
   }
   if (isBigClimb(t) && !out.some((o) => o.kind === 'climb')) out.push({ kind: 'climb', maybe: false });
   if (isLong(t) && !out.some((o) => o.kind === 'long')) out.push({ kind: 'long', maybe: false });
-  return out.sort((a, b) => Number(a.maybe) - Number(b.maybe));
+  out.sort((a, b) => Number(a.maybe) - Number(b.maybe));
+  if (isPavedShared(t)) out.unshift({ kind: 'paved', maybe: false });   // first, so it always shows on a card
+  return out;
 }
 
 /** Filters match only firm highlights, never "maybe". */

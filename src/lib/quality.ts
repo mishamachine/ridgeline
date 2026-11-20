@@ -1,7 +1,7 @@
 // Turn raw OpenStreetMap ways into a list a hiker would want: drop junk, merge duplicates, best first.
 import { haversine, M_TO_MI, type LngLat } from './geo';
-import { level, roundTripM } from './plan';
-import { isMtbTags, type Trail } from './trails';
+import { gainM, level, roundTripM } from './plan';
+import { isMtbTags, PAVED_KIND, type Trail } from './trails';
 
 const MIN_WAY_M = 805; // half a mile; routes (relations) are exempt
 const DUP_RADIUS_M = 5000;
@@ -41,6 +41,12 @@ export function relevance(t: Trail): number {
 
 /** Mountain-bike trail (mtb:scale, bicycle=designated without foot, route=mtb). Home's picks leave these out (home.ts); Find's map, list and search keep them. */
 export const isMtb = (t: Pick<Trail, 'tags'>) => isMtbTags(t.tags);
+
+/** Paved shared-use trail (a named highway=cycleway people may walk): labelled "Paved · shared with bikes". */
+export const isPavedShared = (t: { tags?: Record<string, string> }) => t.tags?.kind === PAVED_KIND;
+/** Home's picks include a paved shared trail only with at least this much headline gain (500 ft, as in the build's "real gain" check). */
+export const PAVED_MIN_GAIN_M = 152;
+export const isFlatPaved = (t: Trail) => isPavedShared(t) && (gainM(t) ?? 0) < PAVED_MIN_GAIN_M;
 
 /** Remove junk names and tiny ways, and merge trails that share a name and sit in the same place. */
 export function filterTrails(trails: Trail[]): Trail[] {
