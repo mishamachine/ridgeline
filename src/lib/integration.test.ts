@@ -62,7 +62,7 @@ describe('routes', () => {
     expect(html).not.toContain('Your location is never sent to our servers');
     // The follow and outside-coverage wording is identical on the privacy page, in the app and on the support page.
     // The 2 km matches FOLLOW_RELOAD_M in Find.
-    const follow = "While the map follows you in the areas we host, it asks our host for a new area about every 2 km. Outside those areas, public OpenStreetMap servers (Overpass) see the map area you're viewing, and so can our map provider (OpenFreeMap).";
+    const follow = "While the map follows you in the areas we host, it asks our host for a new area about every 2 km. Outside those areas, public OpenStreetMap servers (Overpass) see the map area you're viewing. Our map provider (OpenFreeMap) can tell which part of the map you're viewing, wherever you are.";
     const locate = 'centre the map when you tap Near me and to keep it centred on you while Locate is on. It uses your precise location while you navigate or record';
     expect(html).toContain("you're in. " + follow);
     expect(html).toContain('<h2>Your location, and what stays on your device</h2>');
@@ -74,7 +74,7 @@ describe('routes', () => {
     const support = readFileSync('public/support/index.html', 'utf8');
     expect(support).toContain("Your exact location is never sent to our servers. To show trails near you, Ridgeline downloads trail data for the area around you, so our host can tell roughly which area (about 25 km across) you're in.");
     expect(support).toContain("you're in. " + follow);
-    expect(support).toContain('It uses your location to ' + locate);
+    expect(support).toContain('Ridgeline uses your location to ' + locate);
     expect(support).not.toContain('Near me or Locate');
     expect(support).not.toContain('Your location is never sent to us.');
     expect(readFileSync('src/screens/Onboarding.tsx', 'utf8')).toContain("Your exact location stays on your phone. It\\'s never sent to our servers.");

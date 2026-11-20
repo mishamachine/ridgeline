@@ -403,4 +403,49 @@ test.describe('outside the hosted area', () => {
     expect(overpass).toBe(base + 1); // exactly one request
     expect(errors).toEqual([]);
   });
+
+  /** Starts Find following at `lat` (the hosted area ends at 48.0 north) with every Overpass request counted. */
+  async function followAt(page: Page, context: BrowserContext, lat: number) {
+    const errors = await setup(page, context);
+    const o = { n: 0 };
+    await context.route(/overpass/, (route) => { o.n++; return route.fulfill({ json: { elements: [] } }); });
+    await context.setGeolocation({ latitude: lat, longitude: -121.77165 });
+    await page.goto('/');
+    await page.getByRole('button', { name: /Explore the map/ }).click();
+    const follow = page.locator('.find-body .follow-btn');
+    await expect(follow).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('button', { name: 'Zoom in' })).toBeEnabled({ timeout: 30_000 });
+    await follow.click();
+    await page.waitForTimeout(5000);
+    await expect(follow).toHaveAttribute('data-follow', 'centre');
+    return { errors, o };
+  }
+  async function zoomTwoWays(page: Page) {
+    const box = (await page.locator('.find-map .map').boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.keyboard.down('Control'); await page.mouse.wheel(0, -200); await page.keyboard.up('Control'); // a pinch arrives as Ctrl + wheel
+    await page.waitForTimeout(2500);
+    await page.getByRole('button', { name: 'Zoom out' }).click(); // the zoom buttons
+    await page.waitForTimeout(2500);
+  }
+
+  test('Find: following outside the areas we host, a pinch (Ctrl+wheel) and a zoom-button tap make no Overpass request', async ({ page, context }) => {
+    test.setTimeout(120_000);
+    const { errors, o } = await followAt(page, context, 47.99);
+    await context.setGeolocation({ latitude: 48.03, longitude: -121.77165 }); // now wholly outside the hosted area
+    await expect(page.getByRole('button', { name: 'Load trails here' })).toBeVisible({ timeout: 30_000 });
+    const base = o.n;
+    await zoomTwoWays(page);
+    expect(o.n, 'zooming while following never reaches a public server').toBe(base);
+    expect(errors).toEqual([]);
+  });
+
+  test('Find: following with the view only partly over the hosted area makes no Overpass request', async ({ page, context }) => {
+    test.setTimeout(120_000);
+    const { errors, o } = await followAt(page, context, 47.99); // the view reaches past 48.0 north
+    const base = o.n;
+    await zoomTwoWays(page);
+    expect(o.n).toBe(base);
+    expect(errors).toEqual([]);
+  });
 });
