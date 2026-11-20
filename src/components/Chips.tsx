@@ -1,14 +1,14 @@
 import { isBigClimb, isLong } from '../lib/plan';
 import { DOGS_UNKNOWN, DOGS_YES, dogsStatus } from '../lib/parks';
 import { isPavedShared } from '../lib/quality';
-import { PAVED_LABEL, type Trail } from '../lib/trails';
+import { sharedLabel, type Trail } from '../lib/trails';
 
 const LABEL: Record<string, string> = {
   view: 'Views', lake: 'Lake', falls: 'Waterfall', beach: 'Beach', bikes: 'Bikes share', horses: 'Horses share',
-  paved: PAVED_LABEL, dogs: DOGS_YES, dogsunknown: DOGS_UNKNOWN, nodogs: 'Dogs: No (OSM)', climb: 'Big climb', long: 'Long',
+  dogs: DOGS_YES, dogsunknown: DOGS_UNKNOWN, nodogs: 'Dogs: No (OSM)', climb: 'Big climb', long: 'Long',
 };
 
-export interface Hl { kind: string; maybe: boolean }
+export interface Hl { kind: string; maybe: boolean; label?: string }
 
 /** Highlights from the data (a trailing "?" = maybe), plus Big climb and Long computed from the route. */
 export function highlightsOf(t: Pick<Trail, 'highlights' | 'lengthM' | 'loop' | 'ascentM'> & Partial<Pick<Trail, 'coords' | 'trailhead' | 'name' | 'tags'>>): Hl[] {
@@ -25,7 +25,7 @@ export function highlightsOf(t: Pick<Trail, 'highlights' | 'lengthM' | 'loop' | 
   if (isBigClimb(t) && !out.some((o) => o.kind === 'climb')) out.push({ kind: 'climb', maybe: false });
   if (isLong(t) && !out.some((o) => o.kind === 'long')) out.push({ kind: 'long', maybe: false });
   out.sort((a, b) => Number(a.maybe) - Number(b.maybe));
-  if (isPavedShared(t)) out.unshift({ kind: 'paved', maybe: false });   // first, so it always shows on a card
+  if (isPavedShared(t)) out.unshift({ kind: 'paved', maybe: false, label: sharedLabel(t.tags?.surface) });   // first, so it always shows on a card
   return out;
 }
 
@@ -36,5 +36,5 @@ export const hasHighlight = (t: Pick<Trail, 'highlights'> & Partial<Pick<Trail, 
 export function HighlightChips({ trail, max = 3 }: { trail: Trail; max?: number }) {
   const hs = highlightsOf(trail).slice(0, max);
   if (!hs.length) return null;
-  return <div className="hl-row">{hs.map((h) => <span className={`hl${h.maybe ? ' hl-maybe' : ''}`} key={h.kind}>{h.maybe ? 'Maybe ' : ''}{LABEL[h.kind]}</span>)}</div>;
+  return <div className="hl-row">{hs.map((h) => <span className={`hl${h.maybe ? ' hl-maybe' : ''}`} key={h.kind}>{h.maybe ? 'Maybe ' : ''}{h.label ?? LABEL[h.kind]}</span>)}</div>;
 }

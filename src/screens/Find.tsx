@@ -10,7 +10,7 @@ import { FindIcon, ListIcon, MapIcon, ShareIcon, CloseIcon } from '../components
 import { LocateIcon } from '../components/Icons';
 import { useOnline } from '../lib/useOnline';
 import { zoomLimits } from '../lib/mapZoom';
-import { basemapPathAt, NOT_LISTED } from '../lib/mapTap';
+import { basemapPathAt, NOT_LISTED, trailNamed } from '../lib/mapTap';
 import { ZoomButtons } from '../components/ZoomButtons';
 import { fetchCellTrails, getIndex } from '../lib/cells';
 import { byDistance, centreOf, inCoverage, listNames, regionsOf, type CoverageRegion } from '../lib/coverage';
@@ -84,6 +84,9 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
   const [loaded, setLoaded] = useState(false);
   const [status, setStatus] = useState<Status>({ kind: 'loading' });
   const [pathNote, setPathNote] = useState<{ name?: string } | null>(null); // a tap on a basemap path that is not one of our trails
+  const shownRef = useRef<Trail[]>([]);
+  const onOpenRef = useRef(onOpen);
+  onOpenRef.current = onOpen;
   const reloadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [mode, setMode] = useState<'list' | 'map'>('list');
   const [chips, setChips] = useState<Set<Chip>>(new Set());
@@ -224,7 +227,10 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
     map.on('click', (e) => {
       if (map.queryRenderedFeatures(e.point, { layers: ['trails-hit'] }).length) { setPathNote(null); return; }
       setSelected(null);
-      setPathNote(basemapPathAt(map as never, e.point));   // a path of the basemap that is not in our list: say so, never nothing
+      const hit = basemapPathAt(map as never, e.point);
+      const known = hit && trailNamed(shownRef.current, hit.name);   // a path we do list, just not drawn under the finger: open it
+      if (known) { setPathNote(null); onOpenRef.current(known); return; }
+      setPathNote(hit);   // a path of the basemap that is not in our list: say so, never nothing
     });
     setGeo(map, 'trails', { type: 'FeatureCollection', features: [] });
     setDrawTick((k) => k + 1); // redraw the trails already loaded
@@ -287,6 +293,7 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
 
   function closeSearch() { setQuery(''); setOpen(false); setPlaces(null); setPlaceMsg(null); }
 
+  shownRef.current = shown;
   const activeSelected = shown.find((t) => t.id === selected) ?? null;
   // The selected-trail card sits over the bottom of the map: lift the map credit above it (it must never be covered).
   const bodyRef = useRef<HTMLDivElement>(null);

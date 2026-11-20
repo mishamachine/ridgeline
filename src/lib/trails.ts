@@ -36,7 +36,14 @@ export interface Junction { along: number; branches: { name?: string; point: Lng
 
 /** Value of tags.kind on a named paved shared-use trail (highway=cycleway that people on foot may use). Hosted v2 data carries it; Overpass trails get it from the raw tags. */
 export const PAVED_KIND = 'paved_shared';
-export const PAVED_LABEL = 'Paved · shared with bikes';
+
+const PAVED_SURFACES = /^(asphalt|paved|concrete(:.*)?|paving_stones)$/;
+const GRAVEL_SURFACES = /^(gravel|fine_gravel|compacted|dirt|ground|unpaved)$/;
+/** The label for a paved shared-use trail, true to its surface tag: Paved, Gravel, or just "Shared with bikes" when the surface is missing or something else. */
+export function sharedLabel(surface?: string): string {
+  const s = (surface ?? '').trim().toLowerCase();
+  return PAVED_SURFACES.test(s) ? 'Paved · shared with bikes' : GRAVEL_SURFACES.test(s) ? 'Gravel · shared with bikes' : 'Shared with bikes';
+}
 
 export const HIGHLIGHT_CLIMB_FT = 2500;
 export const HIGHLIGHT_LONG_MI = 8;

@@ -44,6 +44,15 @@ export function nearestPathName(map: TapMap, point: Pt): string | undefined {
   return best?.name;
 }
 
+/** Lower case, accents and punctuation dropped, spaces collapsed: "Cedar River  Trail." matches "cedar river trail". */
+export const normName = (s: string) => s.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+
+/** The loaded trail a tapped basemap path name refers to, if any. */
+export function trailNamed<T extends { name: string }>(trails: readonly T[], name: string | undefined): T | undefined {
+  const n = name ? normName(name) : '';
+  return n ? trails.find((t) => normName(t.name) === n) : undefined;
+}
+
 /** A basemap path under the tap: `{ name }` (name may be absent), or null when the tap is not on a path. */
 export function basemapPathAt(map: TapMap, point: Pt): { name?: string } | null {
   const hit = map.queryRenderedFeatures([[point.x - TAP_PX, point.y - TAP_PX], [point.x + TAP_PX, point.y + TAP_PX]], { layers: [BASEMAP_PATH_LAYER] });

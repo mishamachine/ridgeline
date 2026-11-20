@@ -3,9 +3,9 @@ import { richCell } from '../../e2e/fixtures';
 import { highlightsOf } from '../components/Chips';
 import { cellsToTrails } from './cells';
 import { NO_FILTERS, applyFilters, buildCollections } from './home';
-import { basemapPathAt, nearestPathName, NOT_LISTED, type TapMap } from './mapTap';
+import { basemapPathAt, nearestPathName, normName, NOT_LISTED, trailNamed, type TapMap } from './mapTap';
 import { PAVED_MIN_GAIN_M, isFlatPaved, isMtb, isPavedShared } from './quality';
-import { PAVED_KIND, PAVED_LABEL, overpassQuery, parseOverpass, withElevation, type Trail } from './trails';
+import { PAVED_KIND, sharedLabel, overpassQuery, parseOverpass, withElevation, type Trail } from './trails';
 
 // Cedar River Trail, Renton WA: real OpenStreetMap tags (read from Overpass, 20 Nov 2026).
 const CEDAR = { highway: 'cycleway', foot: 'yes', bicycle: 'yes', name: 'Cedar River Trail' };
@@ -38,8 +38,15 @@ describe('paved shared-use trails', () => {
 
   it('shows the "Paved · shared with bikes" label first on the card', () => {
     const [t] = parseOverpass([{ type: 'way', id: 1, geometry: g, tags: CEDAR }]);
-    expect(PAVED_LABEL).toBe('Paved · shared with bikes');
-    expect(highlightsOf(t)[0]).toEqual({ kind: 'paved', maybe: false });
+    expect(highlightsOf(t)[0]).toEqual({ kind: 'paved', maybe: false, label: 'Shared with bikes' });   // no surface tag: no claim about it
+    const [a] = parseOverpass([{ type: 'way', id: 2, geometry: g, tags: { ...CEDAR, surface: 'asphalt' } }]);
+    expect(highlightsOf(a)[0].label).toBe('Paved · shared with bikes');
+  });
+
+  it('the label follows the surface tag', () => {
+    for (const v of ['asphalt', 'paved', 'concrete', 'concrete:plates', 'concrete:lanes', 'paving_stones', 'Asphalt']) expect(sharedLabel(v), v).toBe('Paved · shared with bikes');
+    for (const v of ['gravel', 'fine_gravel', 'compacted', 'dirt', 'ground', 'unpaved']) expect(sharedLabel(v), v).toBe('Gravel · shared with bikes');
+    for (const v of [undefined, '', 'sand', 'wood', 'grass', 'paved_but_not']) expect(sharedLabel(v), String(v)).toBe('Shared with bikes');
   });
 
   describe('Home top picks', () => {
@@ -85,6 +92,15 @@ describe('tap on a basemap path', () => {
     expect(basemapPathAt(fake(hit, [line('Far Trail', 160), line('Near Trail', 108)]), pt)).toEqual({ name: 'Near Trail' });
     expect(basemapPathAt(fake(hit, [line('Far Trail', 160)]), pt)).toEqual({ name: undefined });
     expect(nearestPathName(fake([], [line(null, 100)]), pt)).toBeUndefined();
+  });
+  it('matches a tapped name to a loaded trail ignoring case, spaces and punctuation', () => {
+    const list = [{ name: 'Snoqualmie Valley Trail' }, { name: 'Cedar River Trail' }];
+    expect(normName('  Cedar  RIVER trail. ')).toBe('cedar river trail');
+    expect(trailNamed(list, 'cedar river  trail')).toBe(list[1]);
+    expect(trailNamed(list, 'Snoqualmie-Valley Trail')).toBe(list[0]);
+    expect(trailNamed(list, 'Cedar River Trail Link')).toBeUndefined();
+    expect(trailNamed(list, undefined)).toBeUndefined();
+    expect(trailNamed(list, '...')).toBeUndefined();
   });
   it('returns null when no basemap path is under the tap', () => {
     expect(basemapPathAt(fake([]), pt)).toBeNull();
