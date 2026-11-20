@@ -1,3 +1,4 @@
+import { mapFullscreenOpen } from './lib/mapFullscreen';
 import { lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getTileTemplate } from './lib/offline';
 import { listAllSaved } from './lib/saved';
@@ -96,7 +97,7 @@ export function App() {
 
   // Browser Back / Forward.
   useEffect(() => {
-    const onPop = () => { setRoute(readRoute()); setDepth((d) => Math.max(0, d - 1)); };
+    const onPop = () => { if (mapFullscreenOpen.value) return; setRoute(readRoute()); setDepth((d) => Math.max(0, d - 1)); }; // Back out of a full-screen map stays on the page
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);

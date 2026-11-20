@@ -34,6 +34,45 @@ export interface Trail {
 /** `along` is metres from the start of `coords`; each branch has a point about 20 m along it. */
 export interface Junction { along: number; branches: { name?: string; point: LngLat }[] }
 
+/** Value of tags.kind on a named paved shared-use trail (highway=cycleway that people on foot may use). Hosted v2 data carries it; Overpass trails get it from the raw tags. */
+export const PAVED_KIND = 'paved_shared';
+
+const PAVED_SURFACES = /^(asphalt|paved|concrete(:.*)?|paving_stones)$/;
+const GRAVEL_SURFACES = /^(gravel|fine_gravel|compacted)$/;
+const UNPAVED_SURFACES = /^(dirt|ground|unpaved)$/;
+/** The label for a shared-use trail, true to its surface tag: Paved, Gravel, Unpaved, or just "Shared with bikes" when the surface is missing or something else. */
+export function sharedLabel(surface?: string): string {
+  const s = (surface ?? '').trim().toLowerCase();
+  return PAVED_SURFACES.test(s) ? 'Paved · shared with bikes' : GRAVEL_SURFACES.test(s) ? 'Gravel · shared with bikes' : UNPAVED_SURFACES.test(s) ? 'Unpaved · shared with bikes' : 'Shared with bikes';
+}
+const isHardSurface = (s?: string) => PAVED_SURFACES.test((s ?? '').trim().toLowerCase()) || GRAVEL_SURFACES.test((s ?? '').trim().toLowerCase());
+export const FOOT_OK = ['yes', 'designated', 'permissive', 'official'];
+const FOOT_BANNED = ['no', 'private', 'use_sidepath'];
+
+const STREET_NAME = /\b(avenue|street|road|boulevard|blvd|drive|lane|court|place|pkwy|highway|hwy|bike ?lane|bicycle ?lane|cycle ?track|cycletrack|sidepath|crossing)\b/i;
+const PARKWAY_STREET = /^(\d|(?:n|s|e|w|ne|nw|se|sw|north|south|east|west)\b).*\bparkway\b/i;
+const TRAIL_WORD = /\b(trail|path|greenway|corridor|pathway|promenade|loop)\b/i;
+/** A cycleway named like a street or a bike lane is road furniture, not a trail, unless the name also has a trail word. "Parkway" is a street word only with a house-number or direction prefix. Same rule as scripts/name_index.py is_street_name. */
+export const isStreetName = (name: string) => !TRAIL_WORD.test(name) && (STREET_NAME.test(name) || PARKWAY_STREET.test(name.trim()));
+
+const surfaceClass = (s?: string) => { const v = (s ?? '').trim().toLowerCase(); return PAVED_SURFACES.test(v) ? 'paved' : GRAVEL_SURFACES.test(v) ? 'gravel' : UNPAVED_SURFACES.test(v) ? 'unpaved' : 'none'; };
+/**
+ * The surface to label a trail by when several ways merge under one name: the raw surface of the class (paved, gravel, unpaved) that covers the most length,
+ * if that class covers 60% or more of the whole length (ways with no or another surface count against it); else undefined, which labels it plain "Shared with bikes".
+ */
+export function dominantSurface(parts: { surface?: string; len: number }[]): string | undefined {
+  const total = parts.reduce((a, p) => a + p.len, 0);
+  const byClass = new Map<string, number>(), byValue = new Map<string, number>();
+  for (const p of parts) {
+    const c = surfaceClass(p.surface);
+    byClass.set(c, (byClass.get(c) ?? 0) + p.len);
+    if (c !== 'none') byValue.set(`${c}|${p.surface}`, (byValue.get(`${c}|${p.surface}`) ?? 0) + p.len);
+  }
+  const best = [...byClass].filter(([c]) => c !== 'none').sort((x, y) => y[1] - x[1])[0];
+  if (!best || total <= 0 || best[1] / total < 0.6) return undefined;
+  return [...byValue].filter(([k]) => k.startsWith(`${best[0]}|`)).sort((x, y) => y[1] - x[1])[0][0].slice(best[0].length + 1);
+}
+
 export const HIGHLIGHT_CLIMB_FT = 2500;
 export const HIGHLIGHT_LONG_MI = 8;
 
@@ -63,6 +102,7 @@ export function overpassQuery(b: BBox): string {
 (
   relation["route"~"^(hiking|foot)$"](${bb});
   way["highway"~"^(path|footway|track|bridleway)$"]["name"](${bb});
+  way["highway"="cycleway"]["foot"!~"^(no|private|use_sidepath)$"]["name"](${bb});
 );
 out body geom(${bb});`;
 }
@@ -155,7 +195,10 @@ export function pathStatKey(name: string, a: LngLat, b: LngLat): string {
  */
 export function isMtbTags(t: Record<string, string> = {}): boolean {
   if (t.mtb === '1' || t.mtb === 'designated' || t.route === 'mtb' || Object.keys(t).some((k) => k.startsWith('mtb:scale'))) return true;
-  if (t.sac_scale) return false;
+  if (t.sac_scale || t.kind === PAVED_KIND) return false; // hosted data: the build marks kind only on cycleways it judged not mountain-bike
+  // A cycleway is a shared trail when people may walk it or it has a hard surface; one with a soft surface and no foot permission is a bikes-only track;
+  // a bare one (no surface, no foot tag) is neither. Same rule as scripts/name_index.py is_mtb.
+  if (t.highway === 'cycleway') return !(isHardSurface(t.surface) || FOOT_OK.includes(t.foot)) && !!t.surface;
   return t.bicycle === 'designated' && !['yes', 'designated', 'permissive', 'official'].includes(t.foot);
 }
 
@@ -166,7 +209,13 @@ export function parseOverpass(elements: OsmElement[], stored?: ReadonlyMap<strin
   const keepTags = (t: Record<string, string> = {}) => {
     const out: Record<string, string> = {};
     for (const k of ['sac_scale', 'surface', 'dog', 'operator', 'description', 'trail_visibility', 'website']) if (t[k]) out[k] = t[k];
-    if (isMtbTags(t)) out.mtb = '1';   // the raw tags are not kept; Home and the lists leave mountain-bike trails out (quality.ts)
+    const mtb = isMtbTags(t);
+    if (t.highway === 'cycleway') {   // hosted cells carry highway=cycleway and its foot tag on every kept cycleway: Home's picks need them
+      out.highway = 'cycleway';
+      if (t.foot) out.foot = t.foot;
+    }
+    if (t.kind === PAVED_KIND || (t.highway === 'cycleway' && !FOOT_BANNED.includes(t.foot) && !mtb && (FOOT_OK.includes(t.foot) || isHardSurface(t.surface)))) out.kind = PAVED_KIND;
+    if (mtb) out.mtb = '1';   // the raw tags are not kept; Home and the lists leave mountain-bike trails out (quality.ts)
     return out;
   };
 
@@ -190,16 +239,23 @@ export function parseOverpass(elements: OsmElement[], stored?: ReadonlyMap<strin
   }
 
   // Named paths not already part of a route: group by name, then chain.
-  const byName = new Map<string, { segs: LngLat[][]; ids: number[]; clipped: boolean; tags: Record<string, string> }>();
+  const byName = new Map<string, { segs: LngLat[][]; ids: number[]; clipped: boolean; tags: Record<string, string>; parts: { surface?: string; len: number }[] }>();
   for (const el of elements) {
     if (el.type !== 'way' || memberWayIds.has(el.id) || !el.tags?.name) continue;
-    const g = byName.get(el.tags.name) ?? { segs: [], ids: [], clipped: false, tags: {} };
+    if (el.tags.highway === 'cycleway' && (FOOT_BANNED.includes(el.tags.foot) || (isStreetName(el.tags.name) && !isMtbTags(el.tags)))) continue; // no walking, or a street or bike lane: not a trail (a street-named mountain-bike cycleway stays, as mountain-bike)
+    const g = byName.get(el.tags.name) ?? { segs: [], ids: [], clipped: false, tags: {}, parts: [] };
     const r = toSegments(el.geometry);
+    g.parts.push({ surface: el.tags.surface, len: r.segs.reduce((a, s) => a + lineLength(s), 0) });
     g.segs.push(...r.segs);
     g.ids.push(el.id);
     g.clipped ||= r.clipped;
     g.tags = { ...keepTags(el.tags), ...g.tags };
     byName.set(el.tags.name, g);
+  }
+  for (const g of byName.values()) {   // a shared-use trail made of several ways is labelled by the surface that covers most of its length, not by the first way's
+    if (g.tags.kind !== PAVED_KIND) continue;
+    const s = dominantSurface(g.parts);
+    if (s) g.tags.surface = s; else delete g.tags.surface;
   }
   const relNames = new Set(trails.map((t) => t.name.toLowerCase()));
   for (const [name, g] of byName) {

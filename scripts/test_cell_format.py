@@ -58,7 +58,7 @@ class RoundTrip(unittest.TestCase):
         cell = {'r': {7: {'id': 7, 't': {'name': 'R', 'route': 'hiking', 'ref': 'X', 'surface': 'dirt'}, 'n': 1,
                           'm': [[11, g, [300, 2, -1], [[1, [[-121.7801, 47.4906], [-121.7799, 47.4900, 'Side', [9]]]]]]],
                           'h': ['view'], 'th': [-121.7813, 47.4899, 1]}},
-                'w': [{'id': 5, 't': {'name': 'W', 'ref': 'Y', 'highway': 'path'}, 'g': g, 'z': [10, 1, 1], 'th': [-121.78, 47.49, 0]}]}
+                'w': [{'id': 5, 't': {'name': 'W', 'ref': 'Y', 'bicycle': 'yes'}, 'g': g, 'z': [10, 1, 1], 'th': [-121.78, 47.49, 0]}]}
         body = cf.encode_cell(cell)
         self.assertEqual(body['v'], 2)
         self.assertEqual(body['r'][0]['t'], {'name': 'R', 'ref': 'X', 'surface': 'dirt'})  # route dropped, relation ref kept
