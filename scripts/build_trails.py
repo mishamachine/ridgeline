@@ -51,9 +51,9 @@ ROUTE_RE = re.compile(r'^(hiking|foot)$')
 PATH_RE = re.compile(r'^(path|footway|track|bridleway)$')
 
 def is_paved_shared(tags):
-    """A named paved shared-use trail: highway=cycleway that people on foot may use (foot is not "no"). The app labels it
-    "Paved · shared with bikes" and keeps it out of Home's top picks unless it has real gain (src/lib/quality.ts)."""
-    return tags.get('highway') == 'cycleway' and tags.get('foot') != 'no'
+    """A named shared-use trail: highway=cycleway that people on foot may use (foot is not no, private or use_sidepath) and whose name
+    is not a street or a bike lane. The app labels it from its surface ("Paved · shared with bikes") and keeps it out of Home's top picks unless it has real gain (src/lib/quality.ts)."""
+    return tags.get('highway') == 'cycleway' and tags.get('foot') not in ('no', 'private', 'use_sidepath') and not name_index.is_street_name(tags.get('name', ''))
 
 
 KEEP = ['name', 'ref', 'route', 'sac_scale', 'surface', 'dog', 'operator', 'description', 'trail_visibility', 'website']
@@ -226,7 +226,7 @@ class WayHandler(osmium.SimpleHandler):
             self.paths[w.id] = keep_tags(w.tags)
             if name_index.is_mtb(w.tags):
                 self.mtb.add(w.id)
-            if is_paved_shared(w.tags):
+            if is_paved_shared(w.tags) and not name_index.is_mtb(w.tags):
                 self.paved.add(w.id)
 
 

@@ -29,13 +29,27 @@ def is_junk_name(name):
     return len(n) < 3 or bool(JUNK_WORDS.search(n) or NUMBER_ONLY.match(n) or ROAD_CODE.match(n) or SHORT_JUNK.match(n))
 
 
+PAVED_SURFACE = re.compile(r'^(asphalt|paved|concrete(:.*)?|paving_stones)$')
+FOOT_OK = ('yes', 'designated', 'permissive')
+# A cycleway named like a street or a bike lane is road furniture, not a trail, unless the name also has a trail word.
+STREET_NAME = re.compile(r'\b(avenue|street|road|boulevard|blvd|drive|lane|court|place|parkway|pkwy|highway|hwy|bike ?lane|bicycle ?lane|cycle ?track|cycletrack|sidepath|crossing)\b', re.I)
+TRAIL_WORD = re.compile(r'\b(trail|path|greenway|corridor|pathway|promenade|loop)\b', re.I)
+
+
+def is_street_name(name):
+    """Mirrors isStreetName in src/lib/trails.ts."""
+    return bool(STREET_NAME.search(name or '')) and not TRAIL_WORD.search(name or '')
+
+
 def is_mtb(tags):
     """A mountain-bike trail, kept out of Home's picks: mtb:scale present, or a route=mtb relation, or bicycle=designated with foot not
     yes/designated/permissive/official; a way with sac_scale is a hiking trail unless it carries an mtb:scale* key or mtb=designated. Mirrors isMtbTags in src/lib/quality.ts; the cells carry the result as mtb=1 (see build_trails.py)."""
     if tags.get('mtb') in ('1', 'designated') or tags.get('route') == 'mtb' or any(getattr(k, 'k', k).startswith('mtb:scale') for k in tags):
         return True   # any mtb:scale* key (mtb:scale, mtb:scale:imba, mtb:scale:uphill) or mtb=designated beats sac_scale
-    if tags.get('sac_scale') or tags.get('highway') == 'cycleway':
-        return False   # a paved cycleway people walk on is a shared trail (build_trails.is_paved_shared), not a mountain-bike trail
+    if tags.get('sac_scale'):
+        return False
+    if tags.get('highway') == 'cycleway' and (PAVED_SURFACE.match(tags.get('surface') or '') or tags.get('foot') in FOOT_OK):
+        return False   # a paved cycleway, or one people are allowed to walk, is a shared trail (build_trails.is_paved_shared); a dirt one tagged for bikes only runs the normal rule below
     return tags.get('bicycle') == 'designated' and tags.get('foot') not in ('yes', 'designated', 'permissive', 'official')
 
 

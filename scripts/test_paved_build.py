@@ -16,11 +16,19 @@ OSM = '''<?xml version="1.0" encoding="UTF-8"?>
 # Real OpenStreetMap tag shapes seen on Cedar River Trail, Renton WA (checked on Overpass, 20 Nov 2026).
 WAYS = [
     ('Cedar River Trail', {'highway': 'cycleway', 'foot': 'yes', 'bicycle': 'yes', 'surface': 'asphalt'}),
-    ('Rail Trail', {'highway': 'cycleway', 'bicycle': 'designated'}),            # no foot tag: still kept, and not a mountain-bike trail
+    ('Rail Trail', {'highway': 'cycleway', 'bicycle': 'designated'}),            # no foot, no surface: kept, and the normal mountain-bike rule applies (bicycle=designated without foot)
     ('Bike Only Lane', {'highway': 'cycleway', 'foot': 'no', 'bicycle': 'designated'}),
     ('Dirt Path', {'highway': 'path', 'bicycle': 'designated'}),                  # a path, not a cycleway: still mountain-bike
     ('Walk Path', {'highway': 'footway', 'sac_scale': 'hiking'}),
     (None, {'highway': 'cycleway', 'foot': 'yes'}),                              # no name: dropped
+    ('Dirt Flow Cycleway', {'highway': 'cycleway', 'surface': 'dirt', 'bicycle': 'designated'}),                 # dirt, bikes only, no foot tag: a mountain-bike trail
+    ('Dirt Walk Cycleway', {'highway': 'cycleway', 'surface': 'dirt', 'bicycle': 'designated', 'foot': 'yes'}),  # dirt but walkers allowed: shared
+    ('Dirt Plain Cycleway', {'highway': 'cycleway', 'surface': 'ground'}),                                       # dirt, no bicycle tag: shared
+    ('Private Foot Cycleway', {'highway': 'cycleway', 'foot': 'private'}),
+    ('Sidepath Cycleway', {'highway': 'cycleway', 'foot': 'use_sidepath'}),
+    ('Main Avenue', {'highway': 'cycleway', 'foot': 'yes'}),                       # street name: dropped
+    ('Elm Street Bike Lane', {'highway': 'cycleway'}),
+    ('Lakeside Avenue Trail', {'highway': 'cycleway', 'foot': 'yes'}),            # has a trail word: kept
 ]
 
 
@@ -30,7 +38,16 @@ class PavedShared(unittest.TestCase):
         self.assertTrue(build_trails.is_paved_shared({'highway': 'cycleway', 'foot': 'designated'}))
         self.assertFalse(build_trails.is_paved_shared({'highway': 'cycleway', 'foot': 'no'}))
         self.assertFalse(build_trails.is_paved_shared({'highway': 'path'}))
-        self.assertFalse(name_index.is_mtb({'highway': 'cycleway', 'bicycle': 'designated'}))
+        self.assertFalse(name_index.is_mtb({'highway': 'cycleway', 'bicycle': 'designated', 'surface': 'asphalt'}))
+        self.assertFalse(name_index.is_mtb({'highway': 'cycleway', 'bicycle': 'designated', 'foot': 'yes', 'surface': 'dirt'}))
+        self.assertTrue(name_index.is_mtb({'highway': 'cycleway', 'bicycle': 'designated', 'surface': 'dirt'}))
+        self.assertTrue(name_index.is_mtb({'highway': 'cycleway', 'bicycle': 'designated'}))   # no surface and no foot: runs the normal rule
+        for n in ['Main Avenue', 'Elm Street Bike Lane', 'Cycletrack', 'Pine Boulevard', 'Burke Lane']:
+            self.assertTrue(name_index.is_street_name(n), n)
+        for n in ['Cedar River Trail', 'Lakeside Avenue Trail', 'Elliott Bay Greenway', 'Foothills Loop', 'Burke-Gilman Trail', 'St. Helens Trail']:
+            self.assertFalse(name_index.is_street_name(n), n)
+        self.assertFalse(build_trails.is_paved_shared({'highway': 'cycleway', 'foot': 'private', 'name': 'X Trail'}))
+        self.assertFalse(build_trails.is_paved_shared({'highway': 'cycleway', 'foot': 'use_sidepath', 'name': 'X Trail'}))
         self.assertTrue(name_index.is_mtb({'highway': 'cycleway', 'mtb:scale': '1'}))
 
     def test_kept_marked_and_v1_unchanged(self):
@@ -53,8 +70,10 @@ class PavedShared(unittest.TestCase):
             for cell in read_json(os.path.join(out, 'index.json'))['cells']:
                 for w in read_json(os.path.join(out, cell + '.json'))['w']:
                     got[w['t']['name']] = (w['t'].get('kind'), w['t'].get('mtb'), w['t'].get('surface'))
-            self.assertEqual(got, {'Cedar River Trail': ('paved_shared', None, 'asphalt'), 'Rail Trail': ('paved_shared', None, None),
-                                   'Dirt Path': (None, '1', None), 'Walk Path': (None, None, None)})
+            self.assertEqual(got, {'Cedar River Trail': ('paved_shared', None, 'asphalt'), 'Rail Trail': (None, '1', None),
+                                   'Dirt Path': (None, '1', None), 'Walk Path': (None, None, None),
+                                   'Dirt Flow Cycleway': (None, '1', 'dirt'), 'Dirt Walk Cycleway': ('paved_shared', None, 'dirt'),
+                                   'Dirt Plain Cycleway': ('paved_shared', None, 'ground'), 'Lakeside Avenue Trail': ('paved_shared', None, None)})
             for cell in read_json(os.path.join(out, 'full', 'index.json'))['cells']:
                 for w in read_json(os.path.join(out, 'full', cell + '.json'))['w']:
                     self.assertNotIn('kind', w['t'], w['t']['name'])

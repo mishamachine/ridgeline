@@ -51,15 +51,18 @@ test('Find: tapping a basemap path that is not ours says so, with its name; neve
   test.setTimeout(120_000);
   const errors = await setup(page, context);
   await openMap(page);
-  // The stubbed tiles are empty, so put one named path into the basemap "path" layer, away from our trails.
+  // The stubbed tiles are empty, so put one named path into the basemap "path" layer, away from our trails, inside the one cell the e2e build serves (232_549).
   await page.evaluate(() => {
     const m = (window as unknown as { __ridgelineMap: M }).__ridgelineMap;
-    m.jumpTo({ center: [-122.0, 47.6], zoom: 14 });
+    m.jumpTo({ center: [-121.9, 47.35], zoom: 14 });
     m.removeLayer('path');
-    m.addSource('e2e-path', { type: 'geojson', data: { type: 'Feature', properties: { class: 'path', name: 'Test Rail Path' }, geometry: { type: 'LineString', coordinates: [[-122.02, 47.6], [-121.98, 47.6]] } } });
+    m.addSource('e2e-path', { type: 'geojson', data: { type: 'Feature', properties: { class: 'path', name: 'Test Rail Path' }, geometry: { type: 'LineString', coordinates: [[-121.92, 47.35], [-121.88, 47.35]] } } });
     m.addLayer({ id: 'path', type: 'line', source: 'e2e-path', paint: { 'line-color': '#444', 'line-width': 4 } });
   });
-  await page.waitForTimeout(800);
+  const reloaded = page.waitForResponse((r) => /\/trails\/\d+_\d+\.json$/.test(r.url()));
+  await page.getByRole('button', { name: 'Zoom in' }).click();   // counts as moving: the list reloads, and no note is shown until it is idle
+  await reloaded;
+  await expect(page.locator('.find-body')).toHaveAttribute('data-status', 'idle');
   const box = (await page.locator('.find-map .map').boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   const note = page.getByRole('status').filter({ hasText: /Not in Ridgeline.s trail list yet/ });
@@ -70,5 +73,29 @@ test('Find: tapping a basemap path that is not ours says so, with its name; neve
   // Empty map (no path under the finger): no message.
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2 - 120);
   await expect(page.getByText(/Not in Ridgeline.s trail list yet/)).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('Find: an open trail card stays open when a small pan reloads the list', async ({ page, context }) => {
+  test.setTimeout(120_000);
+  const errors = await setup(page, context);
+  await openMap(page);
+  type P = M & { querySourceFeatures(s: string): { geometry: { coordinates: number[][] } }[]; project(c: number[]): { x: number; y: number }; getContainer(): HTMLElement };
+  const first = page.waitForResponse((r) => /\/trails\/\d+_\d+\.json$/.test(r.url()));
+  await page.evaluate(() => (window as unknown as { __ridgelineMap: P }).__ridgelineMap.jumpTo({ center: [-121.7717, 47.4356], zoom: 13 }));
+  await page.getByRole('button', { name: 'Zoom in' }).click();   // counts as moving: the list reloads here
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __ridgelineMap: P }).__ridgelineMap.querySourceFeatures('trails').length), { timeout: 20_000 }).toBeGreaterThan(0);
+  await first;
+  await expect(page.locator('.find-body')).toHaveAttribute('data-status', 'idle');
+  const at = await page.evaluate(() => { const m = (window as unknown as { __ridgelineMap: P }).__ridgelineMap; const r = m.getContainer().getBoundingClientRect(); const pts = m.querySourceFeatures('trails').flatMap((f) => f.geometry.coordinates).map((c) => m.project(c)); const d = (p: { x: number; y: number }) => Math.hypot(p.x - r.width / 2, p.y - r.height / 2); const p = pts.reduce((a, b) => (d(b) < d(a) ? b : a)); return { x: r.left + p.x, y: r.top + p.y }; });
+  await page.mouse.click(at.x, at.y);
+  await expect(page.locator('.map-pick')).toBeVisible();
+  const reloaded = page.waitForResponse((r) => /\/trails\/\d+_\d+\.json$/.test(r.url()));
+  const box = (await page.locator('.find-map .map').boundingBox())!;
+  const x = box.x + 40, y = box.y + 40;   // drag from the top left, away from the card at the bottom
+  await page.mouse.move(x, y); await page.mouse.down(); await page.mouse.move(x + 30, y + 20, { steps: 6 }); await page.mouse.up();
+  await reloaded;
+  await expect(page.locator('.find-body')).toHaveAttribute('data-status', 'idle');
+  await expect(page.locator('.map-pick')).toBeVisible();   // the reload did not close the card
   expect(errors).toEqual([]);
 });

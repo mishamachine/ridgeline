@@ -38,12 +38,21 @@ export interface Junction { along: number; branches: { name?: string; point: Lng
 export const PAVED_KIND = 'paved_shared';
 
 const PAVED_SURFACES = /^(asphalt|paved|concrete(:.*)?|paving_stones)$/;
-const GRAVEL_SURFACES = /^(gravel|fine_gravel|compacted|dirt|ground|unpaved)$/;
-/** The label for a paved shared-use trail, true to its surface tag: Paved, Gravel, or just "Shared with bikes" when the surface is missing or something else. */
+const GRAVEL_SURFACES = /^(gravel|fine_gravel|compacted)$/;
+const UNPAVED_SURFACES = /^(dirt|ground|unpaved)$/;
+/** The label for a shared-use trail, true to its surface tag: Paved, Gravel, Unpaved, or just "Shared with bikes" when the surface is missing or something else. */
 export function sharedLabel(surface?: string): string {
   const s = (surface ?? '').trim().toLowerCase();
-  return PAVED_SURFACES.test(s) ? 'Paved · shared with bikes' : GRAVEL_SURFACES.test(s) ? 'Gravel · shared with bikes' : 'Shared with bikes';
+  return PAVED_SURFACES.test(s) ? 'Paved · shared with bikes' : GRAVEL_SURFACES.test(s) ? 'Gravel · shared with bikes' : UNPAVED_SURFACES.test(s) ? 'Unpaved · shared with bikes' : 'Shared with bikes';
 }
+const isPavedSurface = (s?: string) => PAVED_SURFACES.test((s ?? '').trim().toLowerCase());
+const FOOT_OK = ['yes', 'designated', 'permissive'];
+const FOOT_BANNED = ['no', 'private', 'use_sidepath'];
+
+const STREET_NAME = /\b(avenue|street|road|boulevard|blvd|drive|lane|court|place|parkway|pkwy|highway|hwy|bike ?lane|bicycle ?lane|cycle ?track|cycletrack|sidepath|crossing)\b/i;
+const TRAIL_WORD = /\b(trail|path|greenway|corridor|pathway|promenade|loop)\b/i;
+/** A cycleway named like a street or a bike lane is road furniture, not a trail, unless the name also has a trail word. Same rule as scripts/name_index.py is_street_name. */
+export const isStreetName = (name: string) => STREET_NAME.test(name) && !TRAIL_WORD.test(name);
 
 export const HIGHLIGHT_CLIMB_FT = 2500;
 export const HIGHLIGHT_LONG_MI = 8;
@@ -74,7 +83,7 @@ export function overpassQuery(b: BBox): string {
 (
   relation["route"~"^(hiking|foot)$"](${bb});
   way["highway"~"^(path|footway|track|bridleway)$"]["name"](${bb});
-  way["highway"="cycleway"]["foot"!="no"]["name"](${bb});
+  way["highway"="cycleway"]["foot"!~"^(no|private|use_sidepath)$"]["name"](${bb});
 );
 out body geom(${bb});`;
 }
@@ -167,7 +176,8 @@ export function pathStatKey(name: string, a: LngLat, b: LngLat): string {
  */
 export function isMtbTags(t: Record<string, string> = {}): boolean {
   if (t.mtb === '1' || t.mtb === 'designated' || t.route === 'mtb' || Object.keys(t).some((k) => k.startsWith('mtb:scale'))) return true;
-  if (t.sac_scale || t.kind === PAVED_KIND || t.highway === 'cycleway') return false; // a paved cycleway people walk on is a shared trail, not a mountain-bike trail
+  if (t.sac_scale || t.kind === PAVED_KIND) return false; // hosted data: the build marks kind only on cycleways it judged not mountain-bike
+  if (t.highway === 'cycleway' && (isPavedSurface(t.surface) || FOOT_OK.includes(t.foot))) return false; // a paved cycleway, or one people may walk, is a shared trail; a dirt one for bikes only runs the rule below
   return t.bicycle === 'designated' && !['yes', 'designated', 'permissive', 'official'].includes(t.foot);
 }
 
@@ -178,8 +188,9 @@ export function parseOverpass(elements: OsmElement[], stored?: ReadonlyMap<strin
   const keepTags = (t: Record<string, string> = {}) => {
     const out: Record<string, string> = {};
     for (const k of ['sac_scale', 'surface', 'dog', 'operator', 'description', 'trail_visibility', 'website']) if (t[k]) out[k] = t[k];
-    if (t.kind === PAVED_KIND || (t.highway === 'cycleway' && t.foot !== 'no')) out.kind = PAVED_KIND;
-    if (isMtbTags(t)) out.mtb = '1';   // the raw tags are not kept; Home and the lists leave mountain-bike trails out (quality.ts)
+    const mtb = isMtbTags(t);
+    if (t.kind === PAVED_KIND || (t.highway === 'cycleway' && !FOOT_BANNED.includes(t.foot) && !mtb)) out.kind = PAVED_KIND;
+    if (mtb) out.mtb = '1';   // the raw tags are not kept; Home and the lists leave mountain-bike trails out (quality.ts)
     return out;
   };
 
@@ -206,6 +217,7 @@ export function parseOverpass(elements: OsmElement[], stored?: ReadonlyMap<strin
   const byName = new Map<string, { segs: LngLat[][]; ids: number[]; clipped: boolean; tags: Record<string, string> }>();
   for (const el of elements) {
     if (el.type !== 'way' || memberWayIds.has(el.id) || !el.tags?.name) continue;
+    if (el.tags.highway === 'cycleway' && (isStreetName(el.tags.name) || FOOT_BANNED.includes(el.tags.foot))) continue; // street furniture or no walking: not a trail
     const g = byName.get(el.tags.name) ?? { segs: [], ids: [], clipped: false, tags: {} };
     const r = toSegments(el.geometry);
     g.segs.push(...r.segs);

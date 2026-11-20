@@ -10,7 +10,7 @@ import { FindIcon, ListIcon, MapIcon, ShareIcon, CloseIcon } from '../components
 import { LocateIcon } from '../components/Icons';
 import { useOnline } from '../lib/useOnline';
 import { zoomLimits } from '../lib/mapZoom';
-import { basemapPathAt, NOT_LISTED, trailNamed } from '../lib/mapTap';
+import { basemapPathAt, classifyTap, HIDDEN, matchTrail, NOT_LISTED, TAP_PX } from '../lib/mapTap';
 import { ZoomButtons } from '../components/ZoomButtons';
 import { fetchCellTrails, getIndex } from '../lib/cells';
 import { byDistance, centreOf, inCoverage, listNames, regionsOf, type CoverageRegion } from '../lib/coverage';
@@ -50,6 +50,7 @@ const MAX_SPAN_DEG = 0.5;                          // ~35 km across: a handful o
 const DEFAULT_VIEW = { center: [-121.78, 47.49] as LngLat, zoom: 12 }; // North Bend, WA: many trails within an hour of Seattle
 const PAGE = 30;
 const RELOAD_MS = 500;                           // the list reloads this long after a pan or zoom stops
+const RELOAD_FAR_MS = 1500;                      // outside our coverage each reload asks a public server: wait longer
 
 /** Search box that stays responsive while the trail list re-renders. */
 const List = memo(function List({ trails, savedIds, offlineIds, me, onOpen, onToggleSave }: {
@@ -83,8 +84,13 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
   const [trails, setTrails] = useState<Trail[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [status, setStatus] = useState<Status>({ kind: 'loading' });
-  const [pathNote, setPathNote] = useState<{ name?: string } | null>(null); // a tap on a basemap path that is not one of our trails
+  const [pathNote, setPathNote] = useState<{ name?: string; hidden?: boolean } | null>(null); // a tap on a basemap path that is not one of our trails
   const shownRef = useRef<Trail[]>([]);
+  const cleanRef = useRef<Trail[]>([]);
+  const allRef = useRef<Trail[]>([]);
+  const loadingRef = useRef(true);
+  const outsideRef = useRef(false);
+  const lastBox = useRef<{ west: number; south: number; east: number; north: number } | null>(null);
   const onOpenRef = useRef(onOpen);
   onOpenRef.current = onOpen;
   const reloadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -112,7 +118,7 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
 
   const matches = useMemo(() => searchNames(names, deferred, 6, viewRef.current.center), [names, deferred]);
 
-  const { shown, hasHighlights } = useMemo(() => {
+  const { shown, clean, hasHighlights } = useMemo(() => {
     const clean = rankTrails(filterTrails(trails), me ?? viewRef.current.center);
     let out = clean.filter((t) =>
       (!chips.has('under3') || tripMinutes(t) <= 180) &&
@@ -122,7 +128,7 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
       (!chips.has('short') || isShort(t, units)) &&
       (!chips.has('falls') || hasHighlight(t, 'falls')));
     if (chips.has('near') && me) out = [...out].sort((a, b) => dist(me, a) - dist(me, b));
-    return { shown: out, hasHighlights: clean.some((t) => t.highlights?.length) };
+    return { shown: out, clean, hasHighlights: clean.some((t) => t.highlights?.length) };
   }, [trails, chips, me, units]);
 
   // Draw the shown trails on the map.
@@ -141,6 +147,7 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
 
   /** Load trails for the map's view, or for the remembered view while the map itself is still starting. */
   const loadArea = useCallback(async () => {
+    clearTimeout(reloadTimer.current);   // a pending pan reload must not land after this load (a "near you" or "near <place>" one)
     const map = mapRef.current;
     let box;
     if (map) {
@@ -155,7 +162,9 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
     const ac = new AbortController();
     abortRef.current = ac;
     setStatus({ kind: 'loading' });
-    setOutside(!inCoverage(regionsRef.current, [(box.west + box.east) / 2, (box.south + box.north) / 2]));
+    const out = !inCoverage(regionsRef.current, [(box.west + box.east) / 2, (box.south + box.north) / 2]);
+    outsideRef.current = out;
+    setOutside(out);
     try {
       // Hosted trail files first (fast, cached for offline); public Overpass servers outside coverage.
       let found = await fetchCellTrails(box, ac.signal).catch((e) => {
@@ -167,6 +176,7 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
         found = await fetchTrails(box, ac.signal);
       }
       remember(found);
+      lastBox.current = box;
       setTrails(found);
       setLoaded(true);
       setStatus({ kind: 'idle' });
@@ -200,7 +210,13 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
   /** After a pan or zoom settles, reload the list for the new view (replaces the old "Search this area" button). */
   const reloadSoon = useCallback(() => {
     clearTimeout(reloadTimer.current);
-    reloadTimer.current = setTimeout(() => { setAreaLabel(null); loadArea(); }, RELOAD_MS);
+    reloadTimer.current = setTimeout(() => {
+      const b = mapRef.current?.getBounds(), last = lastBox.current;
+      // Outside our coverage a reload asks a public server: skip it while the view is still inside what was last loaded.
+      if (outsideRef.current && b && last && b.getWest() >= last.west && b.getEast() <= last.east && b.getSouth() >= last.south && b.getNorth() <= last.north) return;
+      setAreaLabel(null);
+      loadArea();
+    }, outsideRef.current ? RELOAD_FAR_MS : RELOAD_MS);
   }, [loadArea]);
 
   // Home's "See all" and "Explore the map": apply that row's filters and look where Home was looking.
@@ -225,12 +241,18 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
       if (id) setSelected(id);
     });
     map.on('click', (e) => {
-      if (map.queryRenderedFeatures(e.point, { layers: ['trails-hit'] }).length) { setPathNote(null); return; }
+      const { x, y } = e.point;
+      const near: [[number, number], [number, number]] = [[x - TAP_PX, y - TAP_PX], [x + TAP_PX, y + TAP_PX]];   // the same box as the basemap probe below
+      const ours = map.queryRenderedFeatures(near, { layers: ['trails-hit'] })[0]?.properties?.id as string | undefined;
+      if (ours) { setPathNote(null); setSelected(ours); return; }
       setSelected(null);
-      const hit = basemapPathAt(map as never, e.point);
-      const known = hit && trailNamed(shownRef.current, hit.name);   // a path we do list, just not drawn under the finger: open it
-      if (known) { setPathNote(null); onOpenRef.current(known); return; }
-      setPathNote(hit);   // a path of the basemap that is not in our list: say so, never nothing
+      const hit = basemapPathAt(map as never, e.point);   // a path of the basemap that is not under one of our drawn trails
+      if (!hit) { setPathNote(null); return; }
+      const match = matchTrail(map as never, allRef.current, hit.name, e.point);
+      const outcome = classifyTap(match, new Set(cleanRef.current.map((t) => t.id)), new Set(shownRef.current.map((t) => t.id)), loadingRef.current);
+      if (outcome === 'wait') { setPathNote(null); return; }
+      if (outcome === 'open' && match) { setPathNote(null); onOpenRef.current(match); return; }
+      setPathNote({ name: hit.name, hidden: outcome === 'hidden' });
     });
     setGeo(map, 'trails', { type: 'FeatureCollection', features: [] });
     setDrawTick((k) => k + 1); // redraw the trails already loaded
@@ -294,6 +316,9 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
   function closeSearch() { setQuery(''); setOpen(false); setPlaces(null); setPlaceMsg(null); }
 
   shownRef.current = shown;
+  cleanRef.current = clean;
+  allRef.current = trails;
+  loadingRef.current = status.kind === 'loading';
   const activeSelected = shown.find((t) => t.id === selected) ?? null;
   // The selected-trail card sits over the bottom of the map: lift the map credit above it (it must never be covered).
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -370,7 +395,7 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
         </div>
       </div>
 
-      <div className={`find-body${mode === 'map' && activeSelected ? ' has-pick' : ''}`} ref={bodyRef}>
+      <div data-status={status.kind} className={`find-body${mode === 'map' && activeSelected ? ' has-pick' : ''}`} ref={bodyRef}>
         <div className="find-map" inert={mode !== 'map'}>
           <MapView key={retry} tileTemplate={tpl} minZoom={limits.minZoom} maxZoom={limits.maxZoom} onReady={onReady} label="Trail map" onProblem={() => setMapMsg(true)} />
         </div>
@@ -383,7 +408,7 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
             {pathNote && (
               <div className="map-note path-note" role="status">
                 {pathNote.name && <b className="path-note-name">{pathNote.name}</b>}
-                {NOT_LISTED}
+                {pathNote.hidden ? HIDDEN : NOT_LISTED}
                 <button className="link-btn" aria-label="Dismiss" onClick={() => setPathNote(null)}>OK</button>
               </div>
             )}

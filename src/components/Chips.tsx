@@ -25,6 +25,7 @@ export function highlightsOf(t: Pick<Trail, 'highlights' | 'lengthM' | 'loop' | 
   if (isBigClimb(t) && !out.some((o) => o.kind === 'climb')) out.push({ kind: 'climb', maybe: false });
   if (isLong(t) && !out.some((o) => o.kind === 'long')) out.push({ kind: 'long', maybe: false });
   out.sort((a, b) => Number(a.maybe) - Number(b.maybe));
+  if (isPavedShared(t)) { const i = out.findIndex((o) => o.kind === 'bikes'); if (i >= 0) out.splice(i, 1); }   // the shared label already says it
   if (isPavedShared(t)) out.unshift({ kind: 'paved', maybe: false, label: sharedLabel(t.tags?.surface) });   // first, so it always shows on a card
   return out;
 }
