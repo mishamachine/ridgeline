@@ -24,34 +24,49 @@ WAYS = [
     ('Dirt Flow Cycleway', {'highway': 'cycleway', 'surface': 'dirt', 'bicycle': 'designated'}),                 # dirt, bikes only, no foot tag: a mountain-bike trail
     ('Dirt Walk Cycleway', {'highway': 'cycleway', 'surface': 'dirt', 'bicycle': 'designated', 'foot': 'yes'}),  # dirt but walkers allowed: shared
     ('Dirt Plain Cycleway', {'highway': 'cycleway', 'surface': 'ground'}),                                       # dirt, no foot, no bicycle tag: a bikes-only track
-    ('Moto Trail', {'highway': 'cycleway', 'motor_vehicle': 'yes'}),                                              # bare cycleway (real Oregon shape): mountain-bike
+    ('Moto Trail', {'highway': 'cycleway', 'motor_vehicle': 'yes'}),                                              # bare cycleway (real Oregon shape): neither shared nor mountain-bike
     ('Gravel Rail Cycleway', {'highway': 'cycleway', 'surface': 'fine_gravel'}),                                  # hard surface: shared
     ('Private Foot Cycleway', {'highway': 'cycleway', 'foot': 'private'}),
     ('Sidepath Cycleway', {'highway': 'cycleway', 'foot': 'use_sidepath'}),
     ('Main Avenue', {'highway': 'cycleway', 'foot': 'yes'}),                       # street name: dropped
     ('Elm Street Bike Lane', {'highway': 'cycleway'}),
     ('Lakeside Avenue Trail', {'highway': 'cycleway', 'foot': 'yes'}),            # has a trail word: kept
+    ('Shakedown Street', {'highway': 'cycleway', 'surface': 'dirt', 'mtb:scale': '2'}),   # street-named mountain-bike cycleway: kept, as mountain-bike
+    ('Tommy Thompson Parkway', {'highway': 'cycleway', 'foot': 'yes'}),            # parkway without a number or direction prefix: a trail
+    ('NE 8th Parkway', {'highway': 'cycleway', 'foot': 'yes'}),                    # a street: dropped
+    ('Official Foot Cycleway', {'highway': 'cycleway', 'foot': 'official'}),
+    ('Capital Asphalt Cycleway', {'highway': 'cycleway', 'surface': 'Asphalt'}),   # surface compared without case
 ]
 
 
 class PavedShared(unittest.TestCase):
     def test_rule(self):
-        self.assertTrue(build_trails.is_paved_shared({'highway': 'cycleway'}))
-        self.assertTrue(build_trails.is_paved_shared({'highway': 'cycleway', 'foot': 'designated'}))
-        self.assertFalse(build_trails.is_paved_shared({'highway': 'cycleway', 'foot': 'no'}))
-        self.assertFalse(build_trails.is_paved_shared({'highway': 'path'}))
+        self.assertFalse(build_trails.is_shared_cycleway({'highway': 'cycleway'}))   # bare: kept, not shared
+        self.assertTrue(build_trails.is_shared_cycleway({'highway': 'cycleway', 'foot': 'yes'}))
+        self.assertTrue(build_trails.is_shared_cycleway({'highway': 'cycleway', 'foot': 'designated'}))
+        self.assertFalse(build_trails.is_shared_cycleway({'highway': 'cycleway', 'foot': 'no'}))
+        self.assertFalse(build_trails.is_shared_cycleway({'highway': 'path'}))
         self.assertFalse(name_index.is_mtb({'highway': 'cycleway', 'bicycle': 'designated', 'surface': 'asphalt'}))
         self.assertFalse(name_index.is_mtb({'highway': 'cycleway', 'bicycle': 'designated', 'foot': 'yes', 'surface': 'dirt'}))
         self.assertTrue(name_index.is_mtb({'highway': 'cycleway', 'bicycle': 'designated', 'surface': 'dirt'}))
-        self.assertTrue(name_index.is_mtb({'highway': 'cycleway', 'bicycle': 'designated'}))   # no surface and no foot tag
-        self.assertTrue(name_index.is_mtb({'highway': 'cycleway'}))                             # bare cycleway: a bikes-only track
+        self.assertFalse(name_index.is_mtb({'highway': 'cycleway', 'bicycle': 'designated'}))  # bare (no surface, no foot): neither mountain-bike nor shared
+        self.assertFalse(name_index.is_mtb({'highway': 'cycleway'}))
+        self.assertFalse(build_trails.is_shared_cycleway({'highway': 'cycleway', 'name': 'Bare Way'}))
+        self.assertTrue(build_trails.is_kept_cycleway({'highway': 'cycleway', 'name': 'Bare Way'}))
+        self.assertFalse(name_index.is_mtb({'highway': 'cycleway', 'foot': 'official'}))
+        self.assertFalse(name_index.is_mtb({'highway': 'cycleway', 'surface': 'ASPHALT', 'bicycle': 'designated'}))
+        self.assertTrue(name_index.is_street_name('NE 8th Parkway'))
+        self.assertTrue(name_index.is_street_name('123 Parkway'))
+        self.assertFalse(name_index.is_street_name('Tommy Thompson Parkway'))
+        self.assertFalse(name_index.is_street_name('Lake Tapps Parkway'))
+        self.assertTrue(build_trails.is_kept_cycleway({'highway': 'cycleway', 'name': 'Shakedown Street', 'surface': 'dirt', 'mtb:scale': '2'}))
         self.assertFalse(name_index.is_mtb({'highway': 'cycleway', 'surface': 'gravel'}))
         for n in ['Main Avenue', 'Elm Street Bike Lane', 'Cycletrack', 'Pine Boulevard', 'Burke Lane']:
             self.assertTrue(name_index.is_street_name(n), n)
         for n in ['Cedar River Trail', 'Lakeside Avenue Trail', 'Elliott Bay Greenway', 'Foothills Loop', 'Burke-Gilman Trail', 'St. Helens Trail']:
             self.assertFalse(name_index.is_street_name(n), n)
-        self.assertFalse(build_trails.is_paved_shared({'highway': 'cycleway', 'foot': 'private', 'name': 'X Trail'}))
-        self.assertFalse(build_trails.is_paved_shared({'highway': 'cycleway', 'foot': 'use_sidepath', 'name': 'X Trail'}))
+        self.assertFalse(build_trails.is_shared_cycleway({'highway': 'cycleway', 'foot': 'private', 'name': 'X Trail'}))
+        self.assertFalse(build_trails.is_shared_cycleway({'highway': 'cycleway', 'foot': 'use_sidepath', 'name': 'X Trail'}))
         self.assertTrue(name_index.is_mtb({'highway': 'cycleway', 'mtb:scale': '1'}))
 
     def test_kept_marked_and_v1_unchanged(self):
@@ -74,10 +89,19 @@ class PavedShared(unittest.TestCase):
             for cell in read_json(os.path.join(out, 'index.json'))['cells']:
                 for w in read_json(os.path.join(out, cell + '.json'))['w']:
                     got[w['t']['name']] = (w['t'].get('kind'), w['t'].get('mtb'), w['t'].get('surface'))
-            self.assertEqual(got, {'Cedar River Trail': ('paved_shared', None, 'asphalt'), 'Rail Trail': (None, '1', None),
+                    if w['t']['name'] == 'Cedar River Trail':
+                        self.assertEqual(w['t'].get('foot'), 'yes')   # Home's picks need the explicit foot tag
+                    if w['t']['name'] in ('Rail Trail', 'Moto Trail'):
+                        self.assertNotIn('foot', w['t'])
+                        self.assertEqual(w['t'].get('highway'), 'cycleway')   # kept in the cells, so Home can tell it is a cycleway without a foot tag
+                    if w['t']['name'] == 'Walk Path':
+                        self.assertNotIn('highway', w['t'])
+            self.assertEqual(got, {'Cedar River Trail': ('paved_shared', None, 'asphalt'), 'Rail Trail': (None, None, None),
                                    'Dirt Path': (None, '1', None), 'Walk Path': (None, None, None),
                                    'Dirt Flow Cycleway': (None, '1', 'dirt'), 'Dirt Walk Cycleway': ('paved_shared', None, 'dirt'),
-                                   'Dirt Plain Cycleway': (None, '1', 'ground'), 'Moto Trail': (None, '1', None), 'Gravel Rail Cycleway': ('paved_shared', None, 'fine_gravel'), 'Lakeside Avenue Trail': ('paved_shared', None, None)})
+                                   'Dirt Plain Cycleway': (None, '1', 'ground'), 'Moto Trail': (None, None, None), 'Gravel Rail Cycleway': ('paved_shared', None, 'fine_gravel'),
+                                   'Shakedown Street': (None, '1', 'dirt'), 'Tommy Thompson Parkway': ('paved_shared', None, None), 'Official Foot Cycleway': ('paved_shared', None, None),
+                                   'Capital Asphalt Cycleway': ('paved_shared', None, 'Asphalt'), 'Lakeside Avenue Trail': ('paved_shared', None, None)})
             for cell in read_json(os.path.join(out, 'full', 'index.json'))['cells']:
                 for w in read_json(os.path.join(out, 'full', cell + '.json'))['w']:
                     self.assertNotIn('kind', w['t'], w['t']['name'])

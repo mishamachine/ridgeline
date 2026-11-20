@@ -4,12 +4,14 @@ import { highlightsOf } from '../components/Chips';
 import { cellsToTrails } from './cells';
 import { NO_FILTERS, applyFilters, buildCollections } from './home';
 import { basemapPathAt, nearestPathName, classifyTap, matchTrail, normName, NOT_LISTED, type TapMap } from './mapTap';
-import { PAVED_MIN_GAIN_M, isFlatPaved, isMtb, isPavedShared } from './quality';
-import { PAVED_KIND, sharedLabel, isStreetName, overpassQuery, parseOverpass, withElevation, type Trail } from './trails';
+import { PAVED_MIN_GAIN_M, isHomeExcludedCycleway, isMtb, isPavedShared } from './quality';
+import { PAVED_KIND, dominantSurface, sharedLabel, isStreetName, overpassQuery, parseOverpass, withElevation, type Trail } from './trails';
 
 // Cedar River Trail, Renton WA: real OpenStreetMap tags (read from Overpass, 20 Nov 2026).
 const CEDAR = { highway: 'cycleway', foot: 'yes', bicycle: 'yes', name: 'Cedar River Trail' };
 const g = [{ lat: 47.4800, lon: -122.2100 }, { lat: 47.4900, lon: -122.2100 }, { lat: 47.5000, lon: -122.2100 }];
+
+const ramp = (gain: number) => Array.from({ length: 100 }, (_, k) => Math.round((gain * k) / 99));
 
 describe('paved shared-use trails', () => {
   it('Overpass search asks for named cycleways that people may walk', () => {
@@ -32,15 +34,24 @@ describe('paved shared-use trails', () => {
   it('a bare or dirt cycleway with no foot tag is a mountain-bike trail; with foot yes, or a hard surface, it is shared', () => {
     const tags = (extra: Record<string, string>) => ({ highway: 'cycleway', name: 'Dirt Way Trail', ...extra });
     const one = (extra: Record<string, string>) => parseOverpass([{ type: 'way', id: 6, geometry: g, tags: tags(extra) }])[0];
-    const flow = one({ bicycle: 'designated' });
+    const flow = one({ bicycle: 'designated', surface: 'dirt' });
     expect(isMtb(flow)).toBe(true);
     expect(isPavedShared(flow)).toBe(false);
-    for (const bare of [{}, { surface: 'dirt' }, { surface: 'ground' }, { surface: 'unpaved', motor_vehicle: 'yes' }]) {   // real Oregon shapes: bare highway=cycleway, dirt
+    for (const bare of [{ surface: 'dirt' }, { surface: 'ground' }, { surface: 'unpaved', motor_vehicle: 'yes' }]) {   // dirt cycleways with no foot tag (real Oregon shapes)
       const m = one(bare as Record<string, string>);
       expect(isMtb(m), JSON.stringify(bare)).toBe(true);
       expect(isPavedShared(m), JSON.stringify(bare)).toBe(false);
     }
     const okExtras: Record<string, string>[] = [{ bicycle: 'designated', foot: 'yes' }, { bicycle: 'designated', foot: 'designated' }, { bicycle: 'designated', foot: 'permissive' }, { surface: 'gravel' }, { bicycle: 'designated', surface: 'compacted' }];
+    for (const bare of [{}, { motor_vehicle: 'yes' }, { bicycle: 'designated' }]) {   // bare cycleway (real Bloody Stump / Moto Trail shape): neither shared nor mountain-bike
+      const b = one(bare as Record<string, string>);
+      expect(isMtb(b), JSON.stringify(bare)).toBe(false);
+      expect(isPavedShared(b), JSON.stringify(bare)).toBe(false);
+      expect(b.tags.highway).toBe('cycleway');
+      expect(highlightsOf(b).some((h) => h.kind === 'paved')).toBe(false);   // no label
+      expect(isHomeExcludedCycleway(withElevation(b, ramp(300))), JSON.stringify(bare)).toBe(true);   // never in Home's picks, even with real gain
+    }
+    okExtras.push({ foot: 'official' });
     for (const extra of okExtras) {
       const t = one(extra);
       expect(isMtb(t), JSON.stringify(extra)).toBe(false);
@@ -53,6 +64,12 @@ describe('paved shared-use trails', () => {
     expect(run('Cedar River Trail', 'private')).toBe(0);
     expect(run('Cedar River Trail', 'use_sidepath')).toBe(0);
     for (const n of ['Main Avenue', 'Elm Street Bike Lane', 'Cycletrack', 'Pine Boulevard']) { expect(isStreetName(n), n).toBe(true); expect(run(n)).toBe(0); }
+    for (const n of ['NE 8th Parkway', '123 Parkway', 'West Parkway']) expect(isStreetName(n), n).toBe(true);
+    for (const n of ['Tommy Thompson Parkway', 'Lake Tapps Parkway']) { expect(isStreetName(n), n).toBe(false); expect(run(n)).toBe(1); }
+    // a street-named mountain-bike cycleway stays (as mountain-bike), so Find still lists it
+    const flow = parseOverpass([{ type: 'way', id: 8, geometry: g, tags: { highway: 'cycleway', name: 'Shakedown Street', surface: 'dirt', 'mtb:scale': '2' } }]);
+    expect(flow).toHaveLength(1);
+    expect(isMtb(flow[0])).toBe(true);
     for (const n of ['Cedar River Trail', 'Lakeside Avenue Trail', 'Elliott Bay Greenway', 'Foothills Loop', 'St. Helens Trail']) { expect(isStreetName(n), n).toBe(false); expect(run(n)).toBe(1); }
   });
 
@@ -80,26 +97,54 @@ describe('paved shared-use trails', () => {
 
   describe('Home top picks', () => {
     const pool = cellsToTrails([richCell()]).slice(0, 5).map((t, i) => ({ ...t, id: `${t.id}-${i}`, name: `${t.name} ${i}`, highlights: ['falls', 'view'], coords: t.coords.map(([x, y]) => [x + i * 0.3, y] as [number, number]) }));
-    const ramp = (gain: number) => Array.from({ length: 100 }, (_, k) => Math.round((gain * k) / 99));
     const paved = (t: Trail, gain: number | null): Trail => {
-      const p: Trail = { ...t, tags: { ...t.tags, kind: PAVED_KIND } };
+      const p: Trail = { ...t, tags: { ...t.tags, kind: PAVED_KIND, foot: 'yes', highway: 'cycleway' } };
       return gain == null ? { ...p, elevation: undefined, ascentM: undefined, descentM: undefined } : withElevation(p, ramp(gain));
     };
     const ids = (ts: Trail[]) => buildCollections(ts).flatMap((r) => r.trails.map((t) => t.id));
 
     it('leaves a flat paved trail out of the rows, and one with unknown gain', () => {
-      expect(isFlatPaved(paved(pool[0], 20))).toBe(true);
+      expect(isHomeExcludedCycleway(paved(pool[0], 20))).toBe(true);
       expect(ids([paved(pool[0], 20), ...pool.slice(1)])).not.toContain(pool[0].id);
       expect(ids([paved(pool[0], null), ...pool.slice(1)])).not.toContain(pool[0].id);
     });
     it('keeps a paved trail with real gain (500 ft / 152 m or more)', () => {
       expect(PAVED_MIN_GAIN_M).toBe(152);
-      expect(isFlatPaved(paved(pool[0], PAVED_MIN_GAIN_M))).toBe(false);
+      expect(isHomeExcludedCycleway(paved(pool[0], PAVED_MIN_GAIN_M))).toBe(false);
       expect(ids([paved(pool[0], 200), ...pool.slice(1)])).toContain(pool[0].id);
+    });
+    it('Home needs an explicit foot yes, designated or permissive: a gravel or compacted cycleway with no foot tag is in Find but not in Home', () => {
+      const mk = (extra: Record<string, string>) => parseOverpass([{ type: 'way', id: 11, geometry: g, tags: { highway: 'cycleway', name: 'Rail Trail', ...extra } }])[0];
+      const gain = (t: Trail) => withElevation(t, ramp(200));
+      for (const surface of ['gravel', 'compacted', 'asphalt']) {
+        const t = gain(mk({ surface }));
+        expect(isPavedShared(t), surface).toBe(true);        // shown in Find
+        expect(isHomeExcludedCycleway(t), surface).toBe(true);          // not eligible for Home
+        expect(applyFilters([t, ...pool.slice(1)], NO_FILTERS).map((x) => x.id), surface).toContain(t.id);
+      }
+      for (const foot of ['yes', 'designated', 'permissive']) expect(isHomeExcludedCycleway(gain(mk({ surface: 'gravel', foot }))), foot).toBe(false);
+      expect(isHomeExcludedCycleway(withElevation(mk({ surface: 'gravel', foot: 'yes' }), ramp(20)))).toBe(true);   // explicit foot but no real gain
     });
     it('still lists a flat paved trail in All trails and filters', () => {
       expect(applyFilters([paved(pool[0], 20), ...pool.slice(1)], NO_FILTERS).map((t) => t.id)).toContain(pool[0].id);
     });
+  });
+});
+
+describe('label from the dominant surface', () => {
+  const way = (id: number, surface: string | undefined, km: number, at: number) => ({ type: 'way' as const, id, geometry: [{ lat: 47.4 + at, lon: -122 }, { lat: 47.4 + at + km / 111.2, lon: -122 }], tags: { highway: 'cycleway', foot: 'yes', name: 'Cedar River Trail', ...(surface ? { surface } : {}) } });
+  const label = (...ways: ReturnType<typeof way>[]) => { const [t] = parseOverpass(ways); return highlightsOf(t)[0].label; };
+  it('takes the surface covering most of the length, not the first way\'s', () => {
+    expect(dominantSurface([{ surface: 'dirt', len: 6.2 }, { surface: 'asphalt', len: 20.6 }])).toBe('asphalt');   // Cedar River: 6.2 of 26.8 km unpaved
+    expect(dominantSurface([{ surface: 'asphalt', len: 5 }, { surface: 'dirt', len: 5 }])).toBeUndefined();         // no surface reaches 60%
+    expect(dominantSurface([{ surface: 'asphalt', len: 5 }, { len: 5 }])).toBeUndefined();                          // no-surface ways count against it
+    expect(dominantSurface([{ surface: 'concrete', len: 1 }, { surface: 'asphalt', len: 4 }, { surface: 'paved', len: 1 }])).toBe('asphalt');
+    expect(dominantSurface([])).toBeUndefined();
+  });
+  it('labels a merged trail by that surface', () => {
+    expect(label(way(1, 'dirt', 6, 0), way(2, 'asphalt', 20, 0.1))).toBe('Paved · shared with bikes');   // the first way is dirt
+    expect(label(way(1, 'dirt', 10, 0), way(2, 'asphalt', 10, 0.2))).toBe('Shared with bikes');           // an even split
+    expect(label(way(1, 'fine_gravel', 10, 0))).toBe('Gravel · shared with bikes');
   });
 });
 

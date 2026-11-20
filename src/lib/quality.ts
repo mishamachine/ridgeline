@@ -1,7 +1,7 @@
 // Turn raw OpenStreetMap ways into a list a hiker would want: drop junk, merge duplicates, best first.
 import { haversine, M_TO_MI, type LngLat } from './geo';
 import { gainM, level, roundTripM } from './plan';
-import { isMtbTags, PAVED_KIND, type Trail } from './trails';
+import { FOOT_OK, isMtbTags, PAVED_KIND, type Trail } from './trails';
 
 const MIN_WAY_M = 805; // half a mile; routes (relations) are exempt
 const DUP_RADIUS_M = 5000;
@@ -46,7 +46,11 @@ export const isMtb = (t: Pick<Trail, 'tags'>) => isMtbTags(t.tags);
 export const isPavedShared = (t: { tags?: Record<string, string> }) => t.tags?.kind === PAVED_KIND;
 /** Home's picks include a paved shared trail only with at least this much headline gain (500 ft, as in the build's "real gain" check). */
 export const PAVED_MIN_GAIN_M = 152;
-export const isFlatPaved = (t: Trail) => isPavedShared(t) && (gainM(t) ?? 0) < PAVED_MIN_GAIN_M;
+/**
+ * Home's picks take a cycleway only with an explicit foot yes, designated, permissive or official AND real gain; a hard surface alone does not qualify.
+ * It keys on the cycleway itself (highway=cycleway, kept in the cells), not on kind, so a bare cycleway with no kind and no mtb mark is out too. Find keeps all of them.
+ */
+export const isHomeExcludedCycleway = (t: Trail) => t.tags.highway === 'cycleway' && (!FOOT_OK.includes(t.tags.foot) || (gainM(t) ?? 0) < PAVED_MIN_GAIN_M);
 
 /** Remove junk names and tiny ways, and merge trails that share a name and sit in the same place. */
 export function filterTrails(trails: Trail[]): Trail[] {

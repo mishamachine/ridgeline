@@ -29,17 +29,22 @@ def is_junk_name(name):
     return len(n) < 3 or bool(JUNK_WORDS.search(n) or NUMBER_ONLY.match(n) or ROAD_CODE.match(n) or SHORT_JUNK.match(n))
 
 
-PAVED_SURFACE = re.compile(r'^(asphalt|paved|concrete(:.*)?|paving_stones)$')
-HARD_SURFACE = re.compile(r'^(asphalt|paved|concrete(:.*)?|paving_stones|gravel|fine_gravel|compacted)$')   # surfaces of rail trails and greenways
-FOOT_OK = ('yes', 'designated', 'permissive')
+PAVED_SURFACE = re.compile(r'^(asphalt|paved|concrete(:.*)?|paving_stones)$', re.I)
+HARD_SURFACE = re.compile(r'^(asphalt|paved|concrete(:.*)?|paving_stones|gravel|fine_gravel|compacted)$', re.I)   # surfaces of rail trails and greenways
+FOOT_OK = ('yes', 'designated', 'permissive', 'official')
 # A cycleway named like a street or a bike lane is road furniture, not a trail, unless the name also has a trail word.
-STREET_NAME = re.compile(r'\b(avenue|street|road|boulevard|blvd|drive|lane|court|place|parkway|pkwy|highway|hwy|bike ?lane|bicycle ?lane|cycle ?track|cycletrack|sidepath|crossing)\b', re.I)
+# "Parkway" counts as a street word only with a house-number or direction prefix ("NE 8th Parkway"); "Tommy Thompson Parkway" is a trail.
+STREET_NAME = re.compile(r'\b(avenue|street|road|boulevard|blvd|drive|lane|court|place|pkwy|highway|hwy|bike ?lane|bicycle ?lane|cycle ?track|cycletrack|sidepath|crossing)\b', re.I)
+PARKWAY_STREET = re.compile(r'^(\d|(?:n|s|e|w|ne|nw|se|sw|north|south|east|west)\b).*\bparkway\b', re.I)
 TRAIL_WORD = re.compile(r'\b(trail|path|greenway|corridor|pathway|promenade|loop)\b', re.I)
 
 
 def is_street_name(name):
     """Mirrors isStreetName in src/lib/trails.ts."""
-    return bool(STREET_NAME.search(name or '')) and not TRAIL_WORD.search(name or '')
+    n = name or ''
+    if TRAIL_WORD.search(n):
+        return False
+    return bool(STREET_NAME.search(n) or PARKWAY_STREET.search(n.strip()))
 
 
 def is_mtb(tags):
@@ -50,9 +55,12 @@ def is_mtb(tags):
     if tags.get('sac_scale'):
         return False
     if tags.get('highway') == 'cycleway':
-        # A cycleway is a shared trail when people are allowed to walk it or it has a hard surface (build_trails.is_paved_shared).
-        # Any other one (bare highway=cycleway, dirt, ground, unpaved or no surface, no foot tag) is a bikes-only track: a mountain-bike trail.
-        return not (HARD_SURFACE.match(tags.get('surface') or '') or tags.get('foot') in FOOT_OK)
+        # A cycleway is a shared trail when people are allowed to walk it or it has a hard surface (build_trails.is_shared_cycleway).
+        # One with a soft surface (dirt, ground, unpaved ...) and no foot permission is a bikes-only track: a mountain-bike trail.
+        # A bare one (no surface, no foot tag) is neither: it gets no label, and Home's picks need an explicit foot tag anyway.
+        if HARD_SURFACE.match(tags.get('surface') or '') or tags.get('foot') in FOOT_OK:
+            return False
+        return bool(tags.get('surface'))
     return tags.get('bicycle') == 'designated' and tags.get('foot') not in ('yes', 'designated', 'permissive', 'official')
 
 

@@ -2,7 +2,7 @@
 import { cellsFor, fetchCellTrails, getIndex, type CellIndex } from './cells';
 import { haversine, M_TO_MI, type BBox, type LngLat } from './geo';
 import { level, roundTripM } from './plan';
-import { filterTrails, isMtb, isProfaneName, isFlatPaved, rankTrails } from './quality';
+import { filterTrails, isMtb, isProfaneName, isHomeExcludedCycleway, rankTrails } from './quality';
 import { trailheadOf } from './maps';
 import { dogsStatus } from './parks';
 import type { Units } from './settings';
@@ -142,7 +142,7 @@ export function buildCollections(trails: Trail[], origin?: LngLat, units: Units 
   // Mountain-bike trails stay out of the rows (Home's picks) but remain in All trails, Find and search.
   // Paved shared-use trails (rail trails) stay out of the rows unless they climb 500 ft or more; Find, All trails and search keep them.
   // A trail whose shown numbers are over 10% from its stored full-line figure stays out of the rows (it remains in search, All trails and on the map).
-  const ranked = rankTrails(filterTrails(trails.filter((t) => !t.statsMismatch && !isMtb(t) && !isFlatPaved(t) && !isProfaneName(t.name))), origin);
+  const ranked = rankTrails(filterTrails(trails.filter((t) => !t.statsMismatch && !isMtb(t) && !isHomeExcludedCycleway(t) && !isProfaneName(t.name))), origin);
   return COLLECTIONS.map((c) => ({ ...c, trails: ranked.filter((t) => c.pick(t, units)).slice(0, ROW_MAX) })).filter((c) => c.trails.length >= ROW_MIN);
 }
 
