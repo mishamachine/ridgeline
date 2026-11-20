@@ -5,13 +5,14 @@ import { LazyMap as MapView } from '../components/LazyMap';
 import { ElevationChart } from '../components/ElevationChart';
 import { HighlightChips } from '../components/Chips';
 import { BackIcon } from '../components/Icons';
-import { CheckIcon, DownloadIcon, DriveIcon, SavedIcon, ShareIcon } from '../components/NavIcons';
+import { CheckIcon, CloseIcon, DownloadIcon, DriveIcon, SavedIcon, ShareIcon } from '../components/NavIcons';
 import { ConfirmSheet, useDialogKeys } from '../components/ConfirmSheet';
 import type { Trail } from '../lib/trails';
 import { getSaved, SavedTrail } from '../lib/store';
 import { removeTrailOffline, tilesForTrail } from '../lib/offline';
 import { bboxOf } from '../lib/geo';
-import { ZoomButtons } from '../components/ZoomButtons';
+import { mapFullscreenOpen } from '../lib/mapFullscreen';
+import { MapControls } from '../components/MapControls';
 import { useOnline } from '../lib/useOnline';
 import { zoomLimits } from '../lib/mapZoom';
 import { ft, hrs, km, mb, metres, mi } from '../lib/format';
@@ -61,6 +62,32 @@ export function Detail({ tpl, trail, bookmarked, onBack, onStart, onSavedChange 
   const fitting = useRef(false);
   const online = useOnline();
   const limits = zoomLimits({ online });
+  // Full screen: the map fills the screen. Back, Close and Escape leave it.
+  // Opening adds one history entry, so browser, hardware and Android Back close it instead of leaving the page.
+  // Close, the in-page Back and Escape go through history.back() too, so no extra entry is left behind.
+  const [full, setFull] = useState(false);
+  const closing = useRef(false); // history.back() is async: a second Close, Back or held Escape must not pop twice
+  const openFull = () => { closing.current = false; history.pushState({ ...(history.state ?? {}), mapFull: true }, '', location.href); mapFullscreenOpen.value = true; setFull(true); };
+  const closeFull = () => { if (closing.current) return; closing.current = true; if ((history.state as { mapFull?: boolean } | null)?.mapFull) history.back(); else { mapFullscreenOpen.value = false; closing.current = false; setFull(false); } };
+  useEffect(() => {
+    mapRef.current?.resize();
+    if (!full) return;
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.repeat) closeFull(); };
+    const pop = () => { mapFullscreenOpen.value = false; closing.current = false; setFull(false); }; // after the router's own handler, which skips this event
+    window.addEventListener('keydown', key);
+    window.addEventListener('popstate', pop);
+    return () => { window.removeEventListener('keydown', key); window.removeEventListener('popstate', pop); mapFullscreenOpen.value = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [full]);
+  // Inline, the plain wheel scrolls the page; Ctrl/Cmd + wheel (and a trackpad pinch, which arrives as Ctrl + wheel) zooms the map. Full screen: the wheel zooms.
+  const boxRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el || full) return;
+    const h = (e: WheelEvent) => { if (!e.ctrlKey && !e.metaKey) e.stopPropagation(); }; // the map never sees it, the page scrolls
+    el.addEventListener('wheel', h, { capture: true });
+    return () => el.removeEventListener('wheel', h, { capture: true });
+  }, [full]);
   const fitTrail = () => { fitting.current = true; setMoved(false); mapRef.current?.fitBounds([[b.west, b.south], [b.east, b.north]], { padding: 32, bearing: 0, pitch: 0 }); };
   const onReady = (map: MLMap) => {
     mapRef.current = map;
@@ -115,18 +142,22 @@ export function Detail({ tpl, trail, bookmarked, onBack, onStart, onSavedChange 
   return (
     <div className="trail-page">
       <div className="trail-scroll">
-        <div className="trail-map">
-          <MapView tileTemplate={tpl} bounds={[[b.west, b.south], [b.east, b.north]]} cooperative minZoom={limits.minZoom} maxZoom={limits.maxZoom} onReady={onReady} label={`Map of ${trail.name}`} />
-          <ZoomButtons map={mapInst} minZoom={limits.minZoom} maxZoom={limits.maxZoom} className="trail-zoom" onZoom={() => setMoved(true)} />
+        <div ref={boxRef} className={`trail-map${full ? ' map-full' : ''}`}>
+          <MapView tileTemplate={tpl} bounds={[[b.west, b.south], [b.east, b.north]]} minZoom={limits.minZoom} maxZoom={limits.maxZoom} units={units} onReady={onReady} label={`Map of ${trail.name}`} />
+          <MapControls map={mapInst} minZoom={limits.minZoom} maxZoom={limits.maxZoom} onZoom={() => setMoved(true)} onNorth={() => { fitting.current = true; }}>
+            <button type="button" className="round" aria-label={full ? 'Close full screen map' : 'Full screen map'} onClick={() => (full ? closeFull() : openFull())}>
+              {full ? <CloseIcon size={22} /> : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg>}
+            </button>
+          </MapControls>
           {moved && <button className="trail-fit" onClick={fitTrail}>Fit trail</button>}
-          <button className="round trail-back" aria-label="Back" onClick={onBack}><BackIcon /></button>
-          <div className="trail-actions">
+          <button className="round trail-back" aria-label={full ? 'Back to the trail page' : 'Back'} onClick={full ? closeFull : onBack}><BackIcon /></button>
+          {!full && <div className="trail-actions">
             <button className="round" aria-label={`Share ${trail.name}`} onClick={() => shareTrail(trail)}><ShareIcon /></button>
             <button className="round" aria-label={bookmarked ? 'Remove from Saved' : 'Save to Saved'} aria-pressed={bookmarked} onClick={toggleBookmark}><SavedIcon filled={bookmarked} /></button>
-          </div>
+          </div>}
         </div>
 
-        <div className="trail-info">
+        <div className="trail-info" inert={full}>
           <div>
             <h1 className="trail-title">{trail.name}</h1>
             <div className="trail-sub">{trail.loop ? 'Loop' : 'Out and back'} · from OpenStreetMap</div>
@@ -189,7 +220,7 @@ export function Detail({ tpl, trail, bookmarked, onBack, onStart, onSavedChange 
         </div>
       </div>
 
-      <div className="dock">
+      <div className="dock" inert={full}>
         <button className="btn btn-primary btn-big" onClick={() => { requestCompassPermission(); primeSpeech(); onStart(trail); }}>Start hike</button>
       </div>
 

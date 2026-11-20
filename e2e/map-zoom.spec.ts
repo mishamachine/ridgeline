@@ -80,7 +80,7 @@ test('Find: zoom buttons sit above Locate, change the zoom and grey out at the l
   await checkAttribution(page, '.find-body', false);
   const zin = (await page.getByRole('button', { name: 'Zoom in' }).boundingBox())!;
   const zout = (await page.getByRole('button', { name: 'Zoom out' }).boundingBox())!;
-  const loc = (await page.getByRole('button', { name: 'Go to my location' }).boundingBox())!;
+  const loc = (await page.getByRole('button', { name: 'Follow my location' }).boundingBox())!;
   expect(zin.y + zin.height).toBeLessThanOrEqual(zout.y);
   expect(zout.y + zout.height).toBeLessThanOrEqual(loc.y);
   await page.evaluate(() => (window as unknown as Win).__ridgelineMap!.setZoom(17)); await settle(page);
@@ -139,7 +139,7 @@ test('Detail: zoom buttons, a draggable map, "Fit trail" only after moving, and 
   await page.getByRole('button', { name: 'Fit trail' }).click(); await settle(page);
   await expect(page.getByRole('button', { name: 'Fit trail' })).toHaveCount(0);
   expect(await zoom(page)).toBeCloseTo(z0, -1);
-  // The wheel over the map scrolls the page (zooming needs Ctrl/Cmd), so the map is not a scroll trap.
+  // Inline, the plain wheel over the map scrolls the page (the map is not a scroll trap). Ctrl/Cmd + wheel, or a trackpad pinch, zooms it.
   const z1 = await zoom(page);
   await page.mouse.move(x, y); await page.mouse.wheel(0, 300); await settle(page);
   expect(await zoom(page)).toBeCloseTo(z1, 1);
@@ -158,11 +158,11 @@ test('Navigate: zoom buttons keep follow mode; a drag ends it; the sheet hides t
   await page.screenshot({ path: `${OUT}/navigate-375.png` });
   await checkButtons(page);
   await checkAttribution(page, '.nv-map', false);
-  await expect(page.getByRole('button', { name: 'Center on me' })).toHaveCount(0); // still following after zooming
+  await expect(page.locator('.nv-map .follow-btn')).toHaveAttribute('data-follow', 'centre'); // still following after zooming
   const box = (await page.locator('.nv-map .map').boundingBox())!;
   const x = box.x + box.width / 3, y = box.y + box.height / 2;
   await page.mouse.move(x, y); await page.mouse.down(); await page.mouse.move(x + 50, y + 40, { steps: 8 }); await page.mouse.up();
-  await expect(page.getByRole('button', { name: 'Center on me' })).toBeVisible();
+  await expect(page.locator('.nv-map .follow-btn')).toHaveAttribute('data-follow', 'off');
   await page.getByRole('button', { name: 'More' }).click();
   await expect(page.getByRole('button', { name: 'Zoom in' })).toHaveCount(0);
   expect(errors).toEqual([]);
@@ -243,7 +243,7 @@ for (const c of CASES) {
       assertLayout(await layout(page, '.nv-map', true)); // following
       const box = (await page.locator('.nv-map .map').boundingBox())!;
       await page.mouse.move(box.x + box.width / 3, box.y + box.height / 2); await page.mouse.down(); await page.mouse.move(box.x + box.width / 3 + 70, box.y + box.height / 2 + 40, { steps: 14 }); await page.mouse.up();
-      await expect(page.getByRole('button', { name: 'Center on me' })).toBeVisible();
+      await expect(page.locator('.nv-map .follow-btn')).toHaveAttribute('data-follow', 'off');
       assertLayout(await layout(page, '.nv-map')); // Center showing: the longest button stack
       expect(errors).toEqual([]);
     });

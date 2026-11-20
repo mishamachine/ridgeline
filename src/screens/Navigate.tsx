@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Marker, type Map as MLMap } from 'maplibre-gl';
 import { LazyMap as MapView } from '../components/LazyMap';
-import { ZoomButtons } from '../components/ZoomButtons';
-import { breaksFollow, zoomLimits } from '../lib/mapZoom';
+import { FollowNote, MapControls } from '../components/MapControls';
+import { useFollowMe } from '../lib/useFollowMe';
+import { trailChip } from '../lib/trailChip';
+import { zoomLimits } from '../lib/mapZoom';
 import { setGeo, metersToPixels } from '../components/mapGeo';
-import { LocateIcon, SwapIcon } from '../components/Icons';
+import { SwapIcon } from '../components/Icons';
 import { Banner } from '../components/nav/Banner';
 import { PocketMode } from '../components/nav/PocketMode';
 import { buildView } from '../components/nav/view';
@@ -58,7 +60,6 @@ export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) 
   const autoTurnedRef = useRef(false);
   const priorFractionRef = useRef(0);
   const priorClimbRef = useRef(0);
-  const followRef = useRef(true);
   const pausedMsRef = useRef(resume ? (resume.pausedMs ?? 0) + Math.max(0, Date.now() - (resume.points.at(-1)?.t ?? Date.now())) : 0); // earlier pauses, plus the time the app was closed
   const pauseStartRef = useRef<number | null>(null);
   const markersRef = useRef<{ key: string; list: Marker[] }>({ key: '', list: [] });
@@ -71,7 +72,6 @@ export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) 
   const [reversed, setReversed] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
   const [now, setNow] = useState(Date.now());
-  const [following, setFollowing] = useState(true);
   const [mapOn, setMapOn] = useState(false);
   const [pocket, setPocket] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -155,8 +155,17 @@ export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) 
   }, [engine]);
 
   const pos: LngLat | null = g.position;
-  const posRef = useRef<LngLat | null>(null);
-  posRef.current = pos;
+  const follow = useFollowMe(mapInst, pos, 'centre');
+  const following = follow.mode !== 'off';
+  const chip = trailChip(g, total, units);
+  // Said aloud to screen readers only when you cross into or out of "Off the trail", not on every distance change.
+  const [offSaid, setOffSaid] = useState('');
+  const wasOff = useRef(false);
+  const isOff = !!chip?.off;
+  useEffect(() => {
+    if (isOff !== wasOff.current) setOffSaid(isOff ? 'Off the trail' : 'Back on the trail');
+    wasOff.current = isOff;
+  }, [isOff]);
   const near = g.along != null;
   const offRoute = g.offRoute; // the engine holds this until you have joined the trail
   const along = g.along;
@@ -243,8 +252,7 @@ export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) 
     const map = mapRef.current;
     if (!map || !g.filtered || !offSide) return;
     setGeo(map, 'back', { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [g.filtered, offSide.target] } }] });
-    followRef.current = false;
-    setFollowing(false);
+    follow.setMode('off');
     const [a, b] = [g.filtered, offSide.target];
     map.fitBounds([[Math.min(a[0], b[0]), Math.min(a[1], b[1])], [Math.max(a[0], b[0]), Math.max(a[1], b[1])]], { padding: 70, maxZoom: 17, duration: 500 });
     if (voiceRef.current) speak(offRouteText(offSide.distM, offSide.side, units), true);
@@ -286,8 +294,7 @@ export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) 
     setGeo(map, 'done', { type: 'FeatureCollection', features: behind.length > 1 ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: behind } }] : [] });
     if (pos) {
       setGeo(map, 'me', { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { r: metersToPixels(map, g.uncertaintyM ?? 0, pos[1]), anchored: g.anchored || g.stalePosition }, geometry: { type: 'Point', coordinates: pos } }] });
-      // A new fix must not cut a zoom animation short (zoom buttons); the zoomend handler in onReady re-centres.
-      if (followRef.current && !map.isZooming()) map.easeTo({ center: pos, duration: 600 });
+      // Following (centre or heading-up) is the follow-me hook's job: it moves the camera on each fix.
     }
   }, [g, route]);
 
@@ -317,8 +324,6 @@ export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) 
   function onReady(map: MLMap) {
     mapRef.current = map;
     setMapInst(map);
-    map.on('zoomend', () => { if (followRef.current && posRef.current) map.easeTo({ center: posRef.current, duration: 300 }); });
-    map.on('dragstart', () => { if (!breaksFollow('dragstart')) return; followRef.current = false; setFollowing(false); });
     // Hollow dot while the position is a manual "I'm here" anchor.
     map.setPaintProperty('me-dot', 'circle-color', ['case', ['boolean', ['get', 'anchored'], false], '#FFFFFF', INK]);
     map.setPaintProperty('me-dot', 'circle-stroke-color', ['case', ['boolean', ['get', 'anchored'], false], INK, '#FFFFFF']);
@@ -333,12 +338,6 @@ export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) 
     map.addLayer({ id: 'back-line', type: 'line', source: 'back', layout: { 'line-cap': 'round' }, paint: { 'line-color': '#B01C1C', 'line-width': 4, 'line-dasharray': [1, 1.5] } });
     setGeo(map, 'trails', { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { active: true }, geometry: { type: 'LineString', coordinates: route.coords } }] });
     setMapOn(true);
-  }
-
-  function recenter() {
-    followRef.current = true;
-    setFollowing(true);
-    if (pos) mapRef.current?.easeTo({ center: pos, zoom: Math.max(15, mapRef.current.getZoom()) });
   }
 
   function recalibrate() {
@@ -412,12 +411,14 @@ export function Navigate({ tpl, trail, saved, resume, onEnd, onFinish }: Props) 
       <Banner view={view} voiceOn={voiceOn} onVoice={toggleVoice} onBack={offRoute && offSide ? takeMeBack : undefined} onSwitch={!trail.loop && !offRoute && (headingBack || (pct ?? 0) >= 0.25) ? () => switchDirection(false) : undefined} />
 
       <div className="nv-map">
-        <MapView tileTemplate={tpl} center={start} zoom={15} minZoom={zoomLimits({ online }).minZoom} onReady={onReady} label={`Navigation map for ${trail.name}`} />
+        <MapView tileTemplate={tpl} center={start} zoom={15} minZoom={zoomLimits({ online }).minZoom} units={units} onReady={onReady} label={`Navigation map for ${trail.name}`} />
         <div className={`nv-chip${caution ? ' caution' : ''}`} style={{ top: 8 }} role="status">{paused ? 'Paused · ' : ''}{status}{net}</div>
+        {chip?.off && <div className="nv-trail off">{chip.text}</div>} {/* the distance left is in the sheet below; this chip is only the off-trail warning */}
+        <div className="sr" aria-live="polite">{offSaid}</div>
         {headingBack && <div className="nv-tag">Heading back</div>}
+        <FollowNote note={follow.note} />
         <div className="nv-map-btns">
-          {!more && !confirming && <ZoomButtons map={mapInst} minZoom={zoomLimits({ online }).minZoom} maxZoom={zoomLimits({ online }).maxZoom} />}
-          {!following && <button className="nv-pill" aria-label="Center on me" onClick={recenter}><LocateIcon size={18} />Center</button>}
+          {!more && !confirming && <MapControls map={mapInst} minZoom={zoomLimits({ online }).minZoom} maxZoom={zoomLimits({ online }).maxZoom} follow={{ mode: follow.mode, pending: follow.pending, onPress: follow.press }} onNorth={() => { if (follow.mode === 'heading') follow.setMode('centre'); }} />}
           <button className="nv-pill" onClick={() => setMore(true)}>More</button>
         </div>
       </div>
