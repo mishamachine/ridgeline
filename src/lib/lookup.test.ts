@@ -78,3 +78,11 @@ describe('resolveTrail with a bare way id', () => {
     expect(await resolveTrail('osm-r6338704', [-122.2, 47.4])).toBeNull();
   });
 });
+
+describe('lookup edge cases', () => {
+  it('pickByName never matches on a name that normalises to nothing', async () => {
+    const { pickByName } = await load();
+    const a = trailAt('osm-w1-0', -122.2, 47.4, { name: '山道' });
+    expect(pickByName([a], '小径', [-122.2, 47.4])).toBeNull();
+  });
+});

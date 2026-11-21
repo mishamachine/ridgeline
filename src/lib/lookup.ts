@@ -28,6 +28,7 @@ const SAME_NAME_M = 1000;
 /** The index groups same-named ways by their lowest way id; the cells can group them under a lower one. If no id matches, take the trail with the same name nearest the hint, within about 1 km. */
 export function pickByName(found: Trail[], name: string, hint: LngLat): Trail | null {
   const want = normName(name);
+  if (!want) return null;   // a name with no Latin letters or digits normalises to nothing: never match on that
   let best: Trail | null = null, bestGap = SAME_NAME_M;
   for (const t of found) {
     if (normName(t.name) !== want) continue;
@@ -60,8 +61,8 @@ export async function resolveTrail(id: string, hint?: LngLat | null, signal?: Ab
   }
   if (!ll) return null;
   // A route can run past the cells next to its start; if it comes back as a section, look wider.
-  let t = await near(ll, id, 0.02, signal, hint);
-  if (t?.partial) t = (await near(ll, id, 0.3, signal, hint)) ?? t;
+  let t = await near(ll, id, 0.02, signal, ll);   // with no hint, the index location picks the section
+  if (t?.partial) t = (await near(ll, id, 0.3, signal, ll)) ?? t;
   if (t) { memory.set(id, t); memory.set(t.id, t); }
   return t;
 }
