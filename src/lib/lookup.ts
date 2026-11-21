@@ -22,10 +22,30 @@ export function pickChained(found: Trail[], bare: string, hint?: LngLat | null):
   return mine.reduce((best, t) => (gap(t) < gap(best) ? t : best));
 }
 
+const normName = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+const SAME_NAME_M = 1000;
+
+/** The index groups same-named ways by their lowest way id; the cells can group them under a lower one. If no id matches, take the trail with the same name nearest the hint, within about 1 km. */
+export function pickByName(found: Trail[], name: string, hint: LngLat): Trail | null {
+  const want = normName(name);
+  let best: Trail | null = null, bestGap = SAME_NAME_M;
+  for (const t of found) {
+    if (normName(t.name) !== want) continue;
+    const gap = Math.min(...t.coords.map((c) => haversine(hint, c)));
+    if (gap <= bestGap) { best = t; bestGap = gap; }
+  }
+  return best;
+}
+
 async function near(ll: LngLat, id: string, r: number, signal?: AbortSignal, hint?: LngLat | null): Promise<Trail | null> {
   const box = { west: ll[0] - r, east: ll[0] + r, south: ll[1] - r, north: ll[1] + r };
   const found = (await fetchCellTrails(box, signal)) ?? [];
-  return found.find((t) => t.id === id) ?? (BARE_WAY.test(id) ? pickChained(found, id, hint) : null);
+  const exact = found.find((t) => t.id === id);
+  if (exact || !BARE_WAY.test(id)) return exact ?? null;
+  const chained = pickChained(found, id, hint);
+  if (chained) return chained;
+  const entry = (await loadNameIndex(ll)).find((x) => x[0] === id);
+  return entry ? pickByName(found, entry[1], ll) : null;
 }
 
 export async function resolveTrail(id: string, hint?: LngLat | null, signal?: AbortSignal): Promise<Trail | null> {

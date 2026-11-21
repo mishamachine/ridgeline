@@ -36,6 +36,17 @@ describe('pickChained', () => {
   });
 });
 
+describe('pickByName', () => {
+  it('takes the same-named trail nearest the hint within 1 km, ignoring case and punctuation', async () => {
+    const { pickByName } = await load();
+    const a = trailAt('osm-w1-0', -122.2, 47.4, { name: 'Cedar River Trail' });
+    const b = trailAt('osm-w2-0', -122.2, 47.4005, { name: 'cedar river  trail' });
+    expect(pickByName([a, b], 'Cedar River Trail', [-122.2, 47.4004])?.id).toBe('osm-w2-0');
+    expect(pickByName([trailAt('osm-w3-0', -122.2, 47.5, { name: 'Cedar River Trail' })], 'Cedar River Trail', [-122.2, 47.4])).toBeNull();
+    expect(pickByName([a], 'Other Trail', [-122.2, 47.4])).toBeNull();
+  });
+});
+
 describe('resolveTrail with a bare way id', () => {
   it('opens the chained trail nearest the link hint', async () => {
     const { resolveTrail } = await load();
@@ -55,6 +66,11 @@ describe('resolveTrail with a bare way id', () => {
     const { resolveTrail } = await load();
     expect((await resolveTrail('osm-w6338704-1'))?.id).toBe('osm-w6338704-1');
     expect(fetchCellTrails).not.toHaveBeenCalled();
+  });
+  it('when the cells group the same-named ways under a lower id, finds the trail by its name near the hint', async () => {
+    fetchCellTrails.mockResolvedValueOnce([trailAt('osm-w6338000-0', -122.2, 47.4)]);   // lower way id than the index's 6338704
+    const { resolveTrail } = await load();
+    expect((await resolveTrail('osm-w6338704', [-122.2, 47.4]))?.id).toBe('osm-w6338000-0');
   });
   it('returns null when nothing matches, and never matches a relation id by prefix', async () => {
     const { resolveTrail } = await load();
