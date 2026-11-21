@@ -49,3 +49,6 @@ export function startCompass(onReading: (r: CompassReading) => void): () => void
     window.removeEventListener('deviceorientation', h);
   };
 }
+
+/** False on a device or browser with no orientation sensor API at all. */
+export const compassSupported = () => typeof DeviceOrientationEvent !== 'undefined';

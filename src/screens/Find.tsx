@@ -7,11 +7,12 @@ import { PageHead } from '../components/PageHead';
 import { TrailCard } from '../components/TrailCard';
 import { hasHighlight } from '../components/Chips';
 import { FindIcon, ListIcon, MapIcon, ShareIcon, CloseIcon } from '../components/NavIcons';
-import { LocateIcon } from '../components/Icons';
 import { useOnline } from '../lib/useOnline';
 import { zoomLimits } from '../lib/mapZoom';
 import { basemapPathAt, classifyTap, HIDDEN, matchTrail, NOT_LISTED, TAP_PX } from '../lib/mapTap';
-import { ZoomButtons } from '../components/ZoomButtons';
+import { FollowNote, MapControls } from '../components/MapControls';
+import { useFollowMe } from '../lib/useFollowMe';
+import type { FollowMode } from '../lib/followMode';
 import { fetchCellTrails, getIndex } from '../lib/cells';
 import { byDistance, centreOf, inCoverage, listNames, regionsOf, type CoverageRegion } from '../lib/coverage';
 import { fetchTrails, Trail } from '../lib/trails';
@@ -51,6 +52,7 @@ const DEFAULT_VIEW = { center: [-121.78, 47.49] as LngLat, zoom: 12 }; // North 
 const PAGE = 30;
 const RELOAD_MS = 500;                           // the list reloads this long after a pan or zoom stops
 const RELOAD_FAR_MS = 1500;                      // outside our coverage each reload asks a public server: wait longer
+const FOLLOW_RELOAD_M = 2000;                    // while following, reload the trails after the map has moved this far
 
 /** Search box that stays responsive while the trail list re-renders. */
 const List = memo(function List({ trails, savedIds, offlineIds, me, onOpen, onToggleSave }: {
@@ -94,6 +96,7 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
   const onOpenRef = useRef(onOpen);
   onOpenRef.current = onOpen;
   const reloadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [hostedMiss, setHostedMiss] = useState(false); // following moved the map outside the areas we host: offer "Load trails here"
   const [mode, setMode] = useState<'list' | 'map'>('list');
   const [chips, setChips] = useState<Set<Chip>>(new Set());
   const [me, setMe] = useState<LngLat | null>(null);
@@ -105,6 +108,14 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
   const [regions, setRegions] = useState<CoverageRegion[]>([]); // covered regions, from the data
   const regionsRef = useRef<CoverageRegion[]>([]);
   const [outside, setOutside] = useState(false);
+  const [live, setLive] = useState<LngLat | null>(null); // where you are, while the follow button is on (kept in this tab only)
+  const follow = useFollowMe(mapInst, live ?? me, 'off', 13); // Locate lands at zoom 13, the old Near me level
+  const followRef = useRef<FollowMode>('off'); // read by the reload paths: while following, no reload may reach a public server
+  followRef.current = follow.mode;
+  const youRef = useRef<LngLat | null>(null);
+  youRef.current = live ?? me;
+  const locatePending = useRef(false);
+  const lastTry = useRef<LngLat>(DEFAULT_VIEW.center); // where trails were last asked for while following (kept across mode changes)
 
   const [query, setQuery] = useState('');
   const deferred = useDeferredValue(query);
@@ -115,6 +126,20 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
   const [placeMsg, setPlaceMsg] = useState<string | null>(null);
 
   useEffect(() => { if (visible) mapRef.current?.resize(); }, [visible, mode]);
+
+  // Follow-me: watch the location while it is on, and draw the dot. Nothing leaves the device.
+  useEffect(() => {
+    if (follow.mode === 'off' || !navigator.geolocation) { setLive(null); return; }
+    const id = navigator.geolocation.watchPosition(
+      (p) => setLive([p.coords.longitude, p.coords.latitude]),
+      () => {}, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
+    return () => navigator.geolocation.clearWatch(id);
+  }, [follow.mode]);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    setGeo(map, 'me', { type: 'FeatureCollection', features: live && follow.mode !== 'off' ? [{ type: 'Feature', properties: { r: 0 }, geometry: { type: 'Point', coordinates: live } }] : [] });
+  }, [live, follow.mode, mapInst]);
 
   const matches = useMemo(() => searchNames(names, deferred, 6, viewRef.current.center), [names, deferred]);
 
@@ -146,8 +171,9 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
   }, [shown, selected, drawTick]);
 
   /** Load trails for the map's view, or for the remembered view while the map itself is still starting. */
-  const loadArea = useCallback(async () => {
+  const loadArea = useCallback(async (opts?: { hostedOnly?: boolean }) => {
     clearTimeout(reloadTimer.current);   // a pending pan reload must not land after this load (a "near you" or "near <place>" one)
+    setHostedMiss(false);
     const map = mapRef.current;
     let box;
     if (map) {
@@ -171,6 +197,12 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
         if ((e as Error).name === 'AbortError') throw e;
         return null;
       });
+      if (!found && opts?.hostedOnly === true) { // follow mode never asks Overpass for a new area: one tap on "Load trails here" does
+        setHostedMiss(true);
+        setLoaded(true);
+        setStatus({ kind: 'idle' });
+        return;
+      }
       if (!found) {
         if (!navigator.onLine) { setStatus({ kind: 'offline' }); setLoaded(true); return; }
         found = await fetchTrails(box, ac.signal);
@@ -191,6 +223,26 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
       setStatus({ kind: 'error', msg: (e as Error).message });
     }
   }, []);
+
+  // While following, ask for new trails only after the map has moved about 2 km from where it last loaded (never on every move:
+  // outside our own coverage each load is a request to the public Overpass servers). The privacy page says "about every 2 km".
+  useEffect(() => {
+    const map = mapInst;
+    if (!map || follow.mode === 'off') return;
+    const onEnd = () => {
+      const c = map.getCenter();
+      const at = youRef.current;
+      if (locatePending.current && at && haversine([c.lng, c.lat], at) < 300) { locatePending.current = false; lastTry.current = [c.lng, c.lat]; loadArea({ hostedOnly: true }); return; } // Locate has arrived
+      if (haversine([c.lng, c.lat], lastTry.current) < FOLLOW_RELOAD_M) return;
+      lastTry.current = [c.lng, c.lat];
+      loadArea({ hostedOnly: true }); // follow-driven: hosted cells only, never Overpass
+    };
+    map.on('moveend', onEnd);
+    return () => { map.off('moveend', onEnd); };
+  }, [mapInst, follow.mode, loadArea]);
+
+  // Find stays mounted behind the other tabs and the list view: following (the location watch and the compass) stops when the map is not on screen.
+  useEffect(() => { if ((!visible || mode !== 'map') && follow.mode !== 'off') follow.setMode('off'); }, [visible, mode, follow.mode]);
 
   // Start loading trails at once; they do not wait for the map style.
   useEffect(() => {
@@ -215,7 +267,7 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
       // Outside our coverage a reload asks a public server: skip it while the view is still inside what was last loaded.
       if (outsideRef.current && b && last && b.getWest() >= last.west && b.getEast() <= last.east && b.getSouth() >= last.south && b.getNorth() <= last.north) return;
       setAreaLabel(null);
-      loadArea();
+      loadArea({ hostedOnly: followRef.current !== 'off' }); // a pinch, rotate or zoom button while following: hosted cells only
     }, outsideRef.current ? RELOAD_FAR_MS : RELOAD_MS);
   }, [loadArea]);
 
@@ -267,6 +319,22 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
     }
     loadArea();
   }
+
+  /** The follow button: the first tap goes to you (asking for location if needed), the next two are heading-up and off. */
+  function onLocate() {
+    if (follow.mode !== 'off') { follow.press(); return; }
+    follow.press(); // the follow hook does the one ease to you (zooming in to at least 13)
+    if (live ?? me) { loadAfterMove(); return; }
+    if (!navigator.geolocation) { follow.setMode('off'); setStatus({ kind: 'error', msg: 'This device has no location. Search for a place instead.' }); return; }
+    navigator.geolocation.getCurrentPosition(
+      (p) => { const here: LngLat = [p.coords.longitude, p.coords.latitude]; setMe(here); setLive(here); loadAfterMove(); },
+      () => { follow.setMode('off'); setStatus({ kind: 'error', msg: 'Location is off. Search for a place instead.' }); },
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 },
+    );
+  }
+
+  /** After Locate moves the map, load the trails for where it lands (once; the moveend that arrives at you, not an earlier one). */
+  function loadAfterMove() { locatePending.current = true; }
 
   function nearMe() {
     if (me && chips.has('near')) { toggle('near'); return; }
@@ -397,14 +465,14 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
 
       <div data-status={status.kind} className={`find-body${mode === 'map' && activeSelected ? ' has-pick' : ''}`} ref={bodyRef}>
         <div className="find-map" inert={mode !== 'map'}>
-          <MapView key={retry} tileTemplate={tpl} minZoom={limits.minZoom} maxZoom={limits.maxZoom} onReady={onReady} label="Trail map" onProblem={() => setMapMsg(true)} />
+          <MapView key={retry} tileTemplate={tpl} minZoom={limits.minZoom} maxZoom={limits.maxZoom} units={units} onReady={onReady} label="Trail map" onProblem={() => setMapMsg(true)} />
         </div>
         {mode === 'map' && (
           <>
-            <div className="map-col">
-              <ZoomButtons map={mapInst} minZoom={limits.minZoom} maxZoom={limits.maxZoom} onZoom={reloadSoon} />
-              <button className="round" aria-label="Go to my location" onClick={nearMe}><LocateIcon /></button>
-            </div>
+            {hostedMiss && status.kind !== 'loading' && <button className="map-action2" onClick={() => loadArea()}>Load trails here</button>}
+            <MapControls map={mapInst} minZoom={limits.minZoom} maxZoom={limits.maxZoom} onZoom={reloadSoon}
+              follow={{ mode: follow.mode, pending: follow.pending, onPress: onLocate }}
+              onNorth={() => { if (follow.mode === 'heading') follow.setMode('centre'); }} />
             {pathNote && (
               <div className="map-note path-note" role="status">
                 {pathNote.name && <b className="path-note-name">{pathNote.name}</b>}
@@ -412,6 +480,7 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
                 <button className="link-btn" aria-label="Dismiss" onClick={() => setPathNote(null)}>OK</button>
               </div>
             )}
+            {!mapMsg && !pathNote && <FollowNote note={follow.note} />}
             {mapMsg && <div className="map-note" role="status">The map is slow right now. The list still works. <button className="link-btn" onClick={() => { setMapMsg(false); setRetry((n) => n + 1); }}>Retry</button></div>}
             {activeSelected && (
               <div className="map-pick" ref={pickRef}>
@@ -424,7 +493,7 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
           <div className="find-list">
             {status.kind === 'zoom' && <p className="note">Zoom the map in, or search a place, to see trails.</p>}
             {status.kind === 'offline' && <p className="note">You’re offline and this area hasn’t been viewed before. Your saved trails are in Saved.</p>}
-            {status.kind === 'error' && <p className="note note-alert" role="alert">{status.msg} <button className="link-btn" onClick={loadArea}>Try again</button></p>}
+            {status.kind === 'error' && <p className="note note-alert" role="alert">{status.msg} <button className="link-btn" onClick={() => loadArea()}>Try again</button></p>}
             {!loaded && status.kind === 'loading' && <Placeholder title="Loading trails…">Finding hikes {areaLabel ? `near ${areaLabel}` : 'in this area'}.</Placeholder>}
             {loaded && shown.length === 0 && status.kind !== 'loading' && status.kind !== 'error' && (
               trails.length > 0 && filtering ? (
