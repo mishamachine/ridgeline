@@ -32,6 +32,11 @@ async function checkAttribution(page: Page, scope: string, expanded: boolean) {
   expect(hits, `controls covering the map credit in ${scope}`).toEqual([]);
 }
 const settle = (page: Page) => page.waitForTimeout(500);
+/** Starts waiting for the next hosted cell file; await it after the action that triggers the automatic reload, then the list is idle. */
+const reloadDone = (page: Page) => {
+  const response = page.waitForResponse((r) => /\/trails\/\d+_\d+\.json$/.test(r.url()));
+  return async () => { await response; await expect(page.locator('.find-body')).toHaveAttribute('data-status', 'idle'); };
+};
 
 async function setup(page: Page, context: import('@playwright/test').BrowserContext) {
   await context.route('https://tiles.openfreemap.org/**', (route) => route.fulfill(route.request().url().endsWith('/planet')
@@ -87,8 +92,9 @@ test('Find: zoom buttons sit above Locate, change the zoom and grey out at the l
   // A selected trail opens a card over the bottom of the map: the credit must sit above it, not under it.
   type M = { jumpTo(o: unknown): void; querySourceFeatures(s: string): { geometry: { coordinates: number[][] } }[]; project(c: number[]): { x: number; y: number }; getContainer(): HTMLElement };
   await page.evaluate(() => (window as unknown as { __ridgelineMap: M }).__ridgelineMap.jumpTo({ center: [-121.7717, 47.4356], zoom: 13 }));
-  await page.getByRole('button', { name: 'Zoom in' }).click(); // counts as moving, so "Search this area" shows
-  await page.getByRole('button', { name: 'Search this area' }).click();
+  const reloaded = reloadDone(page);
+  await page.getByRole('button', { name: 'Zoom in' }).click(); // counts as moving: the list reloads by itself once the map settles
+  await reloaded();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __ridgelineMap: M }).__ridgelineMap.querySourceFeatures('trails').length), { timeout: 20_000 }).toBeGreaterThan(0);
   await settle(page);
   const at = await page.evaluate(() => { const m = (window as unknown as { __ridgelineMap: M }).__ridgelineMap; const c = m.querySourceFeatures('trails')[0].geometry.coordinates; const p = m.project(c[Math.floor(c.length / 2)]); const r = m.getContainer().getBoundingClientRect(); return { x: r.left + p.x, y: r.top + p.y }; });
@@ -251,8 +257,9 @@ for (const c of CASES) {
       assertLayout(await layout(page, '.find-body', true));
       type M = { jumpTo(o: unknown): void; querySourceFeatures(s: string): { geometry: { coordinates: number[][] } }[]; project(c: number[]): { x: number; y: number }; getContainer(): HTMLElement };
       await page.evaluate(() => (window as unknown as { __ridgelineMap: M }).__ridgelineMap.jumpTo({ center: [-121.7717, 47.4356], zoom: 13 }));
-      await page.getByRole('button', { name: 'Zoom in' }).click();
-      await page.getByRole('button', { name: 'Search this area' }).click();
+      const reloaded = reloadDone(page);
+      await page.getByRole('button', { name: 'Zoom in' }).click(); // the list reloads by itself once the map settles
+      await reloaded();
       await expect.poll(() => page.evaluate(() => (window as unknown as { __ridgelineMap: M }).__ridgelineMap.querySourceFeatures('trails').length), { timeout: 20_000 }).toBeGreaterThan(0);
       await settle(page);
       const at = await page.evaluate(() => { const m = (window as unknown as { __ridgelineMap: M }).__ridgelineMap; const r = m.getContainer().getBoundingClientRect(); const pts = m.querySourceFeatures('trails').flatMap((f) => f.geometry.coordinates).map((c) => m.project(c)); const d = (p: { x: number; y: number }) => Math.hypot(p.x - r.width / 2, p.y - r.height / 2); const p = pts.reduce((a, b) => (d(b) < d(a) ? b : a)); return { x: r.left + p.x, y: r.top + p.y }; }); // the trail point nearest the middle of the map: a short map can have the middle of the trail off screen

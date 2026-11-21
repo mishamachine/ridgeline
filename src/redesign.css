@@ -65,6 +65,8 @@
 .trail-zoom { position: absolute; z-index: 2; right: 16px; bottom: 36px; } /* bottom right, above the map credit, clear of share and save */
 .trail-fit { position: absolute; z-index: 2; left: 16px; bottom: 40px; min-height: 44px; padding: 0 16px; border-radius: 22px; background: var(--card); color: var(--ink); border: 1px solid var(--hair); font: 600 14px var(--text); }
 .map-note { position: absolute; z-index: 2; left: 16px; right: 16px; top: 64px; padding: 10px 14px; border-radius: 12px; background: var(--card); border: 1px solid var(--ink); font-size: 14px; }
+.path-note { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; }
+.path-note-name { flex: 1 0 100%; font-size: 15px; }
 .map-pick { position: absolute; z-index: 2; left: 12px; right: 12px; bottom: 12px; }
 
 /* Trail cards */
