@@ -113,6 +113,7 @@ export function App() {
       if (!live) return;
       setTrail(t);
       setTrailState(t ? 'idle' : 'missing');
+      if (t && t.id !== routeId) go({ kind: 'trail', id: t.id, ll: routeLL }, true);   // a link with the index's bare id: carry on at the trail's own id
     }).catch(() => live && setTrailState('missing'));
     return () => { live = false; };
   }, [routeId, routeLL]);

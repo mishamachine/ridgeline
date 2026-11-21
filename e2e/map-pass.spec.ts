@@ -440,6 +440,26 @@ test.describe('outside the hosted area', () => {
     expect(errors).toEqual([]);
   });
 
+  test('Find: turning follow off within 1.5 s of a zoom outside the hosted area still makes no Overpass request', async ({ page, context }) => {
+    test.setTimeout(120_000);
+    await withSensor(page, 'granted');
+    const { errors, o } = await followAt(page, context, 47.99);
+    await context.setGeolocation({ latitude: 48.03, longitude: -121.77165 }); // now wholly outside the hosted area
+    await expect(page.getByRole('button', { name: 'Load trails here' })).toBeVisible({ timeout: 30_000 });
+    await page.waitForTimeout(2500);
+    const base = o.n;
+    // A zoom-button tap is the gesture that schedules a map reload here (a Ctrl+wheel zoom in desktop Chromium does not, so it cannot show the bug).
+    await page.getByRole('button', { name: 'Zoom out' }).click();
+    const follow = page.locator('.find-body .follow-btn');
+    await follow.click(); await sensor(page, 270);          // heading-up
+    await expect(follow).toHaveAttribute('data-follow', 'heading');
+    await follow.click();                                    // off, before the reload timer fires
+    await expect(follow).toHaveAttribute('data-follow', 'off');
+    await page.waitForTimeout(3500);                         // well past the 1.5 s reload delay
+    expect(o.n, 'the reload was decided when the zoom happened, while following').toBe(base);
+    expect(errors).toEqual([]);
+  });
+
   test('Find: following with the view only partly over the hosted area makes no Overpass request', async ({ page, context }) => {
     test.setTimeout(120_000);
     const { errors, o } = await followAt(page, context, 47.99); // the view reaches past 48.0 north

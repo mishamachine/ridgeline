@@ -262,12 +262,13 @@ export function Find({ tpl, visible, savedIds, offlineIds, onOpen, onOpenId, onT
   /** After a pan or zoom settles, reload the list for the new view (replaces the old "Search this area" button). */
   const reloadSoon = useCallback(() => {
     clearTimeout(reloadTimer.current);
+    const hosted = followRef.current !== 'off';   // read when the gesture happens: turning follow off before the timer fires must not open the public servers
     reloadTimer.current = setTimeout(() => {
       const b = mapRef.current?.getBounds(), last = lastBox.current;
       // Outside our coverage a reload asks a public server: skip it while the view is still inside what was last loaded.
       if (outsideRef.current && b && last && b.getWest() >= last.west && b.getEast() <= last.east && b.getSouth() >= last.south && b.getNorth() <= last.north) return;
       setAreaLabel(null);
-      loadArea({ hostedOnly: followRef.current !== 'off' }); // a pinch, rotate or zoom button while following: hosted cells only
+      loadArea({ hostedOnly: hosted }); // a pinch, rotate or zoom button while following: hosted cells only
     }, outsideRef.current ? RELOAD_FAR_MS : RELOAD_MS);
   }, [loadArea]);
 
